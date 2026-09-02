@@ -1,0 +1,49 @@
+name: win_launcher
+description: A Windows 11 Simulator in Flutter.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+# This is the section you were missing! It fixes the error.
+environment:
+  sdk: '^3.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  installed_apps: ^2.1.1
+  battery_plus: ^7.1.1
+  volume_controller: ^3.6.1
+  screen_brightness: ^2.1.11
+  notification_listener_service: ^1.0.0
+  image_picker: ^1.2.3
+  shared_preferences: ^2.5.5
+  torch_light: ^1.0.2
+  app_settings: ^5.1.1
+  provider: ^6.1.1 
+  cached_network_image: ^3.3.1
+  webview_flutter: ^4.8.0
+  path_provider: ^2.1.2
+  permission_handler: ^11.3.0
+  device_info_plus: ^11.1.0 
+  package_info_plus: ^8.1.0
+  file_picker: ^8.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+
+assets:
+  - assets/icons/
+  
+flutter_launcher_icons:
+  android: true
+  ios: false # Turn off iOS generation to prevent the crash
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#1F1F1F"
+  adaptive_icon_foreground: "assets/icon.png"
