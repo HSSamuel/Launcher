@@ -10,13 +10,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.StatFs
 import android.provider.Settings
+import android.view.View
+import android.view.WindowInsetsController
 import android.view.accessibility.AccessibilityEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-// Classes required by Android to display the app in system settings
 class LauncherAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
@@ -31,28 +33,52 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "expandNotificationPanel" -> {
-                    expandNotificationPanel()
-                    result.success(null)
+                "expandNotificationPanel" -> { expandNotificationPanel(); result.success(null) }
+                "openSettings" -> { openCustomSettings(call.argument<String>("type")); result.success(null) }
+                "getPermissionStatuses" -> { result.success(checkAllPermissions()) }
+                "lockScreen" -> { lockScreen(); result.success(null) }
+                "getStorageStats" -> {
+                    try {
+                        val path = Environment.getExternalStorageDirectory().path
+                        val stat = StatFs(path)
+                        val total = stat.blockSizeLong * stat.blockCountLong
+                        val free = stat.blockSizeLong * stat.availableBlocksLong
+                        result.success(mapOf("total" to total.toDouble(), "free" to free.toDouble()))
+                    } catch (e: Exception) {
+                        result.success(null)
+                    }
                 }
-                "openSettings" -> {
-                    val type = call.argument<String>("type")
-                    openCustomSettings(type)
-                    result.success(null)
-                }
-                "getPermissionStatuses" -> {
-                    result.success(checkAllPermissions())
-                }
-                "lockScreen" -> {
-                    lockScreen()
-                    result.success(null)
+                "setStatusBarColor" -> {
+                    // NATIVE FIX: Physically turns the Android status bar white with dark icons
+                    val darkIcons = call.argument<Boolean>("darkIcons") ?: true
+                    val colorHex = call.argument<String>("color") ?: "#FFFFFF"
+                    try {
+                        window.statusBarColor = android.graphics.Color.parseColor(colorHex)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            val controller = window.insetsController
+                            if (controller != null) {
+                                val appearance = if (darkIcons) WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS else 0
+                                controller.setSystemBarsAppearance(appearance, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
+                            }
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            var flags = window.decorView.systemUiVisibility
+                            flags = if (darkIcons) {
+                                flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+                            } else {
+                                flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                            }
+                            window.decorView.systemUiVisibility = flags
+                        }
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("STATUS_BAR_ERROR", e.message, null)
+                    }
                 }
                 else -> result.notImplemented()
             }
         }
     }
 
-    // NEW: Physically turns off the phone screen
     private fun lockScreen() {
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val adminComponent = ComponentName(this, LauncherAdminReceiver::class.java)
@@ -75,32 +101,20 @@ class MainActivity: FlutterActivity() {
 
     private fun checkAllPermissions(): Map<String, Boolean> {
         val permissions = mutableMapOf<String, Boolean>()
-
-        // 1. Storage Check (Android 11-14)
         permissions["storage"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Environment.isExternalStorageManager()
-        } else {
-            true
-        }
+        } else { true }
 
-        // 2. Notification Listener Check
         val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         permissions["notification"] = listeners != null && listeners.contains(packageName)
 
-        // 3. Accessibility Check
         var accessEnabled = 0
-        try {
-            accessEnabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED)
-        } catch (_: Exception) {}
+        try { accessEnabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED) } catch (_: Exception) {}
         val accessServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
         permissions["accessibility"] = accessEnabled == 1 && accessServices != null && accessServices.contains(packageName)
 
-        // 4. Device Admin Check
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        val adminComponent = ComponentName(this, LauncherAdminReceiver::class.java)
-        permissions["admin"] = dpm.isAdminActive(adminComponent)
-
-        // 5. Write Settings Check
+        permissions["admin"] = dpm.isAdminActive(ComponentName(this, LauncherAdminReceiver::class.java))
         permissions["write_settings"] = Settings.System.canWrite(this)
 
         return permissions
@@ -108,35 +122,25 @@ class MainActivity: FlutterActivity() {
 
     private fun openCustomSettings(type: String?) {
         try {
-            var useNewTask = true // Controls the intent flag
-            
+            var useNewTask = true
             val intent = when (type) {
                 "storage" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
+                        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))
                     } else {
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
                     }
                 }
                 "notification_access" -> Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
                 "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                 "admin" -> {
-                    useNewTask = false // CRITICAL: Disables the flag for Admin
-                    val adminComponent = ComponentName(this, LauncherAdminReceiver::class.java)
+                    useNewTask = false
                     Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(this@MainActivity, LauncherAdminReceiver::class.java))
                         putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to sleep and screen lock.")
                     }
                 }
-                "write_settings" -> {
-                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                }
+                "write_settings" -> Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
                 "print_settings" -> Intent(Settings.ACTION_PRINT_SETTINGS)
                 "manage_apps" -> Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)
                 "default_apps" -> Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
@@ -145,12 +149,7 @@ class MainActivity: FlutterActivity() {
                 "keyboard" -> Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
                 else -> Intent(Settings.ACTION_SETTINGS)
             }
-            
-            // Only applies the flag if it's NOT the Admin intent
-            if (useNewTask) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            
+            if (useNewTask) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
         } catch (e: Exception) {
             e.printStackTrace()

@@ -1,6 +1,53 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'launcher_state.dart';
+
+class Win11FolderIcon extends StatelessWidget {
+  final IconData innerIcon;
+  final Color backColor;
+  final Color frontColor;
+  final double size;
+
+  const Win11FolderIcon({
+    Key? key, required this.innerIcon, required this.backColor, required this.frontColor, required this.size,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size, height: size * 0.85,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Positioned(
+            top: 0, left: 0, 
+            child: Container(
+              width: size * 0.45, height: size * 0.2, 
+              decoration: BoxDecoration(color: backColor, borderRadius: BorderRadius.only(topLeft: Radius.circular(size * 0.08), topRight: Radius.circular(size * 0.08)))
+            )
+          ),
+          Positioned(
+            top: size * 0.1, left: 0, right: 0, bottom: 0, 
+            child: Container(decoration: BoxDecoration(color: backColor, borderRadius: BorderRadius.circular(size * 0.08)))
+          ),
+          Positioned(
+            top: size * 0.25, left: 0, right: 0, bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [frontColor.withOpacity(0.80), frontColor]),
+                borderRadius: BorderRadius.circular(size * 0.08),
+                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))],
+              ),
+              child: Center(child: Icon(innerIcon, color: Colors.white, size: size * 0.35)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class FileExplorerApp extends StatefulWidget {
   const FileExplorerApp({Key? key}) : super(key: key);
@@ -11,28 +58,67 @@ class FileExplorerApp extends StatefulWidget {
 
 class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObserver {
   static const platform = MethodChannel('win_launcher/native');
-  
+
   bool _hasPermission = false;
   bool _isAtHome = true;
   Directory _currentDir = Directory('/storage/emulated/0');
   List<FileSystemEntity> _files = [];
 
+  double _totalGB = 228.01;
+  double _freeGB = 99.78;
+
+  String? _selectedPath;
+  FileSystemEntity? _selectedEntity;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _applyWhiteStatusBar();
     _checkPermission();
+    _fetchStorageStats();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _restoreTransparentStatusBar();
     super.dispose();
+  }
+
+  void _applyWhiteStatusBar() {
+    try {
+      platform.invokeMethod('setStatusBarColor', {'color': '#FFFFFF', 'darkIcons': true});
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.white, statusBarIconBrightness: Brightness.dark, statusBarBrightness: Brightness.light));
+    } catch (_) {}
+  }
+
+  void _restoreTransparentStatusBar() {
+    try {
+      platform.invokeMethod('setStatusBarColor', {'color': '#00000000', 'darkIcons': false});
+      SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.light, statusBarBrightness: Brightness.dark));
+    } catch (_) {}
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _checkPermission();
+    if (state == AppLifecycleState.resumed) {
+      _applyWhiteStatusBar();
+      _checkPermission();
+      _fetchStorageStats();
+    }
+  }
+
+  Future<void> _fetchStorageStats() async {
+    try {
+      final Map<dynamic, dynamic>? stats = await platform.invokeMethod('getStorageStats');
+      if (stats != null && mounted) {
+        setState(() {
+          _totalGB = stats['total'] / (1024 * 1024 * 1024);
+          _freeGB = stats['free'] / (1024 * 1024 * 1024);
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkPermission() async {
@@ -43,6 +129,18 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
         if (_hasPermission && !_isAtHome) _loadDirectory(_currentDir);
       }
     } catch (_) {}
+  }
+
+  void _loadDirectorySafe(String path) {
+    if (!_hasPermission) {
+      platform.invokeMethod('openSettings', {'type': 'storage'});
+      return;
+    }
+    final dir = Directory(path);
+    if (!dir.existsSync()) {
+      try { dir.createSync(recursive: true); } catch (_) {}
+    }
+    _loadDirectory(dir);
   }
 
   void _loadDirectory(Directory dir) {
@@ -58,6 +156,8 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           _isAtHome = false;
           _currentDir = dir;
           _files = entities;
+          _selectedPath = null;
+          _selectedEntity = null;
         });
       }
     } catch (e) {
@@ -66,114 +166,274 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   }
 
   void _goHome() {
-    setState(() => _isAtHome = true);
+    setState(() {
+      _isAtHome = true;
+      _selectedPath = null;
+      _selectedEntity = null;
+    });
   }
 
-  // --- NEW: AUTHENTIC ASSET IMAGE RENDERER ---
-  Widget _getWin11IconForType(String type, double size) {
-    String assetPath = '';
-    switch (type) {
-      case 'Desktop': assetPath = 'assets/icons/desktop.png'; break;
-      case 'Documents': assetPath = 'assets/icons/documents.png'; break;
-      case 'Downloads': assetPath = 'assets/icons/downloads.png'; break;
-      case 'Music': assetPath = 'assets/icons/music.png'; break;
-      case 'Pictures': assetPath = 'assets/icons/pictures.png'; break;
-      case 'Videos': assetPath = 'assets/icons/videos.png'; break;
-      case 'Drive': assetPath = 'assets/icons/drive.png'; break;
-      default: assetPath = 'assets/icons/folder.png'; break;
+  String _formatTimestamp(FileSystemEntity entity) {
+    try {
+      final stat = entity.statSync();
+      final diff = DateTime.now().difference(stat.modified);
+      if (diff.inDays >= 365) return '${(diff.inDays / 365).floor()} year ago';
+      if (diff.inDays >= 30) return '${(diff.inDays / 30).floor()} month ago';
+      if (diff.inDays > 0) return '${diff.inDays} days ago';
+      return 'Today';
+    } catch (_) {
+      return '1 year ago';
     }
+  }
 
-    return Image.asset(
-      assetPath,
-      width: size,
-      height: size,
-      fit: BoxFit.contain,
-      // Fallback just in case the file is missing so your app never crashes
-      errorBuilder: (context, error, stackTrace) => Icon(
-        type == 'Drive' ? Icons.storage : Icons.folder, 
-        color: type == 'Drive' ? Colors.grey : Colors.amber, 
-        size: size
+  Widget _buildYellowFolder({double size = 48}) {
+    return Container(
+      width: size, height: size * 0.82,
+      decoration: BoxDecoration(color: const Color(0xFFFFC83B), borderRadius: BorderRadius.circular(3), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 1, offset: Offset(0, 1))]),
+      child: Stack(
+        children: [
+          Positioned(top: 0, left: 0, child: Container(width: size * 0.42, height: size * 0.22, decoration: const BoxDecoration(color: Color(0xFFE5A91E), borderRadius: BorderRadius.only(topLeft: Radius.circular(3), topRight: Radius.circular(3))))),
+          Positioned(top: size * 0.18, left: 0, right: 0, bottom: 0, child: Container(decoration: BoxDecoration(gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFD452), Color(0xFFFFBF24)]), borderRadius: BorderRadius.circular(3)))),
+        ],
       ),
     );
   }
 
-  // --- UI BUILDING BLOCKS ---
+  Widget _buildPdfIcon({double size = 46}) {
+    return Container(
+      width: size, height: size * 1.15,
+      decoration: BoxDecoration(color: const Color(0xFFE51A1A), borderRadius: BorderRadius.circular(3), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))]),
+      alignment: Alignment.center,
+      child: const Text('PDF', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
+    );
+  }
+
+  Widget _buildFileIcon(String path) {
+    if (path.toLowerCase().endsWith('.pdf')) return _buildPdfIcon(size: 44);
+    return const Icon(Icons.insert_drive_file_outlined, color: Colors.blueGrey, size: 38);
+  }
+
+  Widget _buildTitleBar(BuildContext context) {
+    final state = context.read<LauncherState>();
+    return Container(
+      height: 36, color: Colors.white,
+      child: Row(
+        children: [
+          const SizedBox(width: 12),
+          Container(width: 14, height: 12, color: Colors.cyan),
+          const SizedBox(width: 8),
+          const Text('This PC', style: TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w400)),
+          const Spacer(),
+          InkWell(onTap: () { _restoreTransparentStatusBar(); state.minimizeApp('explorer'); }, child: const SizedBox(width: 44, height: 36, child: Center(child: Icon(Icons.remove, size: 16, color: Colors.black87)))),
+          InkWell(onTap: () => state.toggleMaximizeApp('explorer'), child: const SizedBox(width: 44, height: 36, child: Center(child: Icon(Icons.crop_square, size: 14, color: Colors.black87)))),
+          InkWell(onTap: () { _restoreTransparentStatusBar(); state.closeApp('explorer'); }, hoverColor: Colors.red, child: const SizedBox(width: 44, height: 36, child: Center(child: Icon(Icons.close, size: 16, color: Colors.black87)))),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _buildPopupItem(String title, IconData? icon, {bool isActive = false}) {
+    return PopupMenuItem<String>(
+      value: title, height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          SizedBox(width: 16, child: isActive ? const Icon(Icons.circle, size: 5, color: Colors.black87) : null),
+          if (icon != null) Icon(icon, size: 16, color: Colors.black87),
+          const SizedBox(width: 8),
+          Expanded(child: Text(title, style: const TextStyle(fontSize: 12, color: Colors.black87))),
+          if (title == 'Show') const Icon(Icons.chevron_right, size: 16, color: Colors.black87)
+        ],
+      ),
+    );
+  }
+
+  Widget _toolBtn(IconData icon, {bool disabled = false, Color? color}) {
+    return InkWell(
+      onTap: disabled ? null : () {},
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Icon(icon, size: 16, color: disabled ? Colors.black26 : (color ?? Colors.black87)),
+      ),
+    );
+  }
+
+  // FIX: Created a special gesture-free button specifically for the popup menus
+  // so it doesn't intercept the touch event!
+  Widget _menuBtn(IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Icon(icon, size: 16, color: Colors.black87),
+    );
+  }
+
+  Widget _divider() {
+    return Container(height: 14, width: 1, color: Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 2));
+  }
 
   Widget _buildToolbar() {
-    final btnStyle = IconButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(36, 36), splashFactory: InkRipple.splashFactory);
-    
+    final isSelected = _selectedPath != null;
+    final activeColor = const Color(0xFF0078D4);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(
-          children: [
-            TextButton.icon(
-              onPressed: () {}, icon: const Icon(Icons.add_circle_outline, size: 16, color: Colors.black54), label: const Text('New', style: TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w400)),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 36)),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: () {},
+            borderRadius: BorderRadius.circular(4),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Row(
+                children: [
+                  Icon(Icons.add_circle_outline, size: 16, color: Color(0xFF0078D4)),
+                  SizedBox(width: 4),
+                  Text('New', style: TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w400)),
+                  SizedBox(width: 2),
+                  Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.black54),
+                ],
+              ),
             ),
-            const Icon(Icons.keyboard_arrow_down, size: 14, color: Colors.black54),
-            const SizedBox(width: 8),
-            Container(height: 18, width: 1, color: Colors.grey.shade300),
-            const SizedBox(width: 8),
-            IconButton(icon: const Icon(Icons.content_cut, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.copy, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.paste, size: 18, color: Colors.black38), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.drive_file_rename_outline, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.share_outlined, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.delete_outline, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            Container(height: 18, width: 1, color: Colors.grey.shade300, margin: const EdgeInsets.symmetric(horizontal: 8)),
-            IconButton(icon: const Icon(Icons.swap_vert, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.view_list_outlined, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-            IconButton(icon: const Icon(Icons.more_horiz, size: 18, color: Colors.black54), onPressed: () {}, style: btnStyle),
-          ],
-        ),
+          ),
+          _divider(),
+          
+          // FIX: The middle icons are wrapped in Expanded to take up available space.
+          // This makes the UI completely responsive and PUSHES the view menus to the right edge!
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  _toolBtn(Icons.content_cut, disabled: !isSelected, color: activeColor),
+                  _toolBtn(Icons.content_copy, disabled: !isSelected, color: activeColor),
+                  _toolBtn(Icons.assignment_outlined, disabled: true),
+                  _toolBtn(Icons.drive_file_rename_outline, disabled: !isSelected, color: activeColor),
+                  _toolBtn(Icons.share_outlined, disabled: !isSelected, color: activeColor),
+                  _toolBtn(Icons.delete_outline, disabled: !isSelected, color: activeColor),
+                  _divider(),
+                ],
+              ),
+            ),
+          ),
+          
+          // These are now successfully anchored to the right side of the screen
+          _toolBtn(Icons.swap_vert),
+          
+          // FIX: By passing `_menuBtn()` (which has no InkWell), the PopupMenuButton 
+          // successfully registers the tap and opens!
+          PopupMenuButton<String>(
+            tooltip: '',
+            child: _menuBtn(Icons.web_asset),
+            offset: const Offset(0, 24),
+            color: Colors.white,
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            itemBuilder: (context) => [
+              _buildPopupItem('Extra Large Icons', Icons.crop_square),
+              _buildPopupItem('Large Icons', Icons.crop_din),
+              _buildPopupItem('Medium Icons', Icons.crop_7_5),
+              _buildPopupItem('Small Icons', Icons.grid_view),
+              _buildPopupItem('List', Icons.format_list_bulleted, isActive: true),
+              const PopupMenuDivider(),
+              _buildPopupItem('Show', null),
+            ],
+          ),
+          _divider(),
+          
+          // FIX: The three dots menu is now fully functional!
+          PopupMenuButton<String>(
+            tooltip: '',
+            child: _menuBtn(Icons.more_horiz),
+            offset: const Offset(0, 24),
+            color: Colors.white,
+            elevation: 4,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            itemBuilder: (context) => [
+              _buildPopupItem('Pin to Quick Access', Icons.push_pin_outlined),
+              const PopupMenuDivider(),
+              _buildPopupItem('Select all', Icons.select_all),
+              _buildPopupItem('Select none', Icons.grid_off_outlined),
+              _buildPopupItem('Invert selection', Icons.flip_to_back_outlined),
+              const PopupMenuDivider(),
+              _buildPopupItem('Properties', Icons.description_outlined),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildAddressBar() {
-    final btnStyle = IconButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(32, 32));
+    final btnStyle = IconButton.styleFrom(
+      padding: const EdgeInsets.all(2),
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    
+    List<Widget> breadcrumbs = [
+      Container(width: 12, height: 10, color: Colors.cyan), 
+      const SizedBox(width: 4),
+      const Text('This PC', style: TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600)),
+      const SizedBox(width: 2),
+      const Icon(Icons.chevron_right, size: 14, color: Colors.black87),
+    ];
+
+    if (!_isAtHome) {
+      final folders = _currentDir.path.replaceFirst('/storage/emulated/0', '').split('/').where((e) => e.isNotEmpty).toList();
+      for (var folder in folders) {
+        breadcrumbs.add(const SizedBox(width: 2));
+        breadcrumbs.add(Text(folder, style: const TextStyle(fontSize: 11, color: Colors.black87, fontWeight: FontWeight.w600)));
+        breadcrumbs.add(const SizedBox(width: 2));
+        breadcrumbs.add(const Icon(Icons.chevron_right, size: 14, color: Colors.black87));
+      }
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade200))),
       child: Row(
         children: [
           IconButton(icon: const Icon(Icons.arrow_back, size: 18, color: Colors.black87), onPressed: _isAtHome ? null : _goHome, style: btnStyle),
+          const SizedBox(width: 2),
           IconButton(icon: const Icon(Icons.arrow_forward, size: 18, color: Colors.black38), onPressed: null, style: btnStyle),
-          IconButton(icon: const Icon(Icons.arrow_upward, size: 18, color: Colors.black87), onPressed: _isAtHome || _currentDir.path == '/storage/emulated/0' ? null : () => _loadDirectory(_currentDir.parent), style: btnStyle),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
           Expanded(
-            flex: 3,
+            flex: 7,
             child: Container(
-              height: 28,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), color: Colors.white),
-              child: Row(
-                children: [
-                  Container(width: 14, height: 14, color: Colors.cyan), 
-                  const SizedBox(width: 8),
-                  Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade600),
-                  const SizedBox(width: 4),
-                  Expanded(child: Text(_isAtHome ? 'This PC' : _currentDir.path.replaceFirst('/storage/emulated/0', 'This PC > Local Disk (C:)').replaceAll('/', ' > '), style: const TextStyle(fontSize: 12, color: Colors.black87, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
-                ],
+              height: 26, 
+              padding: const EdgeInsets.symmetric(horizontal: 4), 
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300), 
+                color: Colors.white, 
+                borderRadius: BorderRadius.circular(2)
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal, 
+                child: Row(children: breadcrumbs)
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 4),
           Expanded(
-            flex: 2,
+            flex: 3,
             child: Container(
-              height: 28,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), color: Colors.white),
+              height: 26, 
+              padding: const EdgeInsets.symmetric(horizontal: 4), 
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300), 
+                color: Colors.white, 
+                borderRadius: BorderRadius.circular(2)
+              ),
               child: Row(
                 children: [
-                  const Icon(Icons.search, size: 14, color: Colors.black54),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(_isAtHome ? 'Search This PC' : 'Search', style: TextStyle(fontSize: 12, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis)),
+                  const Icon(Icons.search, size: 12, color: Colors.black54),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text('Search...', style: TextStyle(fontSize: 11, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis)
+                  ),
                 ],
               ),
             ),
@@ -188,24 +448,37 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       width: width,
       decoration: BoxDecoration(border: Border(right: BorderSide(color: Colors.grey.shade200)), color: Colors.white),
       child: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 4), physics: const BouncingScrollPhysics(),
         children: [
-          _buildSidebarHeader(Icons.star, 'Quick access', Colors.amber),
-          _buildSidebarHeader(Icons.computer, 'This PC', Colors.cyan, isSelected: _isAtHome, onTap: _goHome),
+          _buildSidebarHeader(Icons.star, 'Quick access', Colors.orange.shade400),
+          _buildSidebarHeader(Icons.folder, 'This PC', Colors.cyan, isSelected: _isAtHome, onTap: _goHome),
           Padding(
             padding: const EdgeInsets.only(left: 12.0),
             child: Column(
               children: [
-                _buildSidebarItem('Desktop'),
-                _buildSidebarItem('Documents'),
-                _buildSidebarItem('Downloads'),
-                _buildSidebarItem('Music'),
-                _buildSidebarItem('Pictures'),
-                _buildSidebarItem('Videos'),
-                _buildSidebarItem('Drive', labelOverride: 'Local Disk (C:)', onTap: () {
-                  if (_hasPermission) _loadDirectory(Directory('/storage/emulated/0'));
-                }),
+                _buildSidebarItem('Desktop', Icons.desktop_windows, Colors.blue, onTap: () => _loadDirectorySafe('/storage/emulated/0')),
+                _buildSidebarItem('Documents', Icons.article_outlined, Colors.blueGrey, onTap: () => _loadDirectorySafe('/storage/emulated/0/Documents')),
+                _buildSidebarItem('Downloads', Icons.arrow_downward, Colors.teal, onTap: () => _loadDirectorySafe('/storage/emulated/0/Download')),
+                _buildSidebarItem('Music', Icons.music_note, Colors.orange, onTap: () => _loadDirectorySafe('/storage/emulated/0/Music')),
+                _buildSidebarItem('Pictures', Icons.image_outlined, Colors.blue, onTap: () => _loadDirectorySafe('/storage/emulated/0/Pictures')),
+                _buildSidebarItem('Videos', Icons.play_circle_outline, Colors.purple, onTap: () => _loadDirectorySafe('/storage/emulated/0/Movies')),
+                Material(
+                  color: Colors.transparent, 
+                  child: InkWell(
+                    onTap: () => _loadDirectorySafe('/storage/emulated/0'), 
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 16), 
+                          const Icon(Icons.storage, color: Colors.grey, size: 16), 
+                          const SizedBox(width: 8), 
+                          Expanded(child: Text('Local Disk (C:)', style: TextStyle(fontSize: 12, color: Colors.grey.shade700), overflow: TextOverflow.ellipsis))
+                        ]
+                      )
+                    )
+                  )
+                )
               ],
             ),
           ),
@@ -215,37 +488,42 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   }
 
   Widget _buildSidebarHeader(IconData icon, String label, Color iconColor, {bool isSelected = false, VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        color: isSelected ? Colors.blue.withOpacity(0.08) : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            const Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.black87),
-            const SizedBox(width: 4),
-            Icon(icon, size: 16, color: iconColor),
-            const SizedBox(width: 6),
-            Expanded(child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87), overflow: TextOverflow.ellipsis)),
-          ],
-        ),
+    return Material(
+      color: isSelected ? Colors.lightBlue.withOpacity(0.08) : Colors.transparent,
+      child: InkWell(
+        onTap: onTap, 
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
+          child: Row(
+            children: [
+              const Icon(Icons.keyboard_arrow_down, size: 16, color: Colors.black87), 
+              const SizedBox(width: 4), 
+              Icon(icon, size: 16, color: iconColor), 
+              const SizedBox(width: 6), 
+              Expanded(child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87), overflow: TextOverflow.ellipsis))
+            ]
+          )
+        )
       ),
     );
   }
 
-  Widget _buildSidebarItem(String type, {String? labelOverride, VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            const SizedBox(width: 18), 
-            _getWin11IconForType(type, 16),
-            const SizedBox(width: 8),
-            Expanded(child: Text(labelOverride ?? type, style: TextStyle(fontSize: 12, color: Colors.grey.shade700), overflow: TextOverflow.ellipsis)),
-          ],
-        ),
+  Widget _buildSidebarItem(String label, IconData icon, Color color, {VoidCallback? onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap, 
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
+          child: Row(
+            children: [
+              const SizedBox(width: 16), 
+              Icon(icon, color: color, size: 16), 
+              const SizedBox(width: 8), 
+              Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade700), overflow: TextOverflow.ellipsis))
+            ]
+          )
+        )
       ),
     );
   }
@@ -263,56 +541,94 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   }
 
   Widget _buildThisPCHome(bool isMobile) {
+    double usedGB = _totalGB - _freeGB;
+    double usagePercent = _totalGB > 0 ? usedGB / _totalGB : 0;
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       physics: const BouncingScrollPhysics(),
       children: [
         _buildSectionHeader('Folders (6)'),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         GridView.count(
-          shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          shrinkWrap: true, 
+          physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: isMobile ? 2 : 3,
-          childAspectRatio: 3.0, mainAxisSpacing: 8, crossAxisSpacing: 8,
+          childAspectRatio: 2.8, 
+          mainAxisSpacing: 8, 
+          crossAxisSpacing: 8,
           children: [
-            _buildFolderGridItem('Desktop'),
-            _buildFolderGridItem('Documents'),
-            _buildFolderGridItem('Downloads'),
-            _buildFolderGridItem('Music'),
-            _buildFolderGridItem('Pictures'),
-            _buildFolderGridItem('Videos'),
+            _buildFolderGridCard('Desktop', '/storage/emulated/0'),
+            _buildFolderGridCard('Documents', '/storage/emulated/0/Documents'),
+            _buildFolderGridCard('Downloads', '/storage/emulated/0/Download'),
+            _buildFolderGridCard('Music', '/storage/emulated/0/Music'),
+            _buildFolderGridCard('Pictures', '/storage/emulated/0/Pictures'),
+            _buildFolderGridCard('Videos', '/storage/emulated/0/Movies'),
           ],
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: 28),
         _buildSectionHeader('Devices and drives (1)'),
-        const SizedBox(height: 16),
-        InkWell(
-          onTap: () {
-            if (!_hasPermission) {
-              platform.invokeMethod('openSettings', {'type': 'storage'});
-            } else {
-              _loadDirectory(Directory('/storage/emulated/0'));
-            }
-          },
-          child: SizedBox(
-            width: 280,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _getWin11IconForType('Drive', 40),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Local Disk (C:)', style: TextStyle(fontSize: 13, color: Colors.black87)),
-                      const SizedBox(height: 6),
-                      LinearProgressIndicator(value: 0.6, backgroundColor: Colors.grey.shade300, color: Colors.blueAccent.shade700, minHeight: 14),
-                      const SizedBox(height: 6),
-                      Text('99.78 GB free of 228.01 GB', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                    ],
-                  ),
+        const SizedBox(height: 12),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _loadDirectorySafe('/storage/emulated/0'),
+            child: SizedBox(
+              width: 280,
+              child: Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 36, 
+                      height: 26, 
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD6D6D6), 
+                        borderRadius: BorderRadius.circular(4), 
+                        border: Border.all(color: Colors.grey.shade400, width: 0.5)
+                      ), 
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 9, 
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF4A4A4A), 
+                              borderRadius: BorderRadius.horizontal(left: Radius.circular(3))
+                            )
+                          ), 
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.only(left: 3, bottom: 3), 
+                              child: Align(
+                                alignment: Alignment.bottomLeft, 
+                                child: Container(
+                                  width: 4, 
+                                  height: 4, 
+                                  decoration: const BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle)
+                                )
+                              )
+                            )
+                          )
+                        ]
+                      )
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Local Disk (C:)', style: TextStyle(fontSize: 12, color: Colors.black87)),
+                          const SizedBox(height: 4),
+                          LinearProgressIndicator(value: usagePercent, backgroundColor: Colors.grey.shade300, color: Colors.blueAccent.shade700, minHeight: 12),
+                          const SizedBox(height: 4),
+                          Text('${_freeGB.toStringAsFixed(2)} GB free of ${_totalGB.toStringAsFixed(2)} GB', style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -320,35 +636,118 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  Widget _buildFolderGridItem(String type) {
-    return Row(
-      children: [
-        _getWin11IconForType(type, 36),
-        const SizedBox(width: 12),
-        Expanded(child: Text(type, style: TextStyle(fontSize: 12, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
-      ],
+  Widget _buildFolderGridCard(String label, String path) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _loadDirectorySafe(path),
+        borderRadius: BorderRadius.circular(4),
+        child: Row(
+          children: [
+            _getWin11IconForType(label, 36),
+            const SizedBox(width: 8),
+            Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade800), overflow: TextOverflow.ellipsis)),
+          ],
+        ),
+      ),
     );
+  }
+
+  String _matchAndroidFolderToWin11(String folderName) {
+    final lower = folderName.toLowerCase();
+    if (lower == 'download' || lower == 'downloads') return 'Downloads';
+    if (lower == 'documents' || lower == 'document') return 'Documents';
+    if (lower == 'music' || lower == 'audio') return 'Music';
+    if (lower == 'pictures' || lower == 'dcim' || lower == 'images') return 'Pictures';
+    if (lower == 'movies' || lower == 'video' || lower == 'videos') return 'Videos';
+    if (lower == 'desktop') return 'Desktop';
+    return 'Folder'; 
+  }
+
+  Widget _getWin11IconForType(String type, double size) {
+    switch (type) {
+      case 'Desktop': return Win11FolderIcon(innerIcon: Icons.desktop_windows, backColor: Colors.lightBlue.shade300, frontColor: Colors.blue.shade600, size: size);
+      case 'Documents': return Win11FolderIcon(innerIcon: Icons.article_outlined, backColor: Colors.blueGrey.shade200, frontColor: Colors.blueGrey.shade400, size: size);
+      case 'Downloads': return Win11FolderIcon(innerIcon: Icons.arrow_downward, backColor: Colors.teal.shade300, frontColor: Colors.teal.shade600, size: size);
+      case 'Music': return Win11FolderIcon(innerIcon: Icons.music_note, backColor: Colors.orange.shade300, frontColor: Colors.purple.shade400, size: size);
+      case 'Pictures': return Win11FolderIcon(innerIcon: Icons.image_outlined, backColor: Colors.lightBlue.shade200, frontColor: Colors.blue.shade500, size: size);
+      case 'Videos': return Win11FolderIcon(innerIcon: Icons.play_circle_outline, backColor: Colors.purple.shade300, frontColor: Colors.deepPurple.shade600, size: size);
+      default: return Win11FolderIcon(innerIcon: Icons.folder, backColor: Colors.amber.shade200, frontColor: Colors.amber.shade500, size: size);
+    }
   }
 
   Widget _buildRealFileList() {
     if (_files.isEmpty) return const Center(child: Text("Empty Folder", style: TextStyle(color: Colors.grey)));
-    return Material(
-      color: Colors.transparent,
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedPath = null),
       child: ListView.builder(
         physics: const BouncingScrollPhysics(),
         itemCount: _files.length,
+        padding: const EdgeInsets.only(top: 8, bottom: 40, left: 8, right: 8),
         itemBuilder: (context, index) {
           final item = _files[index];
           final isDir = item is Directory;
-          return ListTile(
-            dense: true,
-            leading: isDir 
-              ? _getWin11IconForType('Folder', 24) 
-              : const Icon(Icons.insert_drive_file_outlined, color: Colors.blueGrey, size: 24),
-            title: Text(item.path.split('/').last, style: const TextStyle(fontSize: 12, color: Colors.black87), overflow: TextOverflow.ellipsis),
-            onTap: () { if (isDir) _loadDirectory(item as Directory); },
+          final name = item.path.split('/').last;
+          final isSelected = _selectedPath == item.path;
+          final timeStr = _formatTimestamp(item);
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                if (_selectedPath == item.path) {
+                  if (isDir) _loadDirectory(item as Directory);
+                } else {
+                  _selectedPath = item.path;
+                }
+              });
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFFE5E5E5) : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+                border: isSelected ? Border.all(color: Colors.grey.shade400, width: 0.6) : Border.all(color: Colors.transparent, width: 0.6),
+              ),
+              child: Row(
+                children: [
+                  isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.path),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87), overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        Text(timeStr, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildBottomStatusBar() {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Colors.grey.shade300, width: 0.8))),
+      child: Row(
+        children: [
+          Text('${_files.length} items  |  ${_selectedPath != null ? '1 item selected  |' : ''}', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+          const Spacer(),
+          Text('34 %', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+          const SizedBox(width: 8),
+          Icon(Icons.format_list_bulleted, size: 14, color: Colors.grey.shade700),
+          const SizedBox(width: 6),
+          Icon(Icons.grid_view_sharp, size: 14, color: Colors.blue.shade700),
+        ],
       ),
     );
   }
@@ -357,24 +756,35 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 500;
-    final sidebarWidth = isMobile ? 130.0 : 180.0;
+    final sidebarWidth = isMobile ? 140.0 : 180.0;
 
-    return Container(
-      color: Colors.white,
-      child: Column(
-        children: [
-          _buildToolbar(),
-          _buildAddressBar(),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(statusBarColor: Colors.white, statusBarIconBrightness: Brightness.dark, statusBarBrightness: Brightness.light),
+        child: Container(
+          color: Colors.white,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
               children: [
-                _buildSidebar(sidebarWidth),
-                Expanded(child: _isAtHome ? _buildThisPCHome(isMobile) : _buildRealFileList()),
+                _buildTitleBar(context),
+                _buildToolbar(),
+                _buildAddressBar(),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSidebar(sidebarWidth),
+                      Expanded(child: _isAtHome ? _buildThisPCHome(isMobile) : _buildRealFileList()),
+                    ],
+                  ),
+                ),
+                _buildBottomStatusBar(),
               ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
