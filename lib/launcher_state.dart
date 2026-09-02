@@ -16,7 +16,6 @@ class WinTheme {
 }
 
 class LauncherState extends ChangeNotifier {
-  // Window Management
   List<String> windowStack = [];
   List<String> minimizedApps = [];
   List<String> maximizedApps = [];
@@ -25,24 +24,20 @@ class LauncherState extends ChangeNotifier {
   Offset browserPos = const Offset(10, 15);
   Offset settingsPos = const Offset(10, 15);
 
-  // Profile Data
   String userName = 'HUNSA S. S.';
-  String userEmail = 'smkmayomisamuel@gmail.com'; // NEW
+  String userEmail = 'smkmayomisamuel@gmail.com'; 
   Uint8List? userImageBytes;
   String actualWallpaperUrl = 'https://images.pexels.com/photos/1624496/pexels-photo-1624496.jpeg?auto=compress&cs=tinysrgb&w=2000';
 
-  // Personalization States
   bool isDarkMode = true;
   String currentThemeName = 'Dark theme';
   String taskbarAlignment = 'left'; 
   String? slideshowFolderPath;
   
-  // Start Menu States
   bool showRecentlyAdded = true;
   bool showMostUsed = true;
   bool showRecommended = true;
 
-  // Desktop States
   String iconSize = 'Small';
   int portraitGridX = 6;
   int portraitGridY = 10;
@@ -54,7 +49,6 @@ class LauncherState extends ChangeNotifier {
   bool hideNavBar = false;
   bool createShortcut = true;
 
-  // Gesture Actions
   String gestureUpAction = 'None';
   String gestureDownAction = 'None';
   String gestureTwoFingerUpAction = 'Start Menu';
@@ -72,14 +66,76 @@ class LauncherState extends ChangeNotifier {
   List<AppInfo> installedApps = [];
   bool isLoadingApps = true;
 
+  String currentExplorerPath = '/storage/emulated/0';
+  String? clipboardPath;
+  bool isCut = false;
+  List<String> pinnedQuickAccess = [];
+  List<String> pinnedStart = [];
+
+  // --- NEW: EDITABLE QUICK SETTINGS PANELS ---
+  List<String> visibleQuickSettings = [
+    'Airplane mode', 'Battery saver', 'Wi-Fi',
+    'Bluetooth', 'Flash', 'Data',
+    'Rotate', 'Location', 'Hotspot',
+    'VPN', 'Brightness', 'Accessibility'
+  ];
+  
+  List<String> hiddenQuickSettings = [
+    'Play', 'Ring', 'ChatGPT', 'Storage', 
+    'Dark Theme', 'Calculator', 'Song Search', 
+    'DND', 'Screen Cast', 'Eye Care', 
+    'Scan QR Code', 'PC Connection', 'Kids Mode'
+  ];
+
   LauncherState() {
     _loadState();
     _loadRealAndroidApps();
   }
 
+  void toggleQuickSettingVisibility(String item) async {
+    if (visibleQuickSettings.contains(item)) {
+      visibleQuickSettings.remove(item);
+      hiddenQuickSettings.add(item);
+    } else {
+      hiddenQuickSettings.remove(item);
+      visibleQuickSettings.add(item);
+    }
+    notifyListeners();
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('visibleQuickSettings', visibleQuickSettings);
+    await prefs.setStringList('hiddenQuickSettings', hiddenQuickSettings);
+  }
+
+  void nextWallpaper() {
+    int currentIndex = win11Themes.indexWhere((t) => t.wallpaperUrl == actualWallpaperUrl);
+    if (currentIndex == -1) currentIndex = 0;
+    int nextIndex = (currentIndex + 1) % win11Themes.length;
+    applyPresetTheme(win11Themes[nextIndex]);
+  }
+
+  void pinToQuickAccess(String name) {
+    if (!pinnedQuickAccess.contains(name)) pinnedQuickAccess.add(name);
+    notifyListeners();
+  }
+
+  void pinToStart(String name) {
+    if (!pinnedStart.contains(name)) pinnedStart.add(name);
+    notifyListeners();
+  }
+
+  void setClipboard(String path, bool cut) {
+    clipboardPath = path; isCut = cut;
+    notifyListeners();
+  }
+
+  void clearClipboard() {
+    clipboardPath = null; isCut = false;
+    notifyListeners();
+  }
+
   Future<void> _loadState() async {
     final prefs = await SharedPreferences.getInstance();
-    
     userName = prefs.getString('userName') ?? 'HUNSA S. S.';
     userEmail = prefs.getString('userEmail') ?? 'smkmayomisamuel@gmail.com';
     String? base64Image = prefs.getString('userImage');
@@ -111,6 +167,9 @@ class LauncherState extends ChangeNotifier {
     gestureTwoFingerUpAction = prefs.getString('gestureTwoFingerUpAction') ?? 'Start Menu';
     gestureTwoFingerDownAction = prefs.getString('gestureTwoFingerDownAction') ?? 'Device Notification Bar';
 
+    visibleQuickSettings = prefs.getStringList('visibleQuickSettings') ?? visibleQuickSettings;
+    hiddenQuickSettings = prefs.getStringList('hiddenQuickSettings') ?? hiddenQuickSettings;
+
     notifyListeners();
   }
 
@@ -122,7 +181,6 @@ class LauncherState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // NEW: Real-time text edit savers
   Future<void> updateUserName(String name) async {
     userName = name;
     final prefs = await SharedPreferences.getInstance();
@@ -208,7 +266,6 @@ class LauncherState extends ChangeNotifier {
     else if (type == 'DOWN') { gestureDownAction = action; key = 'gestureDownAction'; }
     else if (type == '2_UP') { gestureTwoFingerUpAction = action; key = 'gestureTwoFingerUpAction'; }
     else if (type == '2_DOWN') { gestureTwoFingerDownAction = action; key = 'gestureTwoFingerDownAction'; }
-    
     await prefs.setString(key, action);
     notifyListeners();
   }

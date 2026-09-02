@@ -28,6 +28,7 @@ dependencies:
   device_info_plus: ^11.1.0 
   package_info_plus: ^8.1.0
   file_picker: ^8.1.4
+  device_calendar: ^4.3.3
 
 dev_dependencies:
   flutter_test:
