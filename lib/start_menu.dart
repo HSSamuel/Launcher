@@ -2,258 +2,309 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:installed_apps/app_info.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:installed_apps/installed_apps.dart';
 import 'launcher_state.dart';
 
 class StartMenu extends StatefulWidget {
-  final VoidCallback onPowerTapped;
   final VoidCallback onOverlaysClosed;
+  final VoidCallback onPowerTapped;
 
-  const StartMenu({Key? key, required this.onPowerTapped, required this.onOverlaysClosed}) : super(key: key);
+  const StartMenu({
+    Key? key,
+    required this.onOverlaysClosed,
+    required this.onPowerTapped,
+  }) : super(key: key);
+
   @override
   State<StartMenu> createState() => _StartMenuState();
 }
 
 class _StartMenuState extends State<StartMenu> {
-  String _currentView = 'List';
-  bool _isPinnedExpanded = true;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _showAllPinned = false;
 
-  Widget _buildAppIcon(AppInfo app, LauncherState state, Color textColor, {bool isList = false}) {
-    if (isList) {
-      return InkWell(
-        onTap: () { widget.onOverlaysClosed(); state.launchNativeApp(app.packageName!); },
-        borderRadius: BorderRadius.circular(6),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-          child: Row(
-            children: [
-              Container(width: 32, height: 32, decoration: BoxDecoration(borderRadius: BorderRadius.circular(6)), child: Image.memory(app.icon!)),
-              const SizedBox(width: 12),
-              Expanded(child: Text(app.name!, style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
-            ],
-          ),
-        ),
-      );
-    }
-    return InkWell(
-      onTap: () { widget.onOverlaysClosed(); state.launchNativeApp(app.packageName!); },
-      borderRadius: BorderRadius.circular(8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(width: 36, height: 36, decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]), child: Image.memory(app.icon!)),
-          const SizedBox(height: 6),
-          Flexible(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 2.0), child: Text(app.name!, style: TextStyle(color: textColor, fontSize: 9.5), maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center))),
-        ],
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.toLowerCase();
+      });
+    });
   }
 
-  Widget _buildCategoryView(List<AppInfo> appsToCategorize, LauncherState state, Color textColor) {
-    Map<String, List<AppInfo>> categorized = {};
-    for (var app in appsToCategorize) {
-      String firstLetter = app.name!.substring(0, 1).toUpperCase();
-      if (!RegExp(r'[A-Z]').hasMatch(firstLetter)) firstLetter = '#';
-      if (!categorized.containsKey(firstLetter)) categorized[firstLetter] = [];
-      categorized[firstLetter]!.add(app);
-    }
-    final sortedKeys = categorized.keys.toList()..sort();
-
-    return ListView.builder(
-      shrinkWrap: true, physics: const BouncingScrollPhysics(), itemCount: sortedKeys.length,
-      itemBuilder: (context, index) {
-        String letter = sortedKeys[index];
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0), child: Text(letter, style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13))),
-            ...categorized[letter]!.map((app) => _buildAppIcon(app, state, textColor, isList: true)).toList(),
-            const Divider(color: Colors.white10),
-          ],
-        );
-      },
-    );
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
-  void _editProfile(LauncherState state, bool isDark) {
-    TextEditingController nameController = TextEditingController(text: state.userName);
-    Uint8List? tempImageBytes = state.userImageBytes; 
-    final dialogBg = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+  void _launchApp(String packageName) {
+    widget.onOverlaysClosed();
+    InstalledApps.startApp(packageName);
+  }
+
+  void _showPowerMenu(BuildContext context, Offset position) {
+    final isDark = context.read<LauncherState>().isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
-    
-    showDialog(
+
+    showMenu(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setDialogState) {
-          return Dialog(
-            backgroundColor: dialogBg, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-            child: SizedBox(
-              width: 160, 
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Edit Profile', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: () async {
-                        try {
-                          final picker = ImagePicker(); final image = await picker.pickImage(source: ImageSource.gallery);
-                          if (image != null) { final bytes = await image.readAsBytes(); setDialogState(() => tempImageBytes = bytes); }
-                        } catch (_) {}
-                      },
-                      child: Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          Container(width: 56, height: 56, decoration: BoxDecoration(color: Colors.blue.shade50, shape: BoxShape.circle), child: tempImageBytes != null ? ClipOval(child: Image.memory(tempImageBytes!, fit: BoxFit.cover, width: 56, height: 56)) : const Icon(Icons.person, size: 28, color: Colors.blueAccent)),
-                          Container(padding: const EdgeInsets.all(4), decoration: BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)), child: const Icon(Icons.camera_alt, size: 10, color: Colors.white)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: nameController, style: TextStyle(color: textColor, fontSize: 11), textAlign: TextAlign.center, 
-                      decoration: InputDecoration(labelText: "Display Name", labelStyle: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 9), floatingLabelAlignment: FloatingLabelAlignment.center, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 6), enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)), focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent, width: 1.5))),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 10))), const SizedBox(width: 4),
-                        TextButton(onPressed: () { state.saveProfile(nameController.text, tempImageBytes); Navigator.pop(context); }, child: const Text('Save', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 11))),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-            ),
-          );
-        });
-      }
+      position: RelativeRect.fromLTRB(position.dx, position.dy - 120, position.dx + 50, position.dy),
+      color: bgColor,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
+      items: [
+        PopupMenuItem(
+          onTap: () { widget.onOverlaysClosed(); widget.onPowerTapped(); },
+          child: Row(children: [Icon(Icons.bedtime_outlined, size: 18, color: textColor), const SizedBox(width: 12), Text('Sleep', style: TextStyle(color: textColor, fontSize: 13))]),
+        ),
+        PopupMenuItem(
+          onTap: () { widget.onOverlaysClosed(); widget.onPowerTapped(); },
+          child: Row(children: [Icon(Icons.power_settings_new, size: 18, color: textColor), const SizedBox(width: 12), Text('Shut down', style: TextStyle(color: textColor, fontSize: 13))]),
+        ),
+        PopupMenuItem(
+          onTap: () { widget.onOverlaysClosed(); widget.onPowerTapped(); },
+          child: Row(children: [Icon(Icons.restart_alt, size: 18, color: textColor), const SizedBox(width: 12), Text('Restart', style: TextStyle(color: textColor, fontSize: 13))]),
+        ),
+      ],
     );
+  }
+
+  Widget _buildAppIcon(AppInfo app, double size) {
+    return app.icon != null 
+        ? Image.memory(app.icon!, width: size, height: size) 
+        : Icon(Icons.android, size: size, color: Colors.green);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<LauncherState>();
     final isDark = state.isDarkMode;
-    
-    final bgColor = isDark ? const Color(0xFF242424) : Colors.white;
-    final searchBg = isDark ? const Color(0xFF333333) : const Color(0xFFF3F3F3);
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final subTextColor = isDark ? Colors.white54 : Colors.black45;
-    final borderColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
 
-    List<AppInfo> validApps = state.installedApps.where((app) => app.name != null && app.icon != null).toList();
-    List<AppInfo> searchResults = validApps.where((app) => app.name!.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
-    List<AppInfo> pinnedApps = validApps.take(8).toList();
-    List<AppInfo> mostUsedApps = validApps.skip(8).take(3).toList();
-    List<AppInfo> allApps = validApps.skip(11).toList();
+    // Windows 11 precise colors
+    final bgColor = isDark ? const Color(0xFF242424).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final secText = isDark ? Colors.white70 : Colors.grey.shade600;
+    final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
+    final searchBg = isDark ? const Color(0xFF333333) : Colors.white;
+    final bottomBarBg = isDark ? const Color(0xFF1E1E1E).withOpacity(0.5) : const Color(0xFFE5E5E5).withOpacity(0.5);
+
+    // Filter apps based on search
+    List<AppInfo> displayApps = state.installedApps;
+    if (_searchQuery.isNotEmpty) {
+      displayApps = displayApps.where((app) => (app.name ?? '').toLowerCase().contains(_searchQuery)).toList();
+    }
+
+    // Split apps to mimic "Pinned" and "All" (Using the first 8-12 apps as Pinned for realism)
+    int pinnedCount = _showAllPinned ? 24 : 8;
+    List<AppInfo> pinnedApps = displayApps.take(pinnedCount).toList();
+    List<AppInfo> allApps = displayApps.skip(pinnedCount).toList();
 
     return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.5 : 0.15), blurRadius: 20, offset: const Offset(0, 4))]),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1),
+        boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 15, offset: Offset(0, 5))],
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.max, crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            height: 36, decoration: BoxDecoration(color: searchBg, borderRadius: BorderRadius.circular(18), border: Border.all(color: borderColor)),
-            child: TextField(
-              controller: _searchController, onChanged: (value) => setState(() => _searchQuery = value), style: TextStyle(color: textColor, fontSize: 12),
-              decoration: InputDecoration(hintText: 'Search for apps, settings...', hintStyle: TextStyle(color: subTextColor, fontSize: 11), prefixIcon: Icon(Icons.search, color: subTextColor, size: 16), border: InputBorder.none, contentPadding: const EdgeInsets.symmetric(vertical: 12), isDense: true),
+          // 1. Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: SizedBox(
+              height: 38,
+              child: TextField(
+                controller: _searchController,
+                style: TextStyle(color: textColor, fontSize: 13),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Search for apps, settings...',
+                  hintStyle: TextStyle(color: secText, fontSize: 13),
+                  prefixIcon: Icon(Icons.search, color: secText, size: 18),
+                  filled: true,
+                  fillColor: searchBg,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: borderColor)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: borderColor)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Colors.blue.shade400)),
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          
+
+          // 2. Scrollable Content Area
           Expanded(
-            child: state.isLoadingApps 
-              ? const Center(child: CircularProgressIndicator(color: Colors.blue))
-              : SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: _searchQuery.isNotEmpty 
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(padding: const EdgeInsets.only(left: 4.0, bottom: 8.0), child: Text('Best match', style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 12))),
-                          if (searchResults.isEmpty) Padding(padding: const EdgeInsets.all(16.0), child: Text("No apps found.", style: TextStyle(color: subTextColor))),
-                          ...searchResults.map((app) => _buildAppIcon(app, state, textColor, isList: true)).toList(),
-                        ],
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+            child: _searchQuery.isNotEmpty
+                ? ListView.builder(
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: displayApps.length,
+                    itemBuilder: (context, index) {
+                      final app = displayApps[index];
+                      return ListTile(
+                        leading: _buildAppIcon(app, 32),
+                        title: Text(app.name ?? 'Unknown', style: TextStyle(color: textColor, fontSize: 13)),
+                        onTap: () => _launchApp(app.packageName!),
+                      );
+                    },
+                  )
+                : SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // --- PINNED SECTION ---
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Padding(padding: const EdgeInsets.only(left: 4.0), child: Text('Pinned', style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 12))),
-                              InkWell(onTap: () => setState(() => _isPinnedExpanded = !_isPinnedExpanded), borderRadius: BorderRadius.circular(4), child: Container(padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4), child: Row(children: [Text(_isPinnedExpanded ? 'Show less' : 'Show more', style: TextStyle(color: subTextColor, fontSize: 10)), Icon(_isPinnedExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: subTextColor, size: 14)])))
+                              Text('Pinned', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold)),
+                              InkWell(
+                                onTap: () => setState(() => _showAllPinned = !_showAllPinned),
+                                child: Row(
+                                  children: [
+                                    Text(_showAllPinned ? 'Show less' : 'All apps', style: TextStyle(color: secText, fontSize: 11)),
+                                    Icon(_showAllPinned ? Icons.keyboard_arrow_up : Icons.chevron_right, size: 14, color: secText),
+                                  ],
+                                ),
+                              )
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          if (_isPinnedExpanded) GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 4, mainAxisSpacing: 12, crossAxisSpacing: 4, childAspectRatio: 0.75, children: pinnedApps.map((app) => _buildAppIcon(app, state, textColor, isList: false)).toList()),
-                          const SizedBox(height: 16),
-                          Row(
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        GridView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 4,
+                            childAspectRatio: 0.85,
+                            crossAxisSpacing: 4,
+                            mainAxisSpacing: 12,
+                          ),
+                          itemCount: pinnedApps.length,
+                          itemBuilder: (context, index) {
+                            final app = pinnedApps[index];
+                            return InkWell(
+                              onTap: () => _launchApp(app.packageName!),
+                              borderRadius: BorderRadius.circular(6),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  _buildAppIcon(app, 36),
+                                  const SizedBox(height: 6),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                                    child: Text(
+                                      app.name ?? '', 
+                                      style: TextStyle(color: textColor, fontSize: 11), 
+                                      maxLines: 1, 
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // --- ALL APPS SECTION ---
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Padding(padding: const EdgeInsets.only(left: 4.0), child: Text('All', style: TextStyle(color: textColor, fontWeight: FontWeight.w600, fontSize: 12))),
-                              Theme(
-                                data: isDark ? ThemeData.dark() : ThemeData.light(),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    dropdownColor: bgColor, value: _currentView, icon: Icon(Icons.keyboard_arrow_down, size: 16, color: textColor), isDense: true, style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.w500),
-                                    items: ['Category', 'Grid', 'List'].map((String value) => DropdownMenuItem<String>(value: value, child: Text('View: $value', style: TextStyle(color: textColor)))).toList(), onChanged: (newValue) => setState(() => _currentView = newValue!),
-                                  ),
+                              Text('All', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold)),
+                              Row(
+                                children: [
+                                  Text('View: List', style: TextStyle(color: secText, fontSize: 11)),
+                                  Icon(Icons.keyboard_arrow_down, size: 14, color: secText),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16.0, top: 12.0, bottom: 4.0),
+                          child: Text('Most used', style: TextStyle(color: secText, fontSize: 11)),
+                        ),
+                        
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: allApps.length > 5 ? 5 : allApps.length, // Show just a few to mimic the "Most used" list
+                          itemBuilder: (context, index) {
+                            final app = allApps[index];
+                            return InkWell(
+                              onTap: () => _launchApp(app.packageName!),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                child: Row(
+                                  children: [
+                                    _buildAppIcon(app, 32),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          if (_currentView == 'Category') _buildCategoryView(allApps, state, textColor)
-                          else ...[
-                            Padding(padding: const EdgeInsets.only(left: 4.0, bottom: 8.0), child: Text('Most used', style: TextStyle(color: subTextColor, fontSize: 10, fontWeight: FontWeight.w500))),
-                            if (_currentView == 'List') ...mostUsedApps.map((app) => _buildAppIcon(app, state, textColor, isList: true)).toList() else if (_currentView == 'Grid') GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 4, mainAxisSpacing: 12, crossAxisSpacing: 4, childAspectRatio: 0.75, children: mostUsedApps.map((app) => _buildAppIcon(app, state, textColor, isList: false)).toList()),
-                            Divider(color: borderColor, height: 24),
-                            if (_currentView == 'List') ...allApps.map((app) => _buildAppIcon(app, state, textColor, isList: true)).toList() else if (_currentView == 'Grid') GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 4, mainAxisSpacing: 12, crossAxisSpacing: 4, childAspectRatio: 0.75, children: allApps.map((app) => _buildAppIcon(app, state, textColor, isList: false)).toList()),
-                          ],
-                        ],
-                      ),
-                ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
           ),
-          
-          Divider(color: borderColor, height: 20),
-          
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              InkWell(
-                onTap: () => _editProfile(state, isDark), borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 4.0),
-                  child: Row(
-                    children: [
-                      Container(width: 28, height: 28, decoration: BoxDecoration(color: Colors.blueAccent.shade100, shape: BoxShape.circle), child: state.userImageBytes != null ? ClipOval(child: Image.memory(state.userImageBytes!, width: 28, height: 28, fit: BoxFit.cover)) : const Icon(Icons.person, size: 16, color: Colors.white)), const SizedBox(width: 8),
-                      Text(state.userName, style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.w600)),
-                    ],
+
+          // 3. Bottom User Profile & Power Bar
+          Container(
+            height: 54,
+            decoration: BoxDecoration(
+              color: bottomBarBg,
+              border: Border(top: BorderSide(color: borderColor)),
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.blue.shade200,
+                  child: const Icon(Icons.person, size: 20, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'HUNSA S. S.',
+                  style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                Builder(
+                  builder: (ctx) => InkWell(
+                    onTap: () {
+                      final box = ctx.findRenderObject() as RenderBox;
+                      final offset = box.localToGlobal(Offset.zero);
+                      _showPowerMenu(context, offset);
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6.0),
+                      child: Icon(Icons.power_settings_new, color: textColor, size: 20),
+                    ),
                   ),
                 ),
-              ),
-              Theme(
-                data: isDark ? ThemeData.dark() : ThemeData.light(),
-                child: PopupMenuButton<String>(
-                  icon: Icon(Icons.power_settings_new, color: textColor, size: 18), color: bgColor, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), offset: const Offset(0, -140), 
-                  onSelected: (value) { if (value == 'Lock' || value == 'Shut down') widget.onPowerTapped(); },
-                  itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                    PopupMenuItem<String>(height: 30, value: 'Sleep', child: Text('Sleep', style: TextStyle(color: textColor, fontSize: 12))),
-                    PopupMenuItem<String>(height: 30, value: 'Shut down', child: Text('Shut down', style: TextStyle(color: textColor, fontSize: 12))),
-                    PopupMenuItem<String>(height: 30, value: 'Restart', child: Text('Restart', style: TextStyle(color: textColor, fontSize: 12))),
-                    PopupMenuItem<String>(height: 30, value: 'Lock', child: Text('Lock', style: TextStyle(color: textColor, fontSize: 12))),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           )
         ],
       ),
