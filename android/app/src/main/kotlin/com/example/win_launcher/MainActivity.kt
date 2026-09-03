@@ -33,13 +33,11 @@ class LauncherNotificationService : NotificationListenerService() {
         var instance: LauncherNotificationService? = null
         var eventSink: EventChannel.EventSink? = null
 
-        // FIX 1: Robust extractor that captures Bold text and Multi-line Inbox arrays
         fun extractNotificationData(sbn: StatusBarNotification): Map<String, Any>? {
             val extras = sbn.notification.extras
             val title = extras.getCharSequence("android.title")?.toString() ?: ""
             var text = extras.getCharSequence("android.text")?.toString() ?: ""
-            
-            // Extract stacked messages (like WhatsApp groups)
+
             val textLines = extras.getCharSequenceArray("android.textLines")
             if (!textLines.isNullOrEmpty()) {
                 text = textLines.joinToString("\n") { it.toString() }
@@ -106,13 +104,17 @@ class MainActivity: FlutterActivity() {
                         } catch (e: Exception) { result.success(emptyList<Map<String, Any>>()) }
                     } else { result.success(emptyList<Map<String, Any>>()) }
                 }
-                
+
                 "dismissNotification" -> {
                     val key = call.argument<String>("key")
-                    if (key != null) { LauncherNotificationService.instance?.cancelNotification(key); result.success(true) } 
-                    else result.success(false)
+                    if (key != null) {
+                        LauncherNotificationService.instance?.cancelNotification(key)
+                        result.success(true)
+                    } else {
+                        result.success(false)
+                    }
                 }
-                
+
                 "clearAllNotifications" -> {
                     LauncherNotificationService.instance?.cancelAllNotifications()
                     result.success(true)
@@ -122,16 +124,29 @@ class MainActivity: FlutterActivity() {
                 "openSettings" -> { openCustomSettings(call.argument<String>("type")); result.success(null) }
                 "getPermissionStatuses" -> { result.success(checkAllPermissions()) }
                 "lockScreen" -> { lockScreen(); result.success(null) }
-                
+
                 "launchApp" -> {
                     val pkg = call.argument<String>("package") ?: ""
                     try {
                         val intent = packageManager.getLaunchIntentForPackage(pkg)
-                        if (intent != null) { startActivity(intent); result.success(true) } 
+                        if (intent != null) { startActivity(intent); result.success(true) }
                         else { result.success(false) }
                     } catch (e: Exception) { result.success(false) }
                 }
-                
+
+                "uninstallApp" -> {
+                    val pkg = call.argument<String>("package") ?: ""
+                    try {
+                        val intent = Intent(Intent.ACTION_DELETE)
+                        intent.data = Uri.parse("package:$pkg")
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+
                 "toggleHardware" -> {
                     val key = call.argument<String>("key") ?: ""
                     val enable = call.argument<Boolean>("enable") ?: false
@@ -163,7 +178,7 @@ class MainActivity: FlutterActivity() {
                             val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
                             val extension = file.extension.lowercase(Locale.ROOT)
                             var mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
-                            
+
                             if (mimeType == null) {
                                 mimeType = when (extension) {
                                     "mp3", "m4a", "wav", "ogg", "flac", "aac" -> "audio/*"
@@ -177,12 +192,12 @@ class MainActivity: FlutterActivity() {
                                     else -> "*/*"
                                 }
                             }
-                            
+
                             val intent = Intent(Intent.ACTION_VIEW)
                             intent.setDataAndType(uri, mimeType)
                             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            
+
                             if (intent.resolveActivity(packageManager) != null) {
                                 startActivity(intent)
                             } else {
@@ -234,6 +249,7 @@ class MainActivity: FlutterActivity() {
                         result.success(mapOf("total" to total.toDouble(), "free" to free.toDouble()))
                     } catch (e: Exception) { result.success(null) }
                 }
+
                 "setStatusBarColor" -> {
                     val darkIcons = call.argument<Boolean>("darkIcons") ?: true
                     val colorHex = call.argument<String>("color") ?: "#FFFFFF"
@@ -275,23 +291,32 @@ class MainActivity: FlutterActivity() {
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 val pathCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                 var count = 0
-                while (cursor.moveToNext() && count < 5) { results["Audio"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol))); count++ }
+                while (cursor.moveToNext() && count < 5) {
+                    results["Audio"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol)))
+                    count++
+                }
             }
 
             contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 val pathCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                 var count = 0
-                while (cursor.moveToNext() && count < 5) { results["Images"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol))); count++ }
+                while (cursor.moveToNext() && count < 5) {
+                    results["Images"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol)))
+                    count++
+                }
             }
 
             contentResolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
                 val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                 val pathCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                 var count = 0
-                while (cursor.moveToNext() && count < 5) { results["Video"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol))); count++ }
+                while (cursor.moveToNext() && count < 5) {
+                    results["Video"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol)))
+                    count++
+                }
             }
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val docSelection = "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND (" +
                         "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE '%.pdf' OR " +
@@ -307,7 +332,10 @@ class MainActivity: FlutterActivity() {
                     val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
                     val pathCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                     var count = 0
-                    while (cursor.moveToNext() && count < 5) { results["Documents"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol))); count++ }
+                    while (cursor.moveToNext() && count < 5) {
+                        results["Documents"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(pathCol)))
+                        count++
+                    }
                 }
             }
         } catch (e: Exception) { e.printStackTrace() }
@@ -319,16 +347,31 @@ class MainActivity: FlutterActivity() {
     private fun toggleHardwareDirectly(key: String, enable: Boolean) {
         try {
             when (key) {
-                "Bluetooth" -> { val btAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter(); if (enable) btAdapter?.enable() else btAdapter?.disable() }
+                "Bluetooth" -> {
+                    val btAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                    if (enable) btAdapter?.enable() else btAdapter?.disable()
+                }
                 "Rotate" -> Settings.System.putInt(contentResolver, Settings.System.ACCELEROMETER_ROTATION, if (enable) 1 else 0)
                 "Adaptive Brightness" -> Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, if (enable) 1 else 0)
-                "Dark Theme" -> { val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager; uiModeManager.nightMode = if (enable) android.app.UiModeManager.MODE_NIGHT_YES else android.app.UiModeManager.MODE_NIGHT_NO }
-                "Ring" -> { val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager; audioManager.ringerMode = if (enable) android.media.AudioManager.RINGER_MODE_NORMAL else android.media.AudioManager.RINGER_MODE_VIBRATE }
+                "Dark Theme" -> {
+                    val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as android.app.UiModeManager
+                    uiModeManager.nightMode = if (enable) android.app.UiModeManager.MODE_NIGHT_YES else android.app.UiModeManager.MODE_NIGHT_NO
+                }
+                "Ring" -> {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                    audioManager.ringerMode = if (enable) android.media.AudioManager.RINGER_MODE_NORMAL else android.media.AudioManager.RINGER_MODE_VIBRATE
+                }
                 "DND" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         val notifManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                        if (notifManager.isNotificationPolicyAccessGranted) { notifManager.setInterruptionFilter(if (enable) android.app.NotificationManager.INTERRUPTION_FILTER_NONE else android.app.NotificationManager.INTERRUPTION_FILTER_ALL) } 
-                        else { startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        if (notifManager.isNotificationPolicyAccessGranted) {
+                            notifManager.setInterruptionFilter(
+                                if (enable) android.app.NotificationManager.INTERRUPTION_FILTER_NONE
+                                else android.app.NotificationManager.INTERRUPTION_FILTER_ALL
+                            )
+                        } else {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
                     }
                 }
                 "Airplane mode" -> startActivity(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -341,7 +384,9 @@ class MainActivity: FlutterActivity() {
     private fun lockScreen() {
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val adminComponent = ComponentName(this, LauncherAdminReceiver::class.java)
-        if (dpm.isAdminActive(adminComponent)) { dpm.lockNow() }
+        if (dpm.isAdminActive(adminComponent)) {
+            dpm.lockNow()
+        }
     }
 
     @SuppressLint("WrongConstant")
@@ -356,16 +401,25 @@ class MainActivity: FlutterActivity() {
 
     private fun checkAllPermissions(): Map<String, Boolean> {
         val permissions = mutableMapOf<String, Boolean>()
-        permissions["storage"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { Environment.isExternalStorageManager() } else { true }
+        permissions["storage"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
         val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         permissions["notification"] = listeners != null && listeners.contains(packageName)
+
         var accessEnabled = 0
-        try { accessEnabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED) } catch (_: Exception) {}
+        try {
+            accessEnabled = Settings.Secure.getInt(contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED)
+        } catch (_: Exception) {}
         val accessServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
         permissions["accessibility"] = accessEnabled == 1 && accessServices != null && accessServices.contains(packageName)
+
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         permissions["admin"] = dpm.isAdminActive(ComponentName(this, LauncherAdminReceiver::class.java))
         permissions["write_settings"] = Settings.System.canWrite(this)
+
         return permissions
     }
 
@@ -373,8 +427,14 @@ class MainActivity: FlutterActivity() {
         try {
             var useNewTask = true
             val intent = when (type) {
-                "wifi" -> { useNewTask = false; if (Build.VERSION.SDK_INT >= 29) Intent("android.settings.panel.action.WIFI") else Intent(Settings.ACTION_WIFI_SETTINGS) }
-                "data" -> { useNewTask = false; if (Build.VERSION.SDK_INT >= 29) Intent("android.settings.panel.action.INTERNET_CONNECTIVITY") else Intent(Settings.ACTION_DATA_USAGE_SETTINGS) }
+                "wifi" -> {
+                    useNewTask = false
+                    if (Build.VERSION.SDK_INT >= 29) Intent("android.settings.panel.action.WIFI") else Intent(Settings.ACTION_WIFI_SETTINGS)
+                }
+                "data" -> {
+                    useNewTask = false
+                    if (Build.VERSION.SDK_INT >= 29) Intent("android.settings.panel.action.INTERNET_CONNECTIVITY") else Intent(Settings.ACTION_DATA_USAGE_SETTINGS)
+                }
                 "battery_saver" -> Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
                 "vpn" -> Intent(Settings.ACTION_VPN_SETTINGS)
                 "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)

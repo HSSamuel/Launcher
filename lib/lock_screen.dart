@@ -14,7 +14,8 @@ class LockScreen extends StatefulWidget {
   State<LockScreen> createState() => _LockScreenState();
 }
 
-class _LockScreenState extends State<LockScreen> {
+// UPDATED: Added WidgetsBindingObserver to listen to app lifecycle
+class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool _isSigningIn = false;
   String _currentTime = '';
   String _currentDate = '';
@@ -24,15 +25,38 @@ class _LockScreenState extends State<LockScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _updateTime();
-    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
+    _startTimer();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopTimer();
     _pinController.dispose();
     super.dispose();
+  }
+
+  // UPDATED: Pause timer when app is in the background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateTime();
+      _startTimer();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _stopTimer();
+    }
+  }
+
+  void _startTimer() {
+    _stopTimer();
+    _timer = Timer.periodic(const Duration(seconds: 1), (Timer t) => _updateTime());
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   void _updateTime() {
@@ -71,7 +95,6 @@ class _LockScreenState extends State<LockScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch the global state for the updated wallpaper
     final wallpaperUrl = context.watch<LauncherState>().actualWallpaperUrl;
     final userName = context.watch<LauncherState>().userName;
     final userImageBytes = context.watch<LauncherState>().userImageBytes;

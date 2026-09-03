@@ -13,11 +13,11 @@ import 'settings_network_view.dart';
 import 'settings_personalization_screens.dart';
 import 'settings_gestures_view.dart';
 import 'settings_apps_view.dart';
-import 'settings_accounts_view.dart'; // NEW
-import 'settings_time_language_view.dart'; // NEW
-import 'settings_accessibility_view.dart'; // NEW
-import 'settings_privacy_security_view.dart'; // NEW
-import 'settings_update_view.dart'; // NEW
+import 'settings_accounts_view.dart'; 
+import 'settings_time_language_view.dart'; 
+import 'settings_accessibility_view.dart'; 
+import 'settings_privacy_security_view.dart'; 
+import 'settings_update_view.dart'; 
 
 class SettingsApp extends StatefulWidget {
   const SettingsApp({Key? key}) : super(key: key);
@@ -84,8 +84,8 @@ class _SettingsAppState extends State<SettingsApp> {
       case 6: return const SettingsAccountsView();
       case 7: return const SettingsTimeLanguageView(); 
       case 8: return const SettingsAccessibilityView();
-      case 9: return const SettingsPrivacySecurityView(); // NEW: Hooked up Privacy!
-      case 10: return const SettingsUpdateView(); // NEW: Hooked up Launcher Update!
+      case 9: return const SettingsPrivacySecurityView(); 
+      case 10: return const SettingsUpdateView(); 
       default: return _buildSystemView();
     }
   }
@@ -133,7 +133,8 @@ class _SettingsAppState extends State<SettingsApp> {
                           children: [
                             Text(state.userName.toUpperCase(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor), overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 2),
-                            Text('smkmayomisamuel@gmail.com', style: TextStyle(fontSize: 12, color: subTextColor), overflow: TextOverflow.ellipsis),
+                            // UPDATED: Now dynamically reads from LauncherState
+                            Text(state.userEmail, style: TextStyle(fontSize: 12, color: subTextColor), overflow: TextOverflow.ellipsis),
                           ],
                         ),
                       ),

@@ -4,6 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'launcher_state.dart';
 
+// --- NEW: Helper class to cache file stats and prevent UI stutter during scrolling ---
+class FileItem {
+  final FileSystemEntity entity;
+  final FileStat stat;
+  FileItem(this.entity, this.stat);
+}
+
 class Win11FolderIcon extends StatelessWidget {
   final IconData innerIcon;
   final Color backColor;
@@ -88,7 +95,9 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   bool _hasPermission = false;
   bool _isAtHome = true;
   late Directory _currentDir;
-  List<FileSystemEntity> _files = [];
+  
+  // UPDATED: Now uses our caching class
+  List<FileItem> _files = [];
 
   double _totalGB = 228.01;
   double _freeGB = 99.78;
@@ -96,7 +105,6 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   String? _selectedPath;
   FileSystemEntity? _selectedEntity;
   
-  // Context Menu State
   bool _isContextMenuOpen = false;
   Offset _contextMenuPos = Offset.zero;
   String? _activeSubMenu;
@@ -169,36 +177,46 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       final Map<dynamic, dynamic>? result = await platform.invokeMethod('getPermissionStatuses');
       if (result != null && mounted) {
         setState(() => _hasPermission = result['storage'] ?? false);
-        if (_hasPermission && !_isAtHome) _loadDirectory(_currentDir);
+        if (_hasPermission && !_isAtHome) await _loadDirectory(_currentDir);
       }
     } catch (_) {}
   }
 
-  void _loadDirectorySafe(String path) {
+  // FIXED: Converted to Async
+  Future<void> _loadDirectorySafe(String path) async {
     if (!_hasPermission) {
       platform.invokeMethod('openSettings', {'type': 'storage'});
       return;
     }
     final dir = Directory(path);
-    if (!dir.existsSync()) {
-      try { dir.createSync(recursive: true); } catch (_) {}
+    if (!(await dir.exists())) {
+      try { await dir.create(recursive: true); } catch (_) {}
     }
-    _loadDirectory(dir);
+    await _loadDirectory(dir);
   }
 
-  void _loadDirectory(Directory dir) {
+  // FIXED: Converted to Async and caches FileStats
+  Future<void> _loadDirectory(Directory dir) async {
     try {
-      final entities = dir.listSync().toList();
-      entities.sort((a, b) {
-        if (a is Directory && b is! Directory) return -1;
-        if (a is! Directory && b is Directory) return 1;
-        return a.path.toLowerCase().compareTo(b.path.toLowerCase());
+      final entities = await dir.list().toList();
+      List<FileItem> items = [];
+      
+      for (var e in entities) {
+        final stat = await e.stat();
+        items.add(FileItem(e, stat));
+      }
+      
+      items.sort((a, b) {
+        if (a.entity is Directory && b.entity is! Directory) return -1;
+        if (a.entity is! Directory && b.entity is Directory) return 1;
+        return a.entity.path.toLowerCase().compareTo(b.entity.path.toLowerCase());
       });
+      
       if (mounted) {
         setState(() {
           _isAtHome = false;
           _currentDir = dir;
-          _files = entities;
+          _files = items;
           _selectedPath = null;
           _selectedEntity = null;
           _isContextMenuOpen = false;
@@ -230,7 +248,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  // --- REAL FILE OPERATIONS ---
+  // --- ASYNC FILE OPERATIONS ---
 
   void _createNewFolder() {
     TextEditingController controller = TextEditingController(text: 'New Folder');
@@ -242,16 +260,16 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               try {
                 final newDir = Directory('${_currentDir.path}/${controller.text}');
-                if (!newDir.existsSync()) newDir.createSync();
-                _loadDirectory(_currentDir);
+                if (!(await newDir.exists())) await newDir.create();
+                await _loadDirectory(_currentDir);
                 _showToast('Folder created');
               } catch (_) { 
                 _showToast('Permission denied'); 
               }
-              Navigator.pop(context);
+              if (mounted) Navigator.pop(context);
             }, 
             child: const Text('Create')
           ),
@@ -271,15 +289,15 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               try {
-                entity.renameSync('${entity.parent.path}/${controller.text}');
-                _loadDirectory(_currentDir);
+                await entity.rename('${entity.parent.path}/${controller.text}');
+                await _loadDirectory(_currentDir);
                 _showToast('Renamed to ${controller.text}');
               } catch (_) { 
                 _showToast('Error renaming file'); 
               }
-              Navigator.pop(context);
+              if (mounted) Navigator.pop(context);
             }, 
             child: const Text('Rename')
           ),
@@ -288,11 +306,11 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  void _deleteFile(FileSystemEntity entity) {
+  Future<void> _deleteFile(FileSystemEntity entity) async {
     try {
-      if (entity.existsSync()) {
-        entity.deleteSync(recursive: true);
-        _loadDirectory(_currentDir);
+      if (await entity.exists()) {
+        await entity.delete(recursive: true);
+        await _loadDirectory(_currentDir);
         _showToast('File deleted');
       }
     } catch (_) { 
@@ -300,30 +318,30 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     }
   }
 
-  void _pasteFile() {
+  Future<void> _pasteFile() async {
     final state = context.read<LauncherState>();
     if (state.clipboardPath != null) {
       try {
-        final entity = FileSystemEntity.isDirectorySync(state.clipboardPath!) 
-            ? Directory(state.clipboardPath!) 
-            : File(state.clipboardPath!);
+        final sourcePath = state.clipboardPath!;
+        final isDir = await FileSystemEntity.isDirectory(sourcePath);
+        final entity = isDir ? Directory(sourcePath) : File(sourcePath);
             
-        final name = state.clipboardPath!.split('/').last;
+        final name = sourcePath.split('/').last;
         final newPath = '${_currentDir.path}/$name';
         
         if (entity is File) {
-          entity.copySync(newPath);
-          if (state.isCut) entity.deleteSync();
+          await entity.copy(newPath);
+          if (state.isCut) await entity.delete();
         } else if (entity is Directory) {
           if (state.isCut) { 
-            entity.renameSync(newPath); 
+            await entity.rename(newPath); 
           } else { 
-            Directory(newPath).createSync(); 
+            await Directory(newPath).create(); 
           }
         }
         
         if (state.isCut) state.clearClipboard();
-        _loadDirectory(_currentDir);
+        await _loadDirectory(_currentDir);
         _showToast('Paste successful');
       } catch (_) { 
         _showToast('Error pasting file'); 
@@ -331,25 +349,26 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     }
   }
 
-  void _compressFile(FileSystemEntity entity, String ext) {
+  Future<void> _compressFile(FileSystemEntity entity, String ext) async {
     try {
       final name = entity.path.split('/').last;
       final newPath = '${entity.parent.path}/$name$ext';
-      File(newPath).createSync();
-      _loadDirectory(_currentDir);
+      await File(newPath).create();
+      await _loadDirectory(_currentDir);
       _showToast('Successfully compressed to $name$ext');
     } catch (_) { 
       _showToast('Error creating archive'); 
     }
   }
 
-  void _showPropertiesDialog(FileSystemEntity entity) {
+  Future<void> _showPropertiesDialog(FileSystemEntity entity) async {
     try {
-      final stat = entity.statSync();
+      final stat = await entity.stat();
       final size = stat.size;
       final modified = stat.modified.toString().split('.')[0];
       final name = entity.path.split('/').last;
 
+      if (!mounted) return;
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -378,9 +397,9 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     }
   }
 
-  String _formatTimestamp(FileSystemEntity entity) {
+  // FIXED: Takes pre-fetched FileStat, making it instant
+  String _formatTimestamp(FileStat stat) {
     try {
-      final stat = entity.statSync();
       final diff = DateTime.now().difference(stat.modified);
       if (diff.inDays >= 365) return '${(diff.inDays / 365).floor()} year ago';
       if (diff.inDays >= 30) return '${(diff.inDays / 30).floor()} month ago';
@@ -987,17 +1006,6 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  String _matchAndroidFolderToWin11(String folderName) {
-    final lower = folderName.toLowerCase();
-    if (lower == 'download' || lower == 'downloads') return 'Downloads';
-    if (lower == 'documents' || lower == 'document') return 'Documents';
-    if (lower == 'music' || lower == 'audio') return 'Music';
-    if (lower == 'pictures' || lower == 'dcim' || lower == 'images') return 'Pictures';
-    if (lower == 'movies' || lower == 'video' || lower == 'videos') return 'Videos';
-    if (lower == 'desktop') return 'Desktop';
-    return 'Folder'; 
-  }
-
   Widget _getWin11IconForType(String type, double size) {
     switch (type) {
       case 'Desktop': return Win11FolderIcon(innerIcon: Icons.desktop_windows, backColor: Colors.lightBlue.shade300, frontColor: Colors.blue.shade600, size: size);
@@ -1271,34 +1279,35 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
         itemCount: _files.length,
         padding: const EdgeInsets.only(top: 8, bottom: 40, left: 8, right: 8),
         itemBuilder: (context, index) {
+          // UPDATED: Now accesses the cached FileItem
           final item = _files[index];
-          final isDir = item is Directory;
-          final name = item.path.split('/').last;
-          final isSelected = _selectedPath == item.path;
-          final timeStr = _formatTimestamp(item);
+          final isDir = item.entity is Directory;
+          final name = item.entity.path.split('/').last;
+          final isSelected = _selectedPath == item.entity.path;
+          final timeStr = _formatTimestamp(item.stat);
 
           return GestureDetector(
             onSecondaryTapDown: (details) => setState(() { 
-              _selectedPath = item.path; 
-              _selectedEntity = item; 
+              _selectedPath = item.entity.path; 
+              _selectedEntity = item.entity; 
               _contextMenuPos = details.globalPosition; 
               _isContextMenuOpen = true; 
             }), 
             onLongPressStart: (details) => setState(() { 
-              _selectedPath = item.path; 
-              _selectedEntity = item; 
+              _selectedPath = item.entity.path; 
+              _selectedEntity = item.entity; 
               _contextMenuPos = details.globalPosition; 
               _isContextMenuOpen = true; 
             }),
-            onTap: () {
-              setState(() {
-                if (_selectedPath == item.path) { 
-                  if (isDir) _loadDirectory(item as Directory); 
-                } else { 
-                  _selectedPath = item.path; 
-                  _selectedEntity = item; 
-                }
-              });
+            onTap: () async {
+              if (_selectedPath == item.entity.path) { 
+                if (isDir) await _loadDirectory(item.entity as Directory); 
+              } else { 
+                setState(() {
+                  _selectedPath = item.entity.path; 
+                  _selectedEntity = item.entity; 
+                });
+              }
             },
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 2),
@@ -1312,7 +1321,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
               ),
               child: Row(
                 children: [
-                  isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.path),
+                  isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.entity.path),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(

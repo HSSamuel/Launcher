@@ -12,7 +12,12 @@ class WinTheme {
   final bool isDark;
   final Color accentColor;
 
-  const WinTheme({required this.name, required this.wallpaperUrl, required this.isDark, required this.accentColor});
+  const WinTheme({
+    required this.name,
+    required this.wallpaperUrl,
+    required this.isDark,
+    required this.accentColor,
+  });
 }
 
 class LauncherState extends ChangeNotifier {
@@ -25,15 +30,15 @@ class LauncherState extends ChangeNotifier {
   Offset settingsPos = const Offset(10, 15);
 
   String userName = 'HUNSA S. S.';
-  String userEmail = 'smkmayomisamuel@gmail.com'; 
+  String userEmail = 'smkmayomisamuel@gmail.com';
   Uint8List? userImageBytes;
   String actualWallpaperUrl = 'https://images.pexels.com/photos/1624496/pexels-photo-1624496.jpeg?auto=compress&cs=tinysrgb&w=2000';
 
   bool isDarkMode = true;
   String currentThemeName = 'Dark theme';
-  String taskbarAlignment = 'left'; 
+  String taskbarAlignment = 'left';
   String? slideshowFolderPath;
-  
+
   bool showRecentlyAdded = true;
   bool showMostUsed = true;
   bool showRecommended = true;
@@ -48,6 +53,13 @@ class LauncherState extends ChangeNotifier {
   bool hideStatusBar = false;
   bool hideNavBar = false;
   bool createShortcut = true;
+
+  bool devMode = false;
+  bool windowsSubsystem = true;
+  bool experimentalEngine = false;
+  bool showHiddenFiles = false;
+  bool previewFiles = false;
+  bool mouseSound = false;
 
   String gestureUpAction = 'None';
   String gestureDownAction = 'None';
@@ -69,21 +81,23 @@ class LauncherState extends ChangeNotifier {
   String currentExplorerPath = '/storage/emulated/0';
   String? clipboardPath;
   bool isCut = false;
+
   List<String> pinnedQuickAccess = [];
   List<String> pinnedStart = [];
+  List<String> recentApps = [];
+  List<String> desktopApps = [];
 
-  // --- NEW: EDITABLE QUICK SETTINGS PANELS ---
   List<String> visibleQuickSettings = [
     'Airplane mode', 'Battery saver', 'Wi-Fi',
     'Bluetooth', 'Flash', 'Data',
     'Rotate', 'Location', 'Hotspot',
     'VPN', 'Brightness', 'Accessibility'
   ];
-  
+
   List<String> hiddenQuickSettings = [
-    'Play', 'Ring', 'ChatGPT', 'Storage', 
-    'Dark Theme', 'Calculator', 'Song Search', 
-    'DND', 'Screen Cast', 'Eye Care', 
+    'Play', 'Ring', 'ChatGPT', 'Storage',
+    'Dark Theme', 'Calculator', 'Song Search',
+    'DND', 'Screen Cast', 'Eye Care',
     'Scan QR Code', 'PC Connection', 'Kids Mode'
   ];
 
@@ -101,7 +115,7 @@ class LauncherState extends ChangeNotifier {
       visibleQuickSettings.add(item);
     }
     notifyListeners();
-    
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('visibleQuickSettings', visibleQuickSettings);
     await prefs.setStringList('hiddenQuickSettings', hiddenQuickSettings);
@@ -115,22 +129,53 @@ class LauncherState extends ChangeNotifier {
   }
 
   void pinToQuickAccess(String name) {
-    if (!pinnedQuickAccess.contains(name)) pinnedQuickAccess.add(name);
+    if (!pinnedQuickAccess.contains(name)) {
+      pinnedQuickAccess.add(name);
+      notifyListeners();
+    }
+  }
+
+  // RESTORED: Explicitly pins items without toggling (used by Desktop/Folders)
+  void pinToStart(String name) async {
+    if (!pinnedStart.contains(name)) {
+      pinnedStart.add(name);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('pinnedStart', pinnedStart);
+      notifyListeners();
+    }
+  }
+
+  void togglePinToStart(String name) async {
+    if (pinnedStart.contains(name)) {
+      pinnedStart.remove(name);
+    } else {
+      pinnedStart.add(name);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('pinnedStart', pinnedStart);
     notifyListeners();
   }
 
-  void pinToStart(String name) {
-    if (!pinnedStart.contains(name)) pinnedStart.add(name);
+  void toggleDesktopApp(String name) async {
+    if (desktopApps.contains(name)) {
+      desktopApps.remove(name);
+    } else {
+      desktopApps.add(name);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('desktopApps', desktopApps);
     notifyListeners();
   }
 
   void setClipboard(String path, bool cut) {
-    clipboardPath = path; isCut = cut;
+    clipboardPath = path;
+    isCut = cut;
     notifyListeners();
   }
 
   void clearClipboard() {
-    clipboardPath = null; isCut = false;
+    clipboardPath = null;
+    isCut = false;
     notifyListeners();
   }
 
@@ -140,13 +185,13 @@ class LauncherState extends ChangeNotifier {
     userEmail = prefs.getString('userEmail') ?? 'smkmayomisamuel@gmail.com';
     String? base64Image = prefs.getString('userImage');
     if (base64Image != null) userImageBytes = base64Decode(base64Image);
-    
+
     actualWallpaperUrl = prefs.getString('wallpaper') ?? actualWallpaperUrl;
     isDarkMode = prefs.getBool('isDarkMode') ?? true;
     currentThemeName = prefs.getString('currentThemeName') ?? 'Dark theme';
     taskbarAlignment = prefs.getString('taskbarAlignment') ?? 'left';
     slideshowFolderPath = prefs.getString('slideshowFolderPath');
-    
+
     showRecentlyAdded = prefs.getBool('showRecentlyAdded') ?? true;
     showMostUsed = prefs.getBool('showMostUsed') ?? true;
     showRecommended = prefs.getBool('showRecommended') ?? true;
@@ -162,6 +207,13 @@ class LauncherState extends ChangeNotifier {
     hideNavBar = prefs.getBool('hideNavBar') ?? false;
     createShortcut = prefs.getBool('createShortcut') ?? true;
 
+    devMode = prefs.getBool('devMode') ?? false;
+    windowsSubsystem = prefs.getBool('windowsSubsystem') ?? true;
+    experimentalEngine = prefs.getBool('experimentalEngine') ?? false;
+    showHiddenFiles = prefs.getBool('showHiddenFiles') ?? false;
+    previewFiles = prefs.getBool('previewFiles') ?? false;
+    mouseSound = prefs.getBool('mouseSound') ?? false;
+
     gestureUpAction = prefs.getString('gestureUpAction') ?? 'None';
     gestureDownAction = prefs.getString('gestureDownAction') ?? 'None';
     gestureTwoFingerUpAction = prefs.getString('gestureTwoFingerUpAction') ?? 'Start Menu';
@@ -170,11 +222,16 @@ class LauncherState extends ChangeNotifier {
     visibleQuickSettings = prefs.getStringList('visibleQuickSettings') ?? visibleQuickSettings;
     hiddenQuickSettings = prefs.getStringList('hiddenQuickSettings') ?? hiddenQuickSettings;
 
+    recentApps = prefs.getStringList('recentApps') ?? [];
+    desktopApps = prefs.getStringList('desktopApps') ?? [];
+    pinnedStart = prefs.getStringList('pinnedStart') ?? [];
+
     notifyListeners();
   }
 
   Future<void> saveProfile(String name, Uint8List? bytes) async {
-    userName = name; userImageBytes = bytes;
+    userName = name;
+    userImageBytes = bytes;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('userName', name);
     if (bytes != null) await prefs.setString('userImage', base64Encode(bytes));
@@ -238,9 +295,18 @@ class LauncherState extends ChangeNotifier {
 
   Future<void> setStartMenuOptions({bool? recentlyAdded, bool? mostUsed, bool? recommended}) async {
     final prefs = await SharedPreferences.getInstance();
-    if (recentlyAdded != null) { showRecentlyAdded = recentlyAdded; await prefs.setBool('showRecentlyAdded', recentlyAdded); }
-    if (mostUsed != null) { showMostUsed = mostUsed; await prefs.setBool('showMostUsed', mostUsed); }
-    if (recommended != null) { showRecommended = recommended; await prefs.setBool('showRecommended', recommended); }
+    if (recentlyAdded != null) {
+      showRecentlyAdded = recentlyAdded;
+      await prefs.setBool('showRecentlyAdded', recentlyAdded);
+    }
+    if (mostUsed != null) {
+      showMostUsed = mostUsed;
+      await prefs.setBool('showMostUsed', mostUsed);
+    }
+    if (recommended != null) {
+      showRecommended = recommended;
+      await prefs.setBool('showRecommended', recommended);
+    }
     notifyListeners();
   }
 
@@ -256,6 +322,14 @@ class LauncherState extends ChangeNotifier {
     if (key == 'hideStatusBar') { hideStatusBar = value; await prefs.setBool(key, value); }
     if (key == 'hideNavBar') { hideNavBar = value; await prefs.setBool(key, value); }
     if (key == 'createShortcut') { createShortcut = value; await prefs.setBool(key, value); }
+
+    if (key == 'devMode') { devMode = value; await prefs.setBool(key, value); }
+    if (key == 'windowsSubsystem') { windowsSubsystem = value; await prefs.setBool(key, value); }
+    if (key == 'experimentalEngine') { experimentalEngine = value; await prefs.setBool(key, value); }
+    if (key == 'showHiddenFiles') { showHiddenFiles = value; await prefs.setBool(key, value); }
+    if (key == 'previewFiles') { previewFiles = value; await prefs.setBool(key, value); }
+    if (key == 'mouseSound') { mouseSound = value; await prefs.setBool(key, value); }
+
     notifyListeners();
   }
 
@@ -277,15 +351,64 @@ class LauncherState extends ChangeNotifier {
       apps.removeWhere((app) => app.name == 'Win11 Simulator' || (app.packageName != null && app.packageName!.contains('win_launcher')));
       apps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
       installedApps = apps;
-    } catch (_) { } finally { isLoadingApps = false; notifyListeners(); }
+
+      final prefs = await SharedPreferences.getInstance();
+      bool hasInitializedPins = prefs.getBool('hasInitializedPins') ?? false;
+      if (!hasInitializedPins && installedApps.isNotEmpty) {
+        pinnedStart = installedApps.take(16).map((e) => e.packageName!).toList();
+        await prefs.setStringList('pinnedStart', pinnedStart);
+        await prefs.setBool('hasInitializedPins', true);
+      }
+
+    } catch (_) {} finally {
+      isLoadingApps = false;
+      notifyListeners();
+    }
   }
 
-  void launchNativeApp(String packageName) { if (!kIsWeb) InstalledApps.startApp(packageName); }
-  void openApp(String appId) { if (minimizedApps.contains(appId)) minimizedApps.remove(appId); if (!windowStack.contains(appId)) windowStack.add(appId); focusWindow(appId); }
-  void closeApp(String appId) { windowStack.remove(appId); minimizedApps.remove(appId); maximizedApps.remove(appId); notifyListeners(); }
-  void minimizeApp(String appId) { if (!minimizedApps.contains(appId)) minimizedApps.add(appId); notifyListeners(); }
-  void toggleMaximizeApp(String appId) { maximizedApps.contains(appId) ? maximizedApps.remove(appId) : maximizedApps.add(appId); focusWindow(appId); }
-  void focusWindow(String appId) { windowStack.remove(appId); windowStack.add(appId); notifyListeners(); }
+  Future<void> launchNativeApp(String packageName) async {
+    if (!kIsWeb) {
+      InstalledApps.startApp(packageName);
+
+      recentApps.remove(packageName);
+      recentApps.insert(0, packageName);
+      if (recentApps.length > 6) recentApps.removeLast();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('recentApps', recentApps);
+      notifyListeners();
+    }
+  }
+
+  void openApp(String appId) {
+    if (minimizedApps.contains(appId)) minimizedApps.remove(appId);
+    if (!windowStack.contains(appId)) windowStack.add(appId);
+    focusWindow(appId);
+  }
+
+  void closeApp(String appId) {
+    windowStack.remove(appId);
+    minimizedApps.remove(appId);
+    maximizedApps.remove(appId);
+    notifyListeners();
+  }
+
+  void minimizeApp(String appId) {
+    if (!minimizedApps.contains(appId)) minimizedApps.add(appId);
+    notifyListeners();
+  }
+
+  void toggleMaximizeApp(String appId) {
+    maximizedApps.contains(appId) ? maximizedApps.remove(appId) : maximizedApps.add(appId);
+    focusWindow(appId);
+  }
+
+  void focusWindow(String appId) {
+    windowStack.remove(appId);
+    windowStack.add(appId);
+    notifyListeners();
+  }
+
   void updateWindowPos(String appId, Offset delta) {
     if (appId == 'explorer') fileExplorerPos += delta;
     if (appId == 'calculator') calculatorPos += delta;

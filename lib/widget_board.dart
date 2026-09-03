@@ -9,7 +9,8 @@ class WidgetBoard extends StatefulWidget {
   State<WidgetBoard> createState() => _WidgetBoardState();
 }
 
-class _WidgetBoardState extends State<WidgetBoard> {
+// UPDATED: Added WidgetsBindingObserver to manage background states
+class _WidgetBoardState extends State<WidgetBoard> with WidgetsBindingObserver {
   String _currentTime = '';
   String _currentDate = '';
   Timer? _timer;
@@ -17,14 +18,37 @@ class _WidgetBoardState extends State<WidgetBoard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _updateTime();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
+    _startTimer();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopTimer();
     super.dispose();
+  }
+
+  // UPDATED: Pause timer when app is in the background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _updateTime();
+      _startTimer();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _stopTimer();
+    }
+  }
+
+  void _startTimer() {
+    _stopTimer();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _updateTime());
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   void _updateTime() {

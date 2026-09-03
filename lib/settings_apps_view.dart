@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:app_settings/app_settings.dart';
+import 'package:provider/provider.dart';
+
+import 'launcher_state.dart';
 import 'settings_widgets.dart';
 
 class SettingsAppsView extends StatelessWidget {
@@ -10,7 +13,6 @@ class SettingsAppsView extends StatelessWidget {
 
   void _openNativeSettings(String type) async {
     try {
-      // Calls the Kotlin code we wrote
       await platform.invokeMethod('openSettings', {'type': type});
     } catch (e) {
       debugPrint("Native routing failed, falling back to AppSettings: $e");
@@ -45,20 +47,13 @@ class SettingsAppsView extends StatelessWidget {
   }
 }
 
-// --- "Pro-Level" Optional Features Screen ---
-class OptionalFeaturesScreen extends StatefulWidget {
+class OptionalFeaturesScreen extends StatelessWidget {
   const OptionalFeaturesScreen({Key? key}) : super(key: key);
-  @override
-  State<OptionalFeaturesScreen> createState() => _OptionalFeaturesScreenState();
-}
-
-class _OptionalFeaturesScreenState extends State<OptionalFeaturesScreen> {
-  bool devMode = false;
-  bool windowsSubsystem = true;
-  bool experimentalEngine = false;
 
   @override
   Widget build(BuildContext context) {
+    // UPDATED: Now listens to the global state for persistency
+    final state = context.watch<LauncherState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final headerColor = isDark ? Colors.white : Colors.black87;
 
@@ -77,19 +72,31 @@ class _OptionalFeaturesScreenState extends State<OptionalFeaturesScreen> {
             title: 'Developer Mode',
             subtitle: 'Enable advanced testing and debugging features',
             icon: Icons.code,
-            trailing: Switch(value: devMode, activeColor: Colors.blueAccent, onChanged: (v) => setState(() => devMode = v)),
+            trailing: Switch(
+              value: state.devMode, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (v) => state.updateDesktopSetting('devMode', v)
+            ),
           ),
           SettingsCard(
             title: 'Windows Subsystem for Android™',
             subtitle: 'Run native Android apps seamlessly alongside Windows apps',
             icon: Icons.android,
-            trailing: Switch(value: windowsSubsystem, activeColor: Colors.blueAccent, onChanged: (v) => setState(() => windowsSubsystem = v)),
+            trailing: Switch(
+              value: state.windowsSubsystem, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (v) => state.updateDesktopSetting('windowsSubsystem', v)
+            ),
           ),
           SettingsCard(
             title: 'Experimental Web Engine',
             subtitle: 'Use the latest WebView rendering engine for Edge',
             icon: Icons.public,
-            trailing: Switch(value: experimentalEngine, activeColor: Colors.blueAccent, onChanged: (v) => setState(() => experimentalEngine = v)),
+            trailing: Switch(
+              value: state.experimentalEngine, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (v) => state.updateDesktopSetting('experimentalEngine', v)
+            ),
           ),
           const SizedBox(height: 16),
           Padding(
@@ -100,7 +107,6 @@ class _OptionalFeaturesScreenState extends State<OptionalFeaturesScreen> {
             title: 'Unknown app sources',
             subtitle: 'Allow installation of apps from unverified sources',
             icon: Icons.security,
-            // FIXED: Routed to security settings instead of manageUnknownAppSources
             onTap: () => AppSettings.openAppSettings(type: AppSettingsType.security),
           ),
           SettingsCard(

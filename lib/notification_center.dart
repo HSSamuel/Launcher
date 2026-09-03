@@ -27,7 +27,8 @@ class NotificationCenterPanel extends StatefulWidget {
   State<NotificationCenterPanel> createState() => _NotificationCenterPanelState();
 }
 
-class _NotificationCenterPanelState extends State<NotificationCenterPanel> {
+// UPDATED: Added WidgetsBindingObserver to manage background states
+class _NotificationCenterPanelState extends State<NotificationCenterPanel> with WidgetsBindingObserver {
   late DateTime _now;
   late DateTime _currentMonth;
   DateTime? _selectedDate;
@@ -52,20 +53,43 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _now = DateTime.now();
     _currentMonth = DateTime(_now.year, _now.month, 1);
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
     
+    _startTimer();
     _syncGoogleCalendar();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopTimer();
     super.dispose();
+  }
+
+  // UPDATED: Pause timer when app is in the background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) setState(() => _now = DateTime.now());
+      _startTimer();
+      _syncGoogleCalendar();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _stopTimer();
+    }
+  }
+
+  void _startTimer() {
+    _stopTimer();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
   
   Future<void> _syncGoogleCalendar() async {

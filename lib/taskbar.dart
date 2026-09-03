@@ -38,24 +38,48 @@ class Win11Taskbar extends StatefulWidget {
   State<Win11Taskbar> createState() => _Win11TaskbarState();
 }
 
-class _Win11TaskbarState extends State<Win11Taskbar> {
-  late Timer _timer;
+// UPDATED: Added WidgetsBindingObserver to manage background states
+class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver {
+  Timer? _timer;
   late DateTime _now;
   static const platform = MethodChannel('win_launcher/native');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _now = DateTime.now();
+    _startTimer();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopTimer();
+    super.dispose();
+  }
+
+  // UPDATED: Pause timer when app is in the background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) setState(() => _now = DateTime.now());
+      _startTimer();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      _stopTimer();
+    }
+  }
+
+  void _startTimer() {
+    _stopTimer();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) setState(() => _now = DateTime.now());
     });
   }
 
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   String _formatTime(DateTime time) {

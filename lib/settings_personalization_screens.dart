@@ -310,24 +310,48 @@ class DesktopSettingsScreen extends StatelessWidget {
 }
 
 // --- 7. File Manager Screen ---
-class FileManagerScreen extends StatefulWidget {
+class FileManagerScreen extends StatelessWidget {
   const FileManagerScreen({Key? key}) : super(key: key);
-  @override
-  State<FileManagerScreen> createState() => _FileManagerScreenState();
-}
-class _FileManagerScreenState extends State<FileManagerScreen> {
-  bool showHidden = false; bool preview = false; bool mouseSound = false;
+
   @override
   Widget build(BuildContext context) {
+    // UPDATED: Converted to Stateless Widget to persist data through LauncherState
+    final state = context.watch<LauncherState>();
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: const SubScreenAppBar(title: 'Personalization > File manager'),
       body: ListView(
-        padding: const EdgeInsets.all(12), physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(12), 
+        physics: const BouncingScrollPhysics(),
         children: [
-          SettingsCard(title: 'Show hidden files', icon: Icons.visibility_off_outlined, trailing: Switch(value: showHidden, activeColor: Colors.blueAccent, onChanged: (val) => setState(() => showHidden = val))),
-          SettingsCard(title: 'Preview files', icon: Icons.preview_outlined, trailing: Switch(value: preview, activeColor: Colors.blueAccent, onChanged: (val) => setState(() => preview = val))),
-          SettingsCard(title: 'Mouse click sound', icon: Icons.mouse_outlined, trailing: Switch(value: mouseSound, activeColor: Colors.blueAccent, onChanged: (val) => setState(() => mouseSound = val))),
+          SettingsCard(
+            title: 'Show hidden files', 
+            icon: Icons.visibility_off_outlined, 
+            trailing: Switch(
+              value: state.showHiddenFiles, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (val) => state.updateDesktopSetting('showHiddenFiles', val)
+            ),
+          ),
+          SettingsCard(
+            title: 'Preview files', 
+            icon: Icons.preview_outlined, 
+            trailing: Switch(
+              value: state.previewFiles, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (val) => state.updateDesktopSetting('previewFiles', val)
+            ),
+          ),
+          SettingsCard(
+            title: 'Mouse click sound', 
+            icon: Icons.mouse_outlined, 
+            trailing: Switch(
+              value: state.mouseSound, 
+              activeColor: Colors.blueAccent, 
+              onChanged: (val) => state.updateDesktopSetting('mouseSound', val)
+            ),
+          ),
         ],
       ),
     );
