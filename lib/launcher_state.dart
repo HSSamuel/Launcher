@@ -377,6 +377,14 @@ class LauncherState extends ChangeNotifier {
       recentApps.insert(0, packageName);
       if (recentApps.length > 6) recentApps.removeLast();
 
+      // FIX: Add native app to the Taskbar Window Stack so it appears open
+      if (!windowStack.contains(packageName)) {
+        windowStack.add(packageName);
+      } else {
+        windowStack.remove(packageName);
+        windowStack.add(packageName); // Bring to front
+      }
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('recentApps', recentApps);
       notifyListeners();

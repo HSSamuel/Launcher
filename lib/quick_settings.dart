@@ -76,9 +76,7 @@ class _QuickSettingsState extends State<QuickSettings> {
   Widget _buildTile(String key, bool isDark, Color accentColor, Color primaryText, Color inactiveTileBg, {bool isEditMode = false, bool isHidden = false}) {
     bool isActive = widget.settingsState[key] ?? false;
     
-    // Dynamic Theme Colors for the Tile
     Color bgColor = isEditMode ? inactiveTileBg : (isActive ? accentColor : inactiveTileBg);
-    // Active tiles get white text for contrast, inactive get theme primary text
     Color contentColor = isEditMode ? primaryText : (isActive ? Colors.white : primaryText);
 
     return InkWell(
@@ -258,15 +256,16 @@ class _QuickSettingsState extends State<QuickSettings> {
     final state = context.watch<LauncherState>();
     final isDark = state.isDarkMode;
     
-    // Fetch the active Windows 11 Theme
     final theme = state.win11Themes.firstWhere((t) => t.name == state.currentThemeName, orElse: () => state.win11Themes.first);
     final accentColor = theme.accentColor;
 
-    // Map all colors to Light/Dark Mode
     final primaryText = isDark ? Colors.white : Colors.black87;
     final secText = isDark ? Colors.white70 : Colors.black54;
     final borderCol = isDark ? Colors.white24 : Colors.grey.shade300;
-    final panelBg = isDark ? const Color(0xFF1C1C1C).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
+    
+    final baseBg = isDark ? const Color(0xFF1C1C1C) : const Color(0xFFF3F3F3);
+    final panelBg = Color.alphaBlend(accentColor.withOpacity(0.08), baseBg).withOpacity(0.95);
+    
     final inactiveTileBg = isDark ? Colors.white10 : Colors.grey.shade200;
     final inactiveTrackColor = isDark ? Colors.white24 : Colors.grey.shade300;
 

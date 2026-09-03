@@ -19,17 +19,29 @@ class Win11LauncherApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<LauncherState>(
       builder: (context, state, child) {
+        // Fetch the active theme's predefined accent color
+        final activeTheme = state.win11Themes.firstWhere(
+          (t) => t.name == state.currentThemeName, 
+          orElse: () => state.win11Themes.first
+        );
+        final seedColor = activeTheme.accentColor;
+
         return MaterialApp(
           debugShowCheckedModeBanner: false,
           title: 'Windows 11 Launcher',
           themeMode: state.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          theme: ThemeData.light().copyWith(
+          
+          // Dynamic Colors Implementation using seedColor
+          theme: ThemeData(
+            useMaterial3: true,
+            colorSchemeSeed: seedColor,
             scaffoldBackgroundColor: const Color(0xFFF3F3F3),
-            colorScheme: const ColorScheme.light(primary: Colors.blueAccent),
           ),
-          darkTheme: ThemeData.dark().copyWith(
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorSchemeSeed: seedColor,
+            brightness: Brightness.dark,
             scaffoldBackgroundColor: const Color(0xFF191919),
-            colorScheme: const ColorScheme.dark(primary: Colors.blueAccent),
           ),
           home: const LockScreen(), 
         );

@@ -16,10 +16,10 @@ class FileExplorerApp extends StatefulWidget {
   const FileExplorerApp({Key? key}) : super(key: key);
 
   @override
-  State<FileExplorerApp> createState() => _FileExplorerAppState();
+  State<FileExplorerApp> createState() => FileExplorerAppState();
 }
 
-class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObserver {
+class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObserver {
   static const platform = MethodChannel('win_launcher/native');
 
   bool _hasPermission = false;
@@ -32,13 +32,18 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   double _totalGB = 228.01;
   double _freeGB = 95.96;
 
-  String? _selectedPath;
-  FileSystemEntity? _selectedEntity;
+  Set<String> _selectedPaths = {};
+  bool _isMultiSelectMode = false;
   
   bool _isContextMenuOpen = false;
   Offset _contextMenuPos = Offset.zero;
   String? _activeSubMenu;
   double _subMenuYOffset = 0;
+  
+  // FIXED: Declared the missing context menu variables here at the top!
+  String _contextMenuType = 'desktop'; 
+  String _contextTargetName = '';
+  VoidCallback? _contextOpenAction;
 
   bool _isQuickAccessExpanded = true;
   bool _isThisPCExpanded = true;
@@ -170,8 +175,8 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           _isAtHome = false;
           _currentDir = dir;
           _files = items;
-          _selectedPath = null;
-          _selectedEntity = null;
+          _selectedPaths.clear();
+          _isMultiSelectMode = false;
           _isContextMenuOpen = false;
         });
       }
@@ -186,14 +191,14 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     }
     setState(() {
       _isAtHome = true;
-      _selectedPath = null;
-      _selectedEntity = null;
+      _selectedPaths.clear();
+      _isMultiSelectMode = false;
       _isContextMenuOpen = false;
     });
   }
 
-  void _goBack() {
-    if (_pathHistory.isEmpty) return;
+  bool goBack() {
+    if (_pathHistory.isEmpty) return false;
     
     String prevPath = _pathHistory.removeLast();
     if (prevPath == 'HOME') {
@@ -201,6 +206,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     } else {
       _loadDirectorySafe(prevPath, isBack: true);
     }
+    return true;
   }
   
   void _showToast(String message) {
@@ -210,7 +216,6 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  // --- ASYNC FILE OPERATIONS ---
   void _createNewFolder() {
     final isDark = context.read<LauncherState>().isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
@@ -251,11 +256,15 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  void _renameFile(FileSystemEntity entity) {
+  void _renameFile() {
+    if (_selectedPaths.length != 1) return;
+    
     final isDark = context.read<LauncherState>().isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
-    String oldName = entity.path.split('/').last;
+    
+    final entityPath = _selectedPaths.first;
+    String oldName = entityPath.split('/').last;
     TextEditingController controller = TextEditingController(text: oldName);
     
     showDialog(
@@ -276,6 +285,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           TextButton(
             onPressed: () async {
               try {
+                final entity = File(entityPath);
                 await entity.rename('${entity.parent.path}/${controller.text}');
                 await _loadDirectory(_currentDir);
                 _showToast('Renamed to ${controller.text}');
@@ -289,14 +299,18 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  Future<void> _deleteFile(FileSystemEntity entity) async {
+  Future<void> _deleteSelectedFiles() async {
     try {
-      if (await entity.exists()) {
-        await entity.delete(recursive: true);
-        await _loadDirectory(_currentDir);
-        _showToast('File deleted');
+      for (String path in _selectedPaths) {
+        final isDir = await FileSystemEntity.isDirectory(path);
+        final entity = isDir ? Directory(path) : File(path);
+        if (await entity.exists()) {
+          await entity.delete(recursive: true);
+        }
       }
-    } catch (_) { _showToast('Error deleting file'); }
+      await _loadDirectory(_currentDir);
+      _showToast('Deleted ${_selectedPaths.length} items');
+    } catch (_) { _showToast('Error deleting files'); }
   }
 
   Future<void> _pasteFile() async {
@@ -325,8 +339,9 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     }
   }
 
-  Future<void> _compressFile(FileSystemEntity entity, String ext) async {
+  Future<void> _compressFile(String path, String ext) async {
     try {
+      final entity = File(path);
       final name = entity.path.split('/').last;
       final newPath = '${entity.parent.path}/$name$ext';
       await File(newPath).create();
@@ -335,14 +350,11 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     } catch (_) { _showToast('Error creating archive'); }
   }
 
-  // Properties Helper for Menus
-  void _showPropertiesDialog(FileSystemEntity? overrideEntity) async {
-    final entity = overrideEntity ?? _selectedEntity;
-    if (entity == null && _isAtHome) {
+  void _showPropertiesDialog() async {
+    if (_selectedPaths.length != 1) {
        _showSystemPropertiesDialog();
        return;
     }
-    if (entity == null) return;
 
     try {
       final isDark = context.read<LauncherState>().isDarkMode;
@@ -350,6 +362,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       final textColor = isDark ? Colors.white : Colors.black87;
       final subTextColor = isDark ? Colors.white70 : Colors.black54;
 
+      final entity = File(_selectedPaths.first);
       final stat = await entity.stat();
       final size = stat.size;
       final modified = stat.modified.toString().split('.')[0];
@@ -406,10 +419,10 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     );
   }
 
-  // Zip Helper for Menus
   void _mockZipCreation(String extension) {
+    if (_selectedPaths.isEmpty) return;
     try {
-      final name = _selectedEntity != null ? _selectedEntity!.path.split('/').last : 'Archive';
+      final name = _selectedPaths.first.split('/').last;
       final newZipPath = '/storage/emulated/0/$name$extension';
       File(newZipPath).createSync();
       _showToast('Successfully compressed to $name$extension');
@@ -565,7 +578,8 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
 
   Widget _buildToolbar(bool isDark) {
     final state = context.watch<LauncherState>();
-    final isSelected = _selectedEntity != null;
+    final isSelected = _selectedPaths.isNotEmpty;
+    final isSingleSelected = _selectedPaths.length == 1;
     final canPaste = state.clipboardPath != null;
     final activeColor = const Color(0xFF0078D4);
     final borderColor = isDark ? Colors.white12 : Colors.grey.shade200;
@@ -596,12 +610,12 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
               scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
               child: Row(
                 children: [
-                  _toolBtn(Icons.content_cut, isDark, disabled: !isSelected, color: activeColor, onTap: () { state.setClipboard(_selectedEntity!.path, true); _showToast('Cut to clipboard'); }),
-                  _toolBtn(Icons.content_copy, isDark, disabled: !isSelected, color: activeColor, onTap: () { state.setClipboard(_selectedEntity!.path, false); _showToast('Copied to clipboard'); }),
+                  _toolBtn(Icons.content_cut, isDark, disabled: !isSingleSelected, color: activeColor, onTap: () { state.setClipboard(_selectedPaths.first, true); _showToast('Cut to clipboard'); }),
+                  _toolBtn(Icons.content_copy, isDark, disabled: !isSingleSelected, color: activeColor, onTap: () { state.setClipboard(_selectedPaths.first, false); _showToast('Copied to clipboard'); }),
                   _toolBtn(Icons.assignment_outlined, isDark, disabled: !canPaste, color: activeColor, onTap: _pasteFile),
-                  _toolBtn(Icons.drive_file_rename_outline, isDark, disabled: !isSelected, color: activeColor, onTap: () => _renameFile(_selectedEntity!)),
-                  _toolBtn(Icons.share_outlined, isDark, disabled: !isSelected, color: activeColor, onTap: () => _showToast('Opening Share menu...')),
-                  _toolBtn(Icons.delete_outline, isDark, disabled: !isSelected, color: activeColor, onTap: () => _deleteFile(_selectedEntity!)),
+                  _toolBtn(Icons.drive_file_rename_outline, isDark, disabled: !isSingleSelected, color: activeColor, onTap: _renameFile),
+                  _toolBtn(Icons.share_outlined, isDark, disabled: !isSingleSelected, color: activeColor, onTap: () => _showToast('Opening Share menu...')),
+                  _toolBtn(Icons.delete_outline, isDark, disabled: !isSelected, color: activeColor, onTap: _deleteSelectedFiles),
                   _divider(isDark),
                 ],
               ),
@@ -664,7 +678,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200))),
       child: Row(
         children: [
-          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: _pathHistory.isEmpty ? null : _goBack, style: btnStyle), 
+          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: _pathHistory.isEmpty ? null : goBack, style: btnStyle), 
           const SizedBox(width: 2),
           IconButton(icon: Icon(Icons.arrow_forward, size: 18, color: isDark ? Colors.white30 : Colors.black38), onPressed: null, style: btnStyle), 
           const SizedBox(width: 4),
@@ -1057,9 +1071,9 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
   }
 
   Widget _buildFolderContextMenu(LauncherState state) {
-    if (_selectedEntity == null) return const SizedBox.shrink();
-    final name = _selectedEntity!.path.split('/').last;
-    final isDir = _selectedEntity is Directory;
+    if (_selectedPaths.isEmpty) return const SizedBox.shrink();
+    final name = _selectedPaths.first.split('/').last;
+    final isDir = true; 
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1071,9 +1085,9 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           iconColor: isDir ? Colors.amber.shade400 : Colors.blueAccent, 
           onTap: () { 
             if (isDir) {
-              _loadDirectory(_selectedEntity as Directory); 
+              _loadDirectory(Directory(_selectedPaths.first)); 
             } else {
-              platform.invokeMethod('openFile', {'path': _selectedEntity!.path});
+              platform.invokeMethod('openFile', {'path': _selectedPaths.first});
             }
           }
         ),
@@ -1109,7 +1123,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           'Properties', 
           Icons.build_circle_outlined, 
           state,
-          onTap: () => _showPropertiesDialog(_selectedEntity)
+          onTap: () => _showPropertiesDialog()
         ),
         _buildContextDivider(state),
         _buildContextMenuItem(
@@ -1146,15 +1160,15 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       onTap: () {
         _closeOverlays();
         if (label == 'Cut') {
-           state.setClipboard(_selectedEntity!.path, true); 
+           state.setClipboard(_selectedPaths.first, true); 
            _showToast('Cut to clipboard'); 
         } else if (label == 'Copy') {
-           state.setClipboard(_selectedEntity!.path, false); 
+           state.setClipboard(_selectedPaths.first, false); 
            _showToast('Copied to clipboard'); 
         } else if (label == 'Rename') {
-           _renameFile(_selectedEntity!); 
+           _renameFile(); 
         } else if (label == 'Delete') {
-           _deleteFile(_selectedEntity!); 
+           _deleteSelectedFiles(); 
         }
       },
       hoverColor: hoverColor,
@@ -1216,7 +1230,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
             null, 
             state,
             onTap: () { 
-              state.setClipboard(_selectedEntity!.path, true); 
+              state.setClipboard(_selectedPaths.first, true); 
               _showToast('Cut to clipboard'); 
             }
           ),
@@ -1225,15 +1239,15 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
             null, 
             state,
             onTap: () { 
-              state.setClipboard(_selectedEntity!.path, false); 
+              state.setClipboard(_selectedPaths.first, false); 
               _showToast('Copied to clipboard'); 
             }
           ),
           _buildContextDivider(state),
-          _buildContextMenuItem('Delete', null, state, onTap: () => _deleteFile(_selectedEntity!)),
-          _buildContextMenuItem('Rename', null, state, onTap: () => _renameFile(_selectedEntity!)),
+          _buildContextMenuItem('Delete', null, state, onTap: () => _deleteSelectedFiles()),
+          _buildContextMenuItem('Rename', null, state, onTap: () => _renameFile()),
           _buildContextDivider(state),
-          _buildContextMenuItem('Properties', null, state, onTap: () => _showPropertiesDialog(_selectedEntity)),
+          _buildContextMenuItem('Properties', null, state, onTap: () => _showPropertiesDialog()),
         ],
       );
     } else if (_activeSubMenu == 'send_to') {
@@ -1315,10 +1329,6 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
       ]
     );
   }
-  
-  String _contextMenuType = 'folder'; 
-  String _contextTargetName = '';
-  VoidCallback? _contextOpenAction;
 
   Widget _buildRealFileList(bool isDark) {
     if (_files.isEmpty) return const Center(child: Text("Empty Folder", style: TextStyle(color: Colors.grey)));
@@ -1326,13 +1336,13 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white70 : Colors.grey.shade600;
     final hoverColor = isDark ? Colors.white10 : const Color(0xFFE5E5E5);
-    final borderColor = isDark ? Colors.white30 : Colors.grey.shade400;
+    final borderColor = isDark ? Colors.white30 : Colors.blueAccent.withOpacity(0.5);
 
     return GestureDetector(
       onTap: () { 
         setState(() { 
-          _selectedPath = null; 
-          _selectedEntity = null; 
+          _selectedPaths.clear();
+          _isMultiSelectMode = false;
         }); 
         _closeOverlays(); 
       },
@@ -1361,27 +1371,39 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
               final item = _files[index];
               final isDir = item.entity is Directory;
               final name = item.entity.path.split('/').last;
-              final isSelected = _selectedPath == item.entity.path;
+              
+              final isSelected = _selectedPaths.contains(item.entity.path);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) => setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
-                onLongPressStart: (details) => setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
+                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
+                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
                 onTap: () async {
-                  if (_selectedPath == item.entity.path) { 
-                    if (isDir) {
-                      await _loadDirectorySafe(item.entity.path); 
-                    } else {
-                      platform.invokeMethod('openFile', {'path': item.entity.path});
+                  if (_isMultiSelectMode) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedPaths.remove(item.entity.path);
+                        if (_selectedPaths.isEmpty) _isMultiSelectMode = false;
+                      } else {
+                        _selectedPaths.add(item.entity.path);
+                      }
+                    });
+                  } else {
+                    if (isSelected && _selectedPaths.length == 1) { 
+                      if (isDir) {
+                        await _loadDirectorySafe(item.entity.path); 
+                      } else {
+                        platform.invokeMethod('openFile', {'path': item.entity.path});
+                      }
+                    } else { 
+                      setState(() { _selectedPaths = {item.entity.path}; });
                     }
-                  } else { 
-                    setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; });
                   }
                 },
                 child: Container(
                   decoration: BoxDecoration(
                     color: isSelected ? hoverColor : Colors.transparent, 
                     borderRadius: BorderRadius.circular(4), 
-                    border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 0.6)
+                    border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 1.0)
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -1412,23 +1434,35 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
               final item = _files[index];
               final isDir = item.entity is Directory;
               final name = item.entity.path.split('/').last;
-              final isSelected = _selectedPath == item.entity.path;
+              
+              final isSelected = _selectedPaths.contains(item.entity.path);
               
               final timeStr = _formatAuthenticDate(item.stat);
               final sizeStr = _getSizeOrCount(item);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) => setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
-                onLongPressStart: (details) => setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
+                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
+                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
                 onTap: () async {
-                  if (_selectedPath == item.entity.path) { 
-                    if (isDir) {
-                      await _loadDirectorySafe(item.entity.path); 
-                    } else {
-                      platform.invokeMethod('openFile', {'path': item.entity.path});
+                  if (_isMultiSelectMode) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedPaths.remove(item.entity.path);
+                        if (_selectedPaths.isEmpty) _isMultiSelectMode = false;
+                      } else {
+                        _selectedPaths.add(item.entity.path);
+                      }
+                    });
+                  } else {
+                    if (isSelected && _selectedPaths.length == 1) { 
+                      if (isDir) {
+                        await _loadDirectorySafe(item.entity.path); 
+                      } else {
+                        platform.invokeMethod('openFile', {'path': item.entity.path});
+                      }
+                    } else { 
+                      setState(() { _selectedPaths = {item.entity.path}; });
                     }
-                  } else { 
-                    setState(() { _selectedPath = item.entity.path; _selectedEntity = item.entity; });
                   }
                 },
                 child: Container(
@@ -1437,7 +1471,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
                   decoration: BoxDecoration(
                     color: isSelected ? hoverColor : Colors.transparent, 
                     borderRadius: BorderRadius.circular(4), 
-                    border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 0.6)
+                    border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 1.0)
                   ),
                   child: Row(
                     children: [
@@ -1557,7 +1591,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
             Text('7 items', style: TextStyle(fontSize: 11, color: textColor)),
           ] else ...[
             Text(
-              '${_files.length} items  |  ${_selectedPath != null ? '1 item selected  |' : ''}', 
+              '${_files.length} items  |  ${_selectedPaths.isNotEmpty ? '${_selectedPaths.length} items selected  |' : ''}', 
               style: TextStyle(fontSize: 11, color: textColor)
             ), 
             const Spacer(), 
@@ -1612,7 +1646,7 @@ class _FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingOb
           onKeyEvent: (node, event) {
             if (event is KeyDownEvent && (event.logicalKey == LogicalKeyboardKey.goBack || event.logicalKey == LogicalKeyboardKey.escape)) {
               if (!_isAtHome && _pathHistory.isNotEmpty) {
-                _goBack();
+                goBack();
                 return KeyEventResult.handled;
               }
             }

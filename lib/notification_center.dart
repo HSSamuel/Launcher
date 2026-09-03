@@ -10,6 +10,7 @@ import 'launcher_state.dart';
 class NotificationCenterPanel extends StatefulWidget {
   final List<Map<String, dynamic>> notifications;
   final VoidCallback onClearAll;
+  final VoidCallback onClosePanel; 
   final Function(Map<String, dynamic>) onRemoveNotification;
   final Function(String) onLaunchApp;
   final List<AppInfo> installedApps; 
@@ -18,6 +19,7 @@ class NotificationCenterPanel extends StatefulWidget {
     Key? key,
     required this.notifications,
     required this.onClearAll,
+    required this.onClosePanel,
     required this.onRemoveNotification,
     required this.onLaunchApp,
     required this.installedApps,
@@ -27,7 +29,6 @@ class NotificationCenterPanel extends StatefulWidget {
   State<NotificationCenterPanel> createState() => _NotificationCenterPanelState();
 }
 
-// UPDATED: Added WidgetsBindingObserver to manage background states
 class _NotificationCenterPanelState extends State<NotificationCenterPanel> with WidgetsBindingObserver {
   late DateTime _now;
   late DateTime _currentMonth;
@@ -68,7 +69,6 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     super.dispose();
   }
 
-  // UPDATED: Pause timer when app is in the background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -175,6 +175,15 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     );
   }
 
+  // FIX: This function triggers the intent cleanly after the panel has started closing
+  void _triggerDeepLink(String key, String pkg) async {
+    widget.onClosePanel();
+    // Micro-delay ensures the overlay closes before the heavy intent fires
+    await Future.delayed(const Duration(milliseconds: 150));
+    bool success = await platform.invokeMethod('triggerNotificationAction', {'key': key, 'actionIndex': -1});
+    if (!success) platform.invokeMethod('launchApp', {'package': pkg});
+  }
+
   Widget _buildGroupedNotificationSection(
     String pkg,
     List<Map<String, dynamic>> events,
@@ -216,6 +225,7 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header Toggle
             Material(
               color: Colors.transparent,
               child: InkWell(
@@ -257,9 +267,10 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
               ),
             ),
             
+            // Body Content
             if (!isExpanded) ...[
               InkWell(
-                onTap: () => widget.onLaunchApp(pkg),
+                onTap: () => _triggerDeepLink(firstEvent['key'], pkg),
                 child: Padding(
                   padding: const EdgeInsets.only(left: 34.0, right: 10.0, bottom: 10.0),
                   child: Column(
@@ -283,8 +294,9 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
                 child: Column(
                   children: events.asMap().entries.map((entry) {
                     var e = entry.value;
+                    List<dynamic> actions = e['actions'] ?? [];
                     return InkWell(
-                      onTap: () => widget.onLaunchApp(pkg),
+                      onTap: () => _triggerDeepLink(e['key'], pkg),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
                         child: Row(
@@ -292,7 +304,32 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
                           children: [
                             Container(width: 2, height: 24, margin: const EdgeInsets.only(right: 8, top: 4), color: Colors.blue.shade400),
                             Expanded(
-                              child: _buildMultiLineContent(e, isDark, primaryText, secText),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildMultiLineContent(e, isDark, primaryText, secText),
+                                  // Action Buttons (Reply/Mark Read) - DO NOT close panel on tap
+                                  if (actions.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8.0),
+                                      child: Wrap(
+                                        spacing: 8,
+                                        children: actions.map((action) {
+                                          return InkWell(
+                                            onTap: () {
+                                              platform.invokeMethod('triggerNotificationAction', {'key': e['key'], 'actionIndex': action['index']});
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.05), borderRadius: BorderRadius.circular(4)),
+                                              child: Text(action['title'] ?? 'Action', style: TextStyle(fontSize: 11, color: Colors.blueAccent.shade400, fontWeight: FontWeight.bold)),
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    )
+                                ],
+                              ),
                             ),
                             InkWell(
                               onTap: () => widget.onRemoveNotification(e),
@@ -546,11 +583,13 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     final accentColor = theme.accentColor;
     
     final primaryText = isDark ? Colors.white : Colors.black87;
-    final secText = isDark ? Colors.white70 : Colors.grey.shade600;
+    final secText = isDark ? Colors.white70 : Colors.grey.shade700;
     final borderCol = isDark ? Colors.white24 : Colors.grey.shade200;
     final cardBg = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final calBg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF3F3F3);
-    final panelBg = isDark ? const Color(0xFF1E1E1E).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.98);
+    
+    final baseBg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF3F3F3);
+    final panelBg = Color.alphaBlend(accentColor.withOpacity(0.08), baseBg).withOpacity(0.98);
 
     Map<String, List<Map<String, dynamic>>> groupedNotifications = {};
     for (var n in widget.notifications) {
@@ -570,7 +609,6 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
         children: [
           _buildNotificationHeader(isDark, primaryText, borderCol, cardBg),
           
-          // FIX 3: Removed Flexible when empty, causing the panel to cleanly shrink fit to the calendar
           if (widget.notifications.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 40.0),

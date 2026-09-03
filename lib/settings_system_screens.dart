@@ -1,8 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'settings_widgets.dart'; // Import our new shared widgets
+
+import 'launcher_state.dart';
+import 'settings_widgets.dart';
 
 // --- Notifications Screen ---
 class NotificationsScreen extends StatefulWidget {
@@ -52,6 +56,10 @@ class _RecentAppsScreenState extends State<RecentAppsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<LauncherState>().isDarkMode;
+    final valueColor = isDark ? Colors.white70 : Colors.black54;
+    final trackColor = isDark ? Colors.white24 : Colors.grey.shade300;
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: const SubScreenAppBar(title: 'System > Recent apps'),
@@ -64,15 +72,15 @@ class _RecentAppsScreenState extends State<RecentAppsScreen> {
           ),
           SettingsCard(
             title: 'Max apps to show', subtitle: 'Number of items to log in recent apps', icon: Icons.linear_scale,
-            trailing: Text(maxApps.toInt().toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54)),
+            trailing: Text(maxApps.toInt().toString(), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: valueColor)),
           ),
-          Slider(value: maxApps, min: 0, max: 50, divisions: 50, activeColor: Colors.blueAccent, inactiveColor: Colors.grey.shade300, onChanged: (val) => setState(() => maxApps = val)),
+          Slider(value: maxApps, min: 0, max: 50, divisions: 50, activeColor: Colors.blueAccent, inactiveColor: trackColor, onChanged: (val) => setState(() => maxApps = val)),
           const SizedBox(height: 10),
           SettingsCard(
             title: 'Grid count horizontally', subtitle: 'Change this to increase or decrease icons count horizontally', icon: Icons.grid_4x4,
-            trailing: Text(gridCount.toInt().toString(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54)),
+            trailing: Text(gridCount.toInt().toString(), style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: valueColor)),
           ),
-          Slider(value: gridCount, min: 1, max: 7, divisions: 6, activeColor: Colors.blueAccent, inactiveColor: Colors.grey.shade300, onChanged: (val) => setState(() => gridCount = val)),
+          Slider(value: gridCount, min: 1, max: 7, divisions: 6, activeColor: Colors.blueAccent, inactiveColor: trackColor, onChanged: (val) => setState(() => gridCount = val)),
         ],
       ),
     );
@@ -87,8 +95,9 @@ class AboutScreen extends StatefulWidget {
 }
 
 class _AboutScreenState extends State<AboutScreen> {
-  bool _isDeviceExpanded = true;
-  bool _isLauncherExpanded = true;
+  // FIX: Dropdowns are now closed by default
+  bool _isDeviceExpanded = false;
+  bool _isLauncherExpanded = false;
   
   String deviceName = "Loading...";
   String androidVersion = "...";
@@ -96,8 +105,15 @@ class _AboutScreenState extends State<AboutScreen> {
   String model = "...";
   String processor = "...";
   String screenRes = "...";
+  
+  // FIX: Added storage metrics
+  String totalStorage = "...";
+  String freeStorage = "...";
+  
   String launcherVersion = "...";
   String launcherBuild = "...";
+
+  static const platform = MethodChannel('win_launcher/native');
 
   @override
   void initState() {
@@ -112,23 +128,48 @@ class _AboutScreenState extends State<AboutScreen> {
         AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
         PackageInfo packageInfo = await PackageInfo.fromPlatform();
 
-        setState(() {
-          deviceName = androidInfo.model;
-          androidVersion = androidInfo.version.release;
-          buildNumber = androidInfo.version.sdkInt.toString();
-          model = androidInfo.model;
-          processor = androidInfo.hardware;
-          launcherVersion = packageInfo.version;
-          launcherBuild = packageInfo.buildNumber;
-        });
+        // Fetch Storage dynamically using the native method we already built
+        double tGB = 0;
+        double fGB = 0;
+        try {
+          final Map<dynamic, dynamic>? stats = await platform.invokeMethod('getStorageStats');
+          if (stats != null) {
+            tGB = stats['total'] / (1024 * 1024 * 1024);
+            fGB = stats['free'] / (1024 * 1024 * 1024);
+          }
+        } catch (_) {}
+
+        if (mounted) {
+          setState(() {
+            deviceName = androidInfo.model;
+            androidVersion = androidInfo.version.release;
+            buildNumber = androidInfo.version.sdkInt.toString();
+            model = androidInfo.model;
+            processor = androidInfo.hardware;
+            launcherVersion = packageInfo.version;
+            launcherBuild = packageInfo.buildNumber;
+            
+            if (tGB > 0) {
+              totalStorage = "${tGB.toStringAsFixed(2)} GB";
+              freeStorage = "${fGB.toStringAsFixed(2)} GB";
+            }
+          });
+        }
       }
     } catch (_) {}
   }
 
-  Widget _buildExpandableCard({required String title, required String subtitle, required IconData icon, required bool isExpanded, required VoidCallback onToggle, required Widget children}) {
+  // FIX: Added dark mode support to the custom Expandable Card
+  Widget _buildExpandableCard({required String title, required String subtitle, required IconData icon, required bool isExpanded, required VoidCallback onToggle, required Widget children, required bool isDark}) {
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final borderColor = isDark ? Colors.white10 : Colors.grey.shade300;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.grey.shade700;
+    final iconColor = isDark ? Colors.white70 : Colors.black54;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10), 
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.grey.shade300, width: 0.8)),
+      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(6), border: Border.all(color: borderColor, width: 0.8)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -138,18 +179,18 @@ class _AboutScreenState extends State<AboutScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14), 
               child: Row(
                 children: [
-                  Icon(icon, size: 24, color: Colors.black54), const SizedBox(width: 16),
+                  Icon(icon, size: 24, color: iconColor), const SizedBox(width: 16),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+                        Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: textColor)),
                         const SizedBox(height: 2),
-                        Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+                        Text(subtitle, style: TextStyle(fontSize: 11, color: subTextColor)),
                       ],
                     ),
                   ),
-                  Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 22, color: Colors.black87),
+                  Icon(isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 22, color: textColor),
                 ],
               ),
             ),
@@ -160,14 +201,18 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  // FIX: Added dark mode support to the Info Rows
+  Widget _buildInfoRow(String label, String value, bool isDark) {
+    final labelColor = isDark ? Colors.white : Colors.black87;
+    final valueColor = isDark ? Colors.white54 : Colors.black54;
+    
     return Padding(
-      padding: const EdgeInsets.only(bottom: 4.0),
+      padding: const EdgeInsets.only(bottom: 6.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: Colors.black87)),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 12, color: Colors.black54))),
+          Text(label, style: TextStyle(fontSize: 12, color: labelColor)),
+          Expanded(child: Text(value, style: TextStyle(fontSize: 12, color: valueColor))),
         ],
       ),
     );
@@ -175,6 +220,9 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<LauncherState>();
+    final isDark = state.isDarkMode;
+    
     final size = MediaQuery.of(context).size;
     final ratio = MediaQuery.of(context).devicePixelRatio;
     screenRes = '${(size.width * ratio).toInt()} x ${(size.height * ratio).toInt()}';
@@ -188,17 +236,20 @@ class _AboutScreenState extends State<AboutScreen> {
           _buildExpandableCard(
             title: 'Device specifications', subtitle: deviceName, icon: Icons.phone_android,
             isExpanded: _isDeviceExpanded, onToggle: () => setState(() => _isDeviceExpanded = !_isDeviceExpanded),
+            isDark: isDark,
             children: Padding(
               padding: const EdgeInsets.fromLTRB(56, 0, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildInfoRow('Device name : ', deviceName),
-                  _buildInfoRow('Android version : ', androidVersion),
-                  _buildInfoRow('Build number : ', buildNumber),
-                  _buildInfoRow('Model : ', model),
-                  _buildInfoRow('Processor : ', processor),
-                  _buildInfoRow('Screen resolution : ', screenRes),
+                  _buildInfoRow('Device name : ', deviceName, isDark),
+                  _buildInfoRow('Android version : ', androidVersion, isDark),
+                  _buildInfoRow('Build number : ', buildNumber, isDark),
+                  _buildInfoRow('Model : ', model, isDark),
+                  _buildInfoRow('Processor : ', processor, isDark),
+                  _buildInfoRow('Screen resolution : ', screenRes, isDark),
+                  _buildInfoRow('Total Storage : ', totalStorage, isDark),
+                  _buildInfoRow('Free Storage : ', freeStorage, isDark),
                 ],
               ),
             ),
@@ -206,13 +257,14 @@ class _AboutScreenState extends State<AboutScreen> {
           _buildExpandableCard(
             title: 'Launcher specifications', subtitle: 'v$launcherVersion', icon: Icons.grid_view,
             isExpanded: _isLauncherExpanded, onToggle: () => setState(() => _isLauncherExpanded = !_isLauncherExpanded),
+            isDark: isDark,
             children: Padding(
               padding: const EdgeInsets.fromLTRB(56, 0, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildInfoRow('Build name : ', 'v$launcherVersion'),
-                  _buildInfoRow('Build version : ', launcherBuild),
+                  _buildInfoRow('Build name : ', 'v$launcherVersion', isDark),
+                  _buildInfoRow('Build version : ', launcherBuild, isDark),
                 ],
               ),
             ),

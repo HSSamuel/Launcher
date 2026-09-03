@@ -25,8 +25,8 @@ class StartMenu extends StatefulWidget {
 class _StartMenuState extends State<StartMenu> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  static const platform = MethodChannel('win_launcher/native');
   
-  // NEW: State to toggle All Apps view
   bool _isAllAppsGridView = false;
 
   List<AppInfo> _cachedApps = [];
@@ -80,6 +80,31 @@ class _StartMenuState extends State<StartMenu> {
     state.launchNativeApp(packageName);
   }
 
+  // FIX: Helper to prompt user to enable accessibility to access the native power menu
+  void _showAccessibilityPrompt(BuildContext context, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+        title: Text('Accessibility Required', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Text(
+          "To open the Power Menu, Android requires Accessibility permissions.\n\n1. Tap 'Go to Settings'\n2. Select 'Downloaded Apps'\n3. Turn ON 'Windows 11 Launcher'",
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 14),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              platform.invokeMethod('openSettings', {'type': 'accessibility'});
+            },
+            child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showPowerMenu(BuildContext context, Offset position) {
     final isDark = context.read<LauncherState>().isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
@@ -104,7 +129,8 @@ class _StartMenuState extends State<StartMenu> {
           value: 'sleep',
           onTap: () {
             widget.onOverlaysClosed();
-            widget.onPowerTapped();
+            platform.invokeMethod('lockScreen'); // Trigger native lock
+            widget.onPowerTapped(); // Transition Flutter UI to lock screen
           },
           child: Row(
             children: [
@@ -116,9 +142,13 @@ class _StartMenuState extends State<StartMenu> {
         ),
         PopupMenuItem<String>(
           value: 'shutdown',
-          onTap: () {
+          onTap: () async {
             widget.onOverlaysClosed();
-            widget.onPowerTapped();
+            // FIX: Triggers the native Android Power Dialog (requires Accessibility)
+            final success = await platform.invokeMethod('showPowerDialog');
+            if (success != true && context.mounted) {
+              _showAccessibilityPrompt(context, isDark);
+            }
           },
           child: Row(
             children: [
@@ -130,9 +160,13 @@ class _StartMenuState extends State<StartMenu> {
         ),
         PopupMenuItem<String>(
           value: 'restart',
-          onTap: () {
+          onTap: () async {
             widget.onOverlaysClosed();
-            widget.onPowerTapped();
+            // FIX: Triggers the native Android Power Dialog (requires Accessibility)
+            final success = await platform.invokeMethod('showPowerDialog');
+            if (success != true && context.mounted) {
+              _showAccessibilityPrompt(context, isDark);
+            }
           },
           child: Row(
             children: [
@@ -193,8 +227,7 @@ class _StartMenuState extends State<StartMenu> {
           value: 'uninstall',
           onTap: () {
             widget.onOverlaysClosed();
-            const MethodChannel('win_launcher/native')
-                .invokeMethod('uninstallApp', {'package': app.packageName});
+            platform.invokeMethod('uninstallApp', {'package': app.packageName});
           },
           child: Row(
             children: [
@@ -241,8 +274,7 @@ class _StartMenuState extends State<StartMenu> {
           value: 'uninstall',
           onTap: () {
             widget.onOverlaysClosed();
-            const MethodChannel('win_launcher/native')
-                .invokeMethod('uninstallApp', {'package': app.packageName});
+            platform.invokeMethod('uninstallApp', {'package': app.packageName});
           },
           child: Row(
             children: [
@@ -496,7 +528,6 @@ class _StartMenuState extends State<StartMenu> {
                         ),
                         const SizedBox(height: 16),
                         
-                        // NEW: All Apps header with view toggles
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
                           child: Row(

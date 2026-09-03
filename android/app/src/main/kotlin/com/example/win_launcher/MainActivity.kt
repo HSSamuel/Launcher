@@ -1,4 +1,4 @@
-package com.example.windows_11_launcher
+package com.example.win_launcher
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
@@ -43,6 +43,14 @@ class LauncherNotificationService : NotificationListenerService() {
                 text = textLines.joinToString("\n") { it.toString() }
             }
 
+            val actionList = mutableListOf<Map<String, Any>>()
+            sbn.notification.actions?.forEachIndexed { index, action ->
+                actionList.add(mapOf(
+                    "title" to (action.title?.toString() ?: ""),
+                    "index" to index
+                ))
+            }
+
             if (title.isNotEmpty() || text.isNotEmpty()) {
                 return mapOf(
                     "id" to sbn.id,
@@ -50,6 +58,7 @@ class LauncherNotificationService : NotificationListenerService() {
                     "package" to sbn.packageName,
                     "title" to title,
                     "text" to text,
+                    "actions" to actionList,
                     "removed" to false
                 )
             }
@@ -80,8 +89,8 @@ class LauncherAccessibilityService : AccessibilityService() {
 class LauncherAdminReceiver : DeviceAdminReceiver()
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "launcher/native"
-    private val NOTIF_CHANNEL = "launcher/notifications"
+    private val CHANNEL = "win_launcher/native"
+    private val NOTIF_CHANNEL = "win_launcher/notifications"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -103,6 +112,72 @@ class MainActivity: FlutterActivity() {
                             result.success(active)
                         } catch (e: Exception) { result.success(emptyList<Map<String, Any>>()) }
                     } else { result.success(emptyList<Map<String, Any>>()) }
+                }
+
+                "triggerNotificationAction" -> {
+                    val key = call.argument<String>("key") ?: ""
+                    val actionIndex = call.argument<Int>("actionIndex") ?: -1
+                    val service = LauncherNotificationService.instance
+                    
+                    if (service != null) {
+                        val sbn = service.activeNotifications.find { it.key == key }
+                        if (sbn != null) {
+                            try {
+                                val intent = Intent()
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                
+                                // CRITICAL FIX: Android 14+ explicitly blocks background PendingIntent launches
+                                // We use reflection to safely inject the API 34 security bypass (MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                                var optionsBundle: android.os.Bundle? = null
+                                if (Build.VERSION.SDK_INT >= 34) {
+                                    try {
+                                        val options = android.app.ActivityOptions.makeBasic()
+                                        val method = options.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
+                                        method.invoke(options, 1) // 1 = MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                                        optionsBundle = options.toBundle()
+                                    } catch (e: Exception) { e.printStackTrace() }
+                                }
+
+                                if (actionIndex == -1) {
+                                    if (sbn.notification.contentIntent != null) {
+                                        // Sends the deep link intent perfectly to Android
+                                        sbn.notification.contentIntent.send(this@MainActivity, 0, intent, null, null, null, optionsBundle)
+                                        service.cancelNotification(key)
+                                        result.success(true)
+                                    } else {
+                                        val launchIntent = packageManager.getLaunchIntentForPackage(sbn.packageName)
+                                        if (launchIntent != null) {
+                                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            startActivity(launchIntent)
+                                            service.cancelNotification(key)
+                                            result.success(true)
+                                        } else {
+                                            result.success(false)
+                                        }
+                                    }
+                                } else {
+                                    val action = sbn.notification.actions?.get(actionIndex)
+                                    if (action?.actionIntent != null) {
+                                        action.actionIntent.send(this@MainActivity, 0, intent, null, null, null, optionsBundle)
+                                        result.success(true)
+                                    } else {
+                                        result.success(false)
+                                    }
+                                }
+                            } catch (e: Exception) { 
+                                // Ultimate Fallback: Just open the app normally if the specific chat intent is broken
+                                val launchIntent = packageManager.getLaunchIntentForPackage(sbn.packageName)
+                                if (launchIntent != null) {
+                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    startActivity(launchIntent)
+                                    service.cancelNotification(key)
+                                    result.success(true)
+                                } else {
+                                    result.success(false) 
+                                }
+                            }
+                        } else result.success(false)
+                    } else result.success(false)
                 }
 
                 "dismissNotification" -> {
@@ -142,9 +217,7 @@ class MainActivity: FlutterActivity() {
                         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         startActivity(intent)
                         result.success(true)
-                    } catch (e: Exception) {
-                        result.success(false)
-                    }
+                    } catch (e: Exception) { result.success(false) }
                 }
 
                 "toggleHardware" -> {
@@ -160,7 +233,16 @@ class MainActivity: FlutterActivity() {
                         service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
                         result.success(true)
                     } else {
-                        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        result.success(false)
+                    }
+                }
+
+                "showPowerDialog" -> {
+                    val service = LauncherAccessibilityService.instance
+                    if (service != null) {
+                        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
+                        result.success(true)
+                    } else {
                         result.success(false)
                     }
                 }

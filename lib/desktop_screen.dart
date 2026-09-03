@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,7 +8,6 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:torch_light/torch_light.dart';
-import 'package:installed_apps/app_info.dart';
 
 import 'launcher_state.dart';
 import 'lock_screen.dart';
@@ -20,7 +18,6 @@ import 'calculator_app.dart';
 import 'browser_app.dart';
 import 'settings_app.dart';
 import 'file_explorer_app.dart';
-import 'widget_board.dart';
 import 'start_menu.dart';
 import 'quick_settings.dart';
 import 'notification_center.dart';
@@ -32,6 +29,8 @@ class DesktopScreen extends StatefulWidget {
 }
 
 class _DesktopScreenState extends State<DesktopScreen> {
+  final GlobalKey<FileExplorerAppState> _explorerKey = GlobalKey<FileExplorerAppState>();
+
   bool _isStartMenuOpen = false;
   bool _isWidgetBoardOpen = false;
   bool _isQuickSettingsOpen = false;
@@ -620,470 +619,478 @@ class _DesktopScreenState extends State<DesktopScreen> {
     final notificationWidth = screenWidth > 340 ? 320.0 : screenWidth * 0.94;
     final overlayMaxHeight = screenHeight * 0.85;
 
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) {
-        if (didPop) return;
-        if (_isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen) {
-          _closeOverlays();
-          return;
-        }
-        if (state.windowStack.isNotEmpty) state.closeApp(state.windowStack.last);
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        resizeToAvoidBottomInset: false,
-        body: GestureDetector(
-          onTap: _closeOverlays,
-          onSecondaryTapDown: (details) => setState(() {
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.transparent,
+      ),
+      child: PopScope(
+        canPop: false,
+        onPopInvoked: (didPop) {
+          if (didPop) return;
+          if (_isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen) {
             _closeOverlays();
-            _isContextMenuOpen = true;
-            _contextMenuPos = details.globalPosition;
-            _contextMenuType = 'desktop';
-          }),
-          onLongPressStart: (details) => setState(() {
-            _closeOverlays();
-            _isContextMenuOpen = true;
-            _contextMenuPos = details.globalPosition;
-            _contextMenuType = 'desktop';
-          }),
-          onScaleStart: (details) { _maxPointers = details.pointerCount; },
-          onScaleUpdate: (details) { if (details.pointerCount > _maxPointers) _maxPointers = details.pointerCount; },
-          onScaleEnd: (details) {
-            final dx = details.velocity.pixelsPerSecond.dx;
-            final dy = details.velocity.pixelsPerSecond.dy;
-            if (dx.abs() > 500 || dy.abs() > 500) {
-              if (dx.abs() > dy.abs()) {
-                if (dx > 500 && !_isQuickSettingsOpen && !_isNotificationCenterOpen) {
-                  setState(() { _isWidgetBoardOpen = true; _isStartMenuOpen = false; });
-                } else if (dx < -500) {
-                  if (_isWidgetBoardOpen) setState(() => _isWidgetBoardOpen = false);
-                  else setState(() { _isNotificationCenterOpen = true; _isStartMenuOpen = false; });
-                }
-              } else {
-                if (dy < -500) {
-                  _handleGestureAction(_maxPointers >= 2 ? state.gestureTwoFingerUpAction : state.gestureUpAction);
-                } else if (dy > 500) {
-                  _handleGestureAction(_maxPointers >= 2 ? state.gestureTwoFingerDownAction : state.gestureDownAction);
+            return;
+          }
+          if (state.windowStack.isNotEmpty) {
+            if (state.windowStack.last == 'explorer') {
+               bool wentBack = _explorerKey.currentState?.goBack() ?? false;
+               if (wentBack) return; 
+            }
+            state.closeApp(state.windowStack.last);
+          }
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          resizeToAvoidBottomInset: false,
+          body: GestureDetector(
+            onTap: _closeOverlays,
+            onSecondaryTapDown: (details) => setState(() {
+              _closeOverlays();
+              _isContextMenuOpen = true;
+              _contextMenuPos = details.globalPosition;
+              _contextMenuType = 'desktop';
+            }),
+            onLongPressStart: (details) => setState(() {
+              _closeOverlays();
+              _isContextMenuOpen = true;
+              _contextMenuPos = details.globalPosition;
+              _contextMenuType = 'desktop';
+            }),
+            onScaleStart: (details) { _maxPointers = details.pointerCount; },
+            onScaleUpdate: (details) { if (details.pointerCount > _maxPointers) _maxPointers = details.pointerCount; },
+            onScaleEnd: (details) {
+              final dx = details.velocity.pixelsPerSecond.dx;
+              final dy = details.velocity.pixelsPerSecond.dy;
+              if (dx.abs() > 500 || dy.abs() > 500) {
+                if (dx.abs() > dy.abs()) {
+                  if (dx > 500 && !_isQuickSettingsOpen && !_isNotificationCenterOpen) {
+                    setState(() { _isWidgetBoardOpen = true; _isStartMenuOpen = false; });
+                  } else if (dx < -500) {
+                    if (_isWidgetBoardOpen) setState(() => _isWidgetBoardOpen = false);
+                    else setState(() { _isNotificationCenterOpen = true; _isStartMenuOpen = false; });
+                  }
+                } else {
+                  if (dy < -500) {
+                    _handleGestureAction(_maxPointers >= 2 ? state.gestureTwoFingerUpAction : state.gestureUpAction);
+                  } else if (dy > 500) {
+                    _handleGestureAction(_maxPointers >= 2 ? state.gestureTwoFingerDownAction : state.gestureDownAction);
+                  }
                 }
               }
-            }
-            _maxPointers = 0;
-          },
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: GestureDetector(
-                  onDoubleTap: () async {
-                    if (state.doubleTapToSleep) {
-                      _closeOverlays();
-                      try { await platform.invokeMethod('lockScreen'); } catch (_) {}
-                      if (mounted) {
-                        Navigator.of(context).pushReplacement(
-                          PageRouteBuilder(
-                            pageBuilder: (context, animation, secondaryAnimation) => const LockScreen(),
-                            transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-                                FadeTransition(opacity: animation, child: child),
-                          ),
-                        );
+              _maxPointers = 0;
+            },
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    onDoubleTap: () async {
+                      if (state.doubleTapToSleep) {
+                        _closeOverlays();
+                        try { await platform.invokeMethod('lockScreen'); } catch (_) {}
+                        if (mounted) {
+                          Navigator.of(context).pushReplacement(
+                            PageRouteBuilder(
+                              pageBuilder: (context, animation, secondaryAnimation) => const LockScreen(),
+                              transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+                                  FadeTransition(opacity: animation, child: child),
+                            ),
+                          );
+                        }
                       }
-                    }
-                  },
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 500),
-                    child: SizedBox.expand(
-                      key: ValueKey<String>(state.actualWallpaperUrl),
-                      child: state.actualWallpaperUrl.startsWith('assets/')
-                          ? Image.asset(state.actualWallpaperUrl, fit: BoxFit.cover)
-                          : (state.actualWallpaperUrl.startsWith('http')
-                              ? CachedNetworkImage(
-                                  imageUrl: state.actualWallpaperUrl,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => Container(color: const Color(0xFF003D73)),
-                                )
-                              : Image.file(File(state.actualWallpaperUrl), fit: BoxFit.cover)),
+                    },
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 500),
+                      child: SizedBox.expand(
+                        key: ValueKey<String>(state.actualWallpaperUrl),
+                        child: state.actualWallpaperUrl.startsWith('assets/')
+                            ? Image.asset(state.actualWallpaperUrl, fit: BoxFit.cover)
+                            : (state.actualWallpaperUrl.startsWith('http')
+                                ? CachedNetworkImage(
+                                    imageUrl: state.actualWallpaperUrl,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(color: const Color(0xFF003D73)),
+                                  )
+                                : Image.file(File(state.actualWallpaperUrl), fit: BoxFit.cover)),
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-              Positioned.fill(
-                child: SafeArea(
-                  top: false,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        top: 10 + MediaQuery.of(context).padding.top,
-                        left: 10,
-                        bottom: taskbarHeight,
-                        child: Align(
-                          alignment: Alignment.topLeft,
-                          child: SizedBox(
-                            width: screenWidth * 0.8,
-                            child: ScrollConfiguration(
-                              behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-                              child: GridView.count(
-                                physics: const BouncingScrollPhysics(),
-                                crossAxisCount: _getGridCrossAxisCount(state, isMobile),
-                                childAspectRatio: 0.80,
-                                mainAxisSpacing: 16,
-                                crossAxisSpacing: 8,
-                                children: [
-                                  GestureDetector(
-                                    onSecondaryTapDown: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Recycle Bin';
-                                      _contextOpenAction = () {
-                                        final rb = Directory('/storage/emulated/0/.RecycleBin');
-                                        if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
-                                        state.currentExplorerPath = rb.path;
-                                        state.openApp('explorer');
-                                      };
-                                    }),
-                                    onLongPressStart: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Recycle Bin';
-                                      _contextOpenAction = () {
-                                        final rb = Directory('/storage/emulated/0/.RecycleBin');
-                                        if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
-                                        state.currentExplorerPath = rb.path;
-                                        state.openApp('explorer');
-                                      };
-                                    }),
-                                    child: Transform.scale(
-                                      scale: _getIconScale(state),
-                                      child: DesktopIcon(
-                                        icon: Icons.delete_outline,
-                                        label: 'Recycle Bin',
-                                        iconColor: Colors.white70,
-                                        onTap: () {
-                                          _closeOverlays();
-                                          final rb = Directory('/storage/emulated/0/.RecycleBin');
-                                          if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
-                                          state.currentExplorerPath = rb.path;
-                                          state.openApp('explorer');
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onSecondaryTapDown: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'My Files';
-                                      _contextOpenAction = () {
-                                        state.currentExplorerPath = '/storage/emulated/0';
-                                        state.openApp('explorer');
-                                      };
-                                    }),
-                                    onLongPressStart: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'My Files';
-                                      _contextOpenAction = () {
-                                        state.currentExplorerPath = '/storage/emulated/0';
-                                        state.openApp('explorer');
-                                      };
-                                    }),
-                                    child: Transform.scale(
-                                      scale: _getIconScale(state),
-                                      child: DesktopIcon(
-                                        customIcon: Image.asset(
-                                          'assets/icons/folder.png',
-                                          width: 36,
-                                          height: 36,
-                                          errorBuilder: (context, error, stackTrace) => const Icon(Icons.folder, color: Colors.amber, size: 36),
-                                        ),
-                                        label: 'My Files',
-                                        onTap: () {
-                                          _closeOverlays();
-                                          state.currentExplorerPath = '/storage/emulated/0';
-                                          state.openApp('explorer');
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onSecondaryTapDown: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Calculator';
-                                      _contextOpenAction = () => state.openApp('calculator');
-                                    }),
-                                    onLongPressStart: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Calculator';
-                                      _contextOpenAction = () => state.openApp('calculator');
-                                    }),
-                                    child: Transform.scale(
-                                      scale: _getIconScale(state),
-                                      child: DesktopIcon(
-                                        icon: Icons.calculate,
-                                        label: 'Calculator',
-                                        iconColor: Colors.grey,
-                                        onTap: () {
-                                          _closeOverlays();
-                                          state.openApp('calculator');
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onSecondaryTapDown: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Edge';
-                                      _contextOpenAction = () => state.openApp('browser');
-                                    }),
-                                    onLongPressStart: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Edge';
-                                      _contextOpenAction = () => state.openApp('browser');
-                                    }),
-                                    child: Transform.scale(
-                                      scale: _getIconScale(state),
-                                      child: DesktopIcon(
-                                        icon: Icons.language,
-                                        label: 'Edge',
-                                        iconColor: Colors.blue,
-                                        onTap: () {
-                                          _closeOverlays();
-                                          state.openApp('browser');
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onSecondaryTapDown: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Settings';
-                                      _contextOpenAction = () => state.openApp('settings');
-                                    }),
-                                    onLongPressStart: (details) => setState(() {
-                                      _closeOverlays();
-                                      _isContextMenuOpen = true;
-                                      _contextMenuPos = details.globalPosition;
-                                      _contextMenuType = 'folder';
-                                      _contextTargetName = 'Settings';
-                                      _contextOpenAction = () => state.openApp('settings');
-                                    }),
-                                    child: Transform.scale(
-                                      scale: _getIconScale(state),
-                                      child: DesktopIcon(
-                                        icon: Icons.settings,
-                                        label: 'Settings',
-                                        iconColor: Colors.blueGrey,
-                                        onTap: () {
-                                          _closeOverlays();
-                                          state.openApp('settings');
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                  ...state.desktopApps
-                                      .where((pkg) => state.installedApps.any((a) => a.packageName == pkg))
-                                      .map((pkg) {
-                                    final app = state.installedApps.firstWhere((a) => a.packageName == pkg);
-                                    
-                                    return GestureDetector(
+                Positioned.fill(
+                  child: SafeArea(
+                    top: false,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          top: 10 + MediaQuery.of(context).padding.top,
+                          left: 10,
+                          bottom: taskbarHeight,
+                          child: Align(
+                            alignment: Alignment.topLeft,
+                            child: SizedBox(
+                              width: screenWidth * 0.8,
+                              child: ScrollConfiguration(
+                                behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+                                child: GridView.count(
+                                  physics: const BouncingScrollPhysics(),
+                                  crossAxisCount: _getGridCrossAxisCount(state, isMobile),
+                                  childAspectRatio: 0.80,
+                                  mainAxisSpacing: 16,
+                                  crossAxisSpacing: 8,
+                                  children: [
+                                    GestureDetector(
                                       onSecondaryTapDown: (details) => setState(() {
                                         _closeOverlays();
                                         _isContextMenuOpen = true;
                                         _contextMenuPos = details.globalPosition;
                                         _contextMenuType = 'folder';
-                                        _contextTargetName = app.name ?? '';
-                                        _contextOpenAction = () => state.launchNativeApp(app.packageName!);
+                                        _contextTargetName = 'Recycle Bin';
+                                        _contextOpenAction = () {
+                                          final rb = Directory('/storage/emulated/0/.RecycleBin');
+                                          if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
+                                          state.currentExplorerPath = rb.path;
+                                          state.openApp('explorer');
+                                        };
                                       }),
                                       onLongPressStart: (details) => setState(() {
                                         _closeOverlays();
                                         _isContextMenuOpen = true;
                                         _contextMenuPos = details.globalPosition;
                                         _contextMenuType = 'folder';
-                                        _contextTargetName = app.name ?? '';
-                                        _contextOpenAction = () => state.launchNativeApp(app.packageName!);
+                                        _contextTargetName = 'Recycle Bin';
+                                        _contextOpenAction = () {
+                                          final rb = Directory('/storage/emulated/0/.RecycleBin');
+                                          if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
+                                          state.currentExplorerPath = rb.path;
+                                          state.openApp('explorer');
+                                        };
                                       }),
                                       child: Transform.scale(
                                         scale: _getIconScale(state),
                                         child: DesktopIcon(
-                                          customIcon: app.icon != null && app.icon!.isNotEmpty
-                                              ? Image.memory(app.icon!, width: 36, height: 36)
-                                              : const Icon(Icons.android, color: Colors.green, size: 36),
-                                          label: app.name ?? '',
+                                          customIcon: Image.asset('assets/icons/recycle.png', width: 36, height: 36, errorBuilder: (context, error, stackTrace) => const Icon(Icons.delete_outline, color: Colors.white70, size: 36)),
+                                          label: 'Recycle Bin',
                                           onTap: () {
                                             _closeOverlays();
-                                            state.launchNativeApp(app.packageName!);
+                                            final rb = Directory('/storage/emulated/0/.RecycleBin');
+                                            if (!rb.existsSync()) { try { rb.createSync(); } catch (_) {} }
+                                            state.currentExplorerPath = rb.path;
+                                            state.openApp('explorer');
                                           },
                                         ),
                                       ),
-                                    );
-                                  }).toList(),
-                                ],
+                                    ),
+                                    GestureDetector(
+                                      onSecondaryTapDown: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'My Files';
+                                        _contextOpenAction = () {
+                                          state.currentExplorerPath = '/storage/emulated/0';
+                                          state.openApp('explorer');
+                                        };
+                                      }),
+                                      onLongPressStart: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'My Files';
+                                        _contextOpenAction = () {
+                                          state.currentExplorerPath = '/storage/emulated/0';
+                                          state.openApp('explorer');
+                                        };
+                                      }),
+                                      child: Transform.scale(
+                                        scale: _getIconScale(state),
+                                        child: DesktopIcon(
+                                          customIcon: Image.asset(
+                                            'assets/icons/folder.png',
+                                            width: 36,
+                                            height: 36,
+                                            errorBuilder: (context, error, stackTrace) => const Icon(Icons.folder, color: Colors.amber, size: 36),
+                                          ),
+                                          label: 'My Files',
+                                          onTap: () {
+                                            _closeOverlays();
+                                            state.currentExplorerPath = '/storage/emulated/0';
+                                            state.openApp('explorer');
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onSecondaryTapDown: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Calculator';
+                                        _contextOpenAction = () => state.openApp('calculator');
+                                      }),
+                                      onLongPressStart: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Calculator';
+                                        _contextOpenAction = () => state.openApp('calculator');
+                                      }),
+                                      child: Transform.scale(
+                                        scale: _getIconScale(state),
+                                        child: DesktopIcon(
+                                          customIcon: Image.asset('assets/icons/calculator.png', width: 36, height: 36, errorBuilder: (context, error, stackTrace) => const Icon(Icons.calculate, color: Colors.grey, size: 36)),
+                                          label: 'Calculator',
+                                          onTap: () {
+                                            _closeOverlays();
+                                            state.openApp('calculator');
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onSecondaryTapDown: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Edge';
+                                        _contextOpenAction = () => state.openApp('browser');
+                                      }),
+                                      onLongPressStart: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Edge';
+                                        _contextOpenAction = () => state.openApp('browser');
+                                      }),
+                                      child: Transform.scale(
+                                        scale: _getIconScale(state),
+                                        child: DesktopIcon(
+                                          customIcon: Image.asset('assets/icons/edge.png', width: 36, height: 36, errorBuilder: (context, error, stackTrace) => const Icon(Icons.language, color: Colors.blue, size: 36)),
+                                          label: 'Edge',
+                                          onTap: () {
+                                            _closeOverlays();
+                                            state.openApp('browser');
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onSecondaryTapDown: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Settings';
+                                        _contextOpenAction = () => state.openApp('settings');
+                                      }),
+                                      onLongPressStart: (details) => setState(() {
+                                        _closeOverlays();
+                                        _isContextMenuOpen = true;
+                                        _contextMenuPos = details.globalPosition;
+                                        _contextMenuType = 'folder';
+                                        _contextTargetName = 'Settings';
+                                        _contextOpenAction = () => state.openApp('settings');
+                                      }),
+                                      child: Transform.scale(
+                                        scale: _getIconScale(state),
+                                        child: DesktopIcon(
+                                          customIcon: Image.asset('assets/icons/settings.png', width: 36, height: 36, errorBuilder: (context, error, stackTrace) => const Icon(Icons.settings, color: Colors.blueGrey, size: 36)),
+                                          label: 'Settings',
+                                          onTap: () {
+                                            _closeOverlays();
+                                            state.openApp('settings');
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    ...state.desktopApps
+                                        .where((pkg) => state.installedApps.any((a) => a.packageName == pkg))
+                                        .map((pkg) {
+                                      final app = state.installedApps.firstWhere((a) => a.packageName == pkg);
+                                      
+                                      return GestureDetector(
+                                        onSecondaryTapDown: (details) => setState(() {
+                                          _closeOverlays();
+                                          _isContextMenuOpen = true;
+                                          _contextMenuPos = details.globalPosition;
+                                          _contextMenuType = 'folder';
+                                          _contextTargetName = app.name ?? '';
+                                          _contextOpenAction = () => state.launchNativeApp(app.packageName!);
+                                        }),
+                                        onLongPressStart: (details) => setState(() {
+                                          _closeOverlays();
+                                          _isContextMenuOpen = true;
+                                          _contextMenuPos = details.globalPosition;
+                                          _contextMenuType = 'folder';
+                                          _contextTargetName = app.name ?? '';
+                                          _contextOpenAction = () => state.launchNativeApp(app.packageName!);
+                                        }),
+                                        child: Transform.scale(
+                                          scale: _getIconScale(state),
+                                          child: DesktopIcon(
+                                            customIcon: app.icon != null && app.icon!.isNotEmpty
+                                                ? Image.memory(app.icon!, width: 36, height: 36)
+                                                : const Icon(Icons.android, color: Colors.green, size: 36),
+                                            label: app.name ?? '',
+                                            onTap: () {
+                                              _closeOverlays();
+                                              state.launchNativeApp(app.packageName!);
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
 
-                      ...state.windowStack.map((windowId) {
-                        final isMinimized = state.minimizedApps.contains(windowId);
-                        final isMaximized = state.maximizedApps.contains(windowId) || isMobile;
+                        ...state.windowStack.where((id) => !id.contains('.')).map((windowId) {
+                          final isMinimized = state.minimizedApps.contains(windowId);
+                          final isMaximized = state.maximizedApps.contains(windowId) || (isMobile && windowId != 'calculator');
 
-                        final size = isMobile
-                            ? Size(screenWidth, screenHeight - taskbarHeight)
-                            : _getResponsiveWindowSize(
-                                context,
-                                windowId == 'explorer' ? 580 : (windowId == 'calculator' ? 320 : 600),
-                                windowId == 'calculator' ? 480 : 420,
-                              );
-                        final pos = isMobile
-                            ? Offset.zero
-                            : (windowId == 'explorer'
-                                ? state.fileExplorerPos
-                                : (windowId == 'calculator'
-                                    ? state.calculatorPos
-                                    : (windowId == 'browser' ? state.browserPos : state.settingsPos)));
+                          final size = (isMobile && windowId == 'calculator') 
+                              ? Size(screenWidth * 0.90, 480) 
+                              : (isMobile 
+                                  ? Size(screenWidth, screenHeight - taskbarHeight)
+                                  : _getResponsiveWindowSize(context, windowId == 'explorer' ? 580 : (windowId == 'calculator' ? 320 : 600), windowId == 'calculator' ? 480 : 420));
+                                  
+                          final pos = (isMobile && windowId == 'calculator')
+                              ? Offset((screenWidth - (screenWidth * 0.90)) / 2, screenHeight - 480 - taskbarHeight - 16)
+                              : (isMobile 
+                                  ? Offset.zero
+                                  : (windowId == 'explorer' ? state.fileExplorerPos : (windowId == 'calculator' ? state.calculatorPos : (windowId == 'browser' ? state.browserPos : state.settingsPos))));
 
-                        Widget content = const SizedBox.shrink();
-                        String title = "";
-                        IconData icon = Icons.apps;
-                        if (windowId == 'browser') { content = const BrowserApp(); title = 'Edge'; icon = Icons.language; }
-                        if (windowId == 'explorer') { content = const FileExplorerApp(); title = 'This PC'; icon = Icons.folder; }
-                        if (windowId == 'calculator') { content = const CalculatorApp(); title = 'Calculator'; icon = Icons.calculate; }
-                        if (windowId == 'settings') { content = const SettingsApp(); title = 'Settings'; icon = Icons.settings; }
+                          Widget content = const SizedBox.shrink();
+                          String title = "";
+                          IconData icon = Icons.apps;
+                          
+                          if (windowId == 'browser') { content = const BrowserApp(); title = 'Edge'; icon = Icons.language; }
+                          if (windowId == 'explorer') { content = FileExplorerApp(key: _explorerKey); title = 'This PC'; icon = Icons.folder; }
+                          if (windowId == 'calculator') { content = const CalculatorApp(); title = 'Calculator'; icon = Icons.calculate; }
+                          if (windowId == 'settings') { content = const SettingsApp(); title = 'Settings'; icon = Icons.settings; }
 
-                        return AppWindow(
-                          title: title,
-                          icon: icon,
-                          position: pos,
-                          size: size,
-                          isMinimized: isMinimized,
-                          isMaximized: isMaximized,
-                          useSafeArea: windowId != 'settings' && windowId != 'browser',
-                          onClose: () => state.closeApp(windowId),
-                          onMinimize: () => state.minimizeApp(windowId),
-                          onMaximize: () => state.toggleMaximizeApp(windowId),
-                          onDrag: (delta) { if (!isMobile) state.updateWindowPos(windowId, delta); },
-                          onFocus: () { _closeOverlays(); state.focusWindow(windowId); },
-                          content: content,
-                        );
-                      }).toList(),
+                          return AppWindow(
+                            title: title,
+                            icon: icon,
+                            position: pos,
+                            size: size,
+                            isMinimized: isMinimized,
+                            isMaximized: isMaximized,
+                            useSafeArea: windowId != 'settings' && windowId != 'browser',
+                            onClose: () => state.closeApp(windowId),
+                            onMinimize: () => state.minimizeApp(windowId),
+                            onMaximize: () => state.toggleMaximizeApp(windowId),
+                            onDrag: (delta) { if (!isMobile) state.updateWindowPos(windowId, delta); },
+                            onFocus: () { _closeOverlays(); state.focusWindow(windowId); },
+                            content: content,
+                          );
+                        }).toList(),
 
-                      if (_isStartMenuOpen)
-                        Positioned(
-                          bottom: taskbarHeight,
-                          left: 6,
-                          child: SizedBox(
-                            width: 290,
-                            height: screenHeight * 0.75,
-                            child: StartMenu(
-                              onOverlaysClosed: _closeOverlays,
-                              onPowerTapped: () {
-                                Navigator.of(context).pushReplacement(
-                                  PageRouteBuilder(
-                                    pageBuilder: (context, animation, secondaryAnimation) => const LockScreen(),
-                                    transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-                                        FadeTransition(opacity: animation, child: child),
-                                  ),
-                                );
-                              },
+                        if (_isStartMenuOpen)
+                          Positioned(
+                            bottom: taskbarHeight,
+                            left: 6,
+                            child: SizedBox(
+                              width: 290,
+                              height: screenHeight * 0.75,
+                              child: StartMenu(
+                                onOverlaysClosed: _closeOverlays,
+                                onPowerTapped: () {
+                                  Navigator.of(context).pushReplacement(
+                                    PageRouteBuilder(
+                                      pageBuilder: (context, animation, secondaryAnimation) => const LockScreen(),
+                                      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+                                          FadeTransition(opacity: animation, child: child),
+                                    ),
+                                  );
+                                },
+                              ),
                             ),
                           ),
-                        ),
 
-                      if (_isQuickSettingsOpen)
-                        Positioned(
-                          bottom: taskbarHeight + 8,
-                          right: 8,
-                          width: quickSettingsWidth,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxHeight: overlayMaxHeight),
-                            child: QuickSettings(
-                              settingsState: _quickSettings,
-                              onToggle: _handleHardwareToggle,
-                              brightness: _brightness,
-                              onBrightnessChanged: _updateBrightness,
-                              volume: _volume,
-                              onVolumeChanged: _updateVolume,
-                              batteryLevel: _batteryLevel,
-                              batteryState: _batteryState,
-                              onOpenSettings: () {
-                                state.openApp('settings');
-                                _toggleOverlay('quick');
-                              },
-                              visibleTiles: state.visibleQuickSettings,
-                              hiddenTiles: state.hiddenQuickSettings,
-                              onToggleVisibility: state.toggleQuickSettingVisibility,
+                        if (_isQuickSettingsOpen)
+                          Positioned(
+                            bottom: taskbarHeight + 8,
+                            right: 8,
+                            width: quickSettingsWidth,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxHeight: overlayMaxHeight),
+                              child: QuickSettings(
+                                settingsState: _quickSettings,
+                                onToggle: _handleHardwareToggle,
+                                brightness: _brightness,
+                                onBrightnessChanged: _updateBrightness,
+                                volume: _volume,
+                                onVolumeChanged: _updateVolume,
+                                batteryLevel: _batteryLevel,
+                                batteryState: _batteryState,
+                                onOpenSettings: () {
+                                  state.openApp('settings');
+                                  _toggleOverlay('quick');
+                                },
+                                visibleTiles: state.visibleQuickSettings,
+                                hiddenTiles: state.hiddenQuickSettings,
+                                onToggleVisibility: state.toggleQuickSettingVisibility,
+                              ),
                             ),
                           ),
-                        ),
 
-                      if (_isNotificationCenterOpen)
-                        Positioned(
-                          bottom: taskbarHeight + 8,
-                          right: 8,
-                          width: notificationWidth,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(maxHeight: screenHeight * 0.88),
-                            child: NotificationCenterPanel(
-                              notifications: _realNotifications,
-                              installedApps: state.installedApps,
-                              onClearAll: () {
-                                platform.invokeMethod('clearAllNotifications');
-                                setState(() => _realNotifications.clear());
-                              },
-                              onRemoveNotification: (event) {
-                                platform.invokeMethod('dismissNotification', {'key': event['key']});
-                                setState(() => _realNotifications.removeWhere((n) => n['key'] == event['key']));
-                              },
-                              onLaunchApp: (pkg) async {
-                                _toggleOverlay('notification');
-                                final success = await platform.invokeMethod('launchApp', {'package': pkg});
-                                if (success != true) _showToast('App not found');
-                              },
+                        if (_isNotificationCenterOpen)
+                          Positioned(
+                            bottom: taskbarHeight + 8,
+                            right: 8,
+                            width: notificationWidth,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(maxHeight: screenHeight * 0.88),
+                              child: NotificationCenterPanel(
+                                notifications: _realNotifications,
+                                installedApps: state.installedApps,
+                                onClosePanel: _closeOverlays,
+                                onClearAll: () {
+                                  platform.invokeMethod('clearAllNotifications');
+                                  setState(() => _realNotifications.clear());
+                                },
+                                onRemoveNotification: (event) {
+                                  platform.invokeMethod('dismissNotification', {'key': event['key']});
+                                  setState(() => _realNotifications.removeWhere((n) => n['key'] == event['key']));
+                                },
+                                onLaunchApp: (pkg) async {
+                                  _toggleOverlay('notification');
+                                  final success = await platform.invokeMethod('launchApp', {'package': pkg});
+                                  if (success != true) _showToast('App not found');
+                                },
+                              ),
                             ),
                           ),
+
+                        Win11Taskbar(
+                          isStartMenuOpen: _isStartMenuOpen,
+                          onStartToggled: () => _toggleOverlay('start'),
+                          onQuickSettingsToggled: () => _toggleOverlay('quick'),
+                          onNotificationCenterToggled: () => _toggleOverlay('notification'),
+                          onOverlaysClosed: _closeOverlays,
+                          batteryLevel: _batteryLevel,
+                          batteryState: _batteryState,
+                          unreadNotifications: _unreadNotifications,
                         ),
 
-                      Win11Taskbar(
-                        isStartMenuOpen: _isStartMenuOpen,
-                        onStartToggled: () => _toggleOverlay('start'),
-                        onQuickSettingsToggled: () => _toggleOverlay('quick'),
-                        onNotificationCenterToggled: () => _toggleOverlay('notification'),
-                        onOverlaysClosed: _closeOverlays,
-                        batteryLevel: _batteryLevel,
-                        batteryState: _batteryState,
-                        unreadNotifications: _unreadNotifications,
-                      ),
-
-                      _buildContextMenuOverlay(state),
-                    ],
+                        _buildContextMenuOverlay(state),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

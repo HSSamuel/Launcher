@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -38,7 +39,6 @@ class Win11Taskbar extends StatefulWidget {
   State<Win11Taskbar> createState() => _Win11TaskbarState();
 }
 
-// UPDATED: Added WidgetsBindingObserver to manage background states
 class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver {
   Timer? _timer;
   late DateTime _now;
@@ -59,7 +59,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     super.dispose();
   }
 
-  // UPDATED: Pause timer when app is in the background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -89,11 +88,16 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     return '$h:${m.toString().padLeft(2, '0')} $ampm';
   }
 
+  // FIX: Exact requested Taskbar date format
   String _formatDate(DateTime date) {
-    return '${date.month}/${date.day}/${date.year}';
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+    return '${weekdays[date.weekday - 1]}, ${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   void _openSearchOverlay(BuildContext context, LauncherState state) {
+    final theme = state.win11Themes.firstWhere((t) => t.name == state.currentThemeName, orElse: () => state.win11Themes.first);
+    
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -106,7 +110,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
             Positioned(
               bottom: 54.0, 
               left: 8.0, 
-              child: _AppSearchOverlay(installedApps: state.installedApps, isDark: state.isDarkMode),
+              child: _AppSearchOverlay(installedApps: state.installedApps, isDark: state.isDarkMode, accentColor: theme.accentColor),
             )
           ],
         );
@@ -120,23 +124,67 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     );
   }
 
-  Widget _getAppIcon(String windowId, bool isActive) {
-    IconData iconData; Color iconColor;
-    switch (windowId) {
-      case 'browser': iconData = Icons.language; iconColor = Colors.blue; break;
-      case 'explorer': iconData = Icons.folder; iconColor = Colors.amber; break;
-      case 'calculator': iconData = Icons.calculate; iconColor = Colors.grey.shade700; break;
-      case 'settings': iconData = Icons.settings; iconColor = Colors.blueGrey; break;
-      default: iconData = Icons.apps; iconColor = Colors.black87;
+  void _showAccessibilityPrompt(bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+        title: Text('Accessibility Required', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Text(
+          "To use the Recent Apps button, Android requires Accessibility permissions.\n\n1. Tap 'Go to Settings'\n2. Select 'Downloaded Apps' or 'Installed Services'\n3. Turn ON 'Windows 11 Launcher'",
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 14),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              platform.invokeMethod('openSettings', {'type': 'accessibility'});
+            },
+            child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _getAppIcon(String windowId, bool isActive, LauncherState state) {
+    if (windowId.contains('.')) {
+      final matchedApps = state.installedApps.where((a) => a.packageName == windowId);
+      final Uint8List? iconBytes = matchedApps.isNotEmpty ? matchedApps.first.icon : null;
+      
+      return Container(
+        width: 38, height: 38,
+        margin: const EdgeInsets.symmetric(horizontal: 0), // Zero Gaps
+        decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            iconBytes != null && iconBytes.isNotEmpty ? Image.memory(iconBytes, width: 22, height: 22) : const Icon(Icons.android, size: 22, color: Colors.green),
+            if (isActive) Positioned(bottom: 2, child: Container(width: 12, height: 3, decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(2))))
+          ],
+        ),
+      );
     }
+
+    // FIX: Using Exact Desktop Icons for internal apps
+    Widget iconWidget;
+    switch (windowId) {
+      case 'browser': iconWidget = Image.asset('assets/icons/edge.png', width: 22, height: 22); break;
+      case 'explorer': iconWidget = Image.asset('assets/icons/folder.png', width: 22, height: 22); break;
+      case 'calculator': iconWidget = Image.asset('assets/icons/calculator.png', width: 22, height: 22); break;
+      case 'settings': iconWidget = Image.asset('assets/icons/settings.png', width: 22, height: 22); break;
+      default: iconWidget = Icon(Icons.apps, size: 22, color: state.isDarkMode ? Colors.white : Colors.black87);
+    }
+
     return Container(
-      width: 40, height: 40,
-      margin: const EdgeInsets.symmetric(horizontal: 2),
+      width: 38, height: 38,
+      margin: const EdgeInsets.symmetric(horizontal: 0), // Zero Gaps
       decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Icon(iconData, size: 24, color: iconColor),
+          iconWidget,
           if (isActive) Positioned(bottom: 2, child: Container(width: 12, height: 3, decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(2))))
         ],
       ),
@@ -212,7 +260,10 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final state = context.watch<LauncherState>();
     final isDark = state.isDarkMode;
-    final taskbarColor = isDark ? const Color(0xFF1C1C1C).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
+    final theme = state.win11Themes.firstWhere((t) => t.name == state.currentThemeName, orElse: () => state.win11Themes.first);
+    
+    final baseColor = isDark ? const Color(0xFF1C1C1C) : const Color(0xFFF3F3F3);
+    final taskbarColor = Color.alphaBlend(theme.accentColor.withOpacity(0.08), baseColor).withOpacity(0.95);
     final iconColor = isDark ? Colors.white : Colors.black87;
 
     return Positioned(
@@ -235,23 +286,34 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
                       onTap: widget.onStartToggled,
                       borderRadius: BorderRadius.circular(4),
                       child: Container(
-                        width: 40, height: 40,
+                        width: 38, height: 38,
+                        margin: const EdgeInsets.symmetric(horizontal: 0),
                         decoration: BoxDecoration(color: widget.isStartMenuOpen ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
                         child: Center(child: Image.asset('assets/icons/start.png', width: 22, height: 22, errorBuilder: (context, error, stackTrace) => const Icon(Icons.window, color: Colors.blue, size: 24))),
                       ),
                     ),
                     
                     InkWell(
-                      onTap: () => _openSearchOverlay(context, state),
+                      onTap: () {
+                        widget.onOverlaysClosed(); 
+                        _openSearchOverlay(context, state);
+                      },
                       borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(width: 40, height: 40, child: Icon(Icons.search, size: 22, color: iconColor)),
+                      child: Container(margin: const EdgeInsets.symmetric(horizontal: 0), width: 38, height: 38, child: Icon(Icons.search, size: 22, color: iconColor)),
                     ),
                     
                     InkWell(
-                      onTap: () => platform.invokeMethod('toggleRecents'),
+                      onTap: () async {
+                        widget.onOverlaysClosed();
+                        final success = await platform.invokeMethod('toggleRecents'); 
+                        if (success != true) {
+                          _showAccessibilityPrompt(isDark);
+                        }
+                      },
                       borderRadius: BorderRadius.circular(4),
-                      child: SizedBox(
-                        width: 40, height: 40, 
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 0),
+                        width: 38, height: 38, 
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
@@ -267,8 +329,15 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
                     ...state.windowStack.map((appId) {
                       bool isActive = state.windowStack.last == appId && !state.minimizedApps.contains(appId);
                       return InkWell(
-                        onTap: () => state.openApp(appId),
-                        child: _getAppIcon(appId, isActive),
+                        onTap: () {
+                          if (appId.contains('.')) {
+                            platform.invokeMethod('launchApp', {'package': appId});
+                          } else {
+                            state.openApp(appId);
+                          }
+                        },
+                        onLongPress: () => state.closeApp(appId), 
+                        child: _getAppIcon(appId, isActive, state),
                       );
                     }).toList(),
                   ],
@@ -290,8 +359,9 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
 class _AppSearchOverlay extends StatefulWidget {
   final List<AppInfo> installedApps;
   final bool isDark;
+  final Color accentColor;
 
-  const _AppSearchOverlay({Key? key, required this.installedApps, required this.isDark}) : super(key: key);
+  const _AppSearchOverlay({Key? key, required this.installedApps, required this.isDark, required this.accentColor}) : super(key: key);
 
   @override
   State<_AppSearchOverlay> createState() => _AppSearchOverlayState();
@@ -325,7 +395,6 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     super.dispose();
   }
 
-  // FIX: Explicitly request All Files / Manage External Storage to expose PDFs to the Launcher
   Future<void> _checkPermissions() async {
     setState(() => _isCheckingPermissions = true);
     if (Platform.isAndroid) {
@@ -601,7 +670,10 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<LauncherState>();
-    final bgColor = widget.isDark ? const Color(0xFF1E1E1E).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.98);
+    
+    final baseBg = widget.isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF3F3F3);
+    final bgColor = Color.alphaBlend(widget.accentColor.withOpacity(0.08), baseBg).withOpacity(0.98);
+    
     final textColor = widget.isDark ? Colors.white : Colors.black87;
     final borderColor = widget.isDark ? Colors.white24 : Colors.grey.shade300;
     

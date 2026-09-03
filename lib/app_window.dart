@@ -18,7 +18,20 @@ class AppWindow extends StatelessWidget {
   final VoidCallback onFocus;
 
   const AppWindow({
-    Key? key, required this.title, required this.icon, required this.content, required this.position, required this.size, required this.isMinimized, required this.isMaximized, this.useSafeArea = true, required this.onClose, required this.onMinimize, required this.onMaximize, required this.onDrag, required this.onFocus,
+    Key? key, 
+    required this.title, 
+    required this.icon, 
+    required this.content, 
+    required this.position, 
+    required this.size, 
+    required this.isMinimized, 
+    required this.isMaximized, 
+    this.useSafeArea = true, 
+    required this.onClose, 
+    required this.onMinimize, 
+    required this.onMaximize, 
+    required this.onDrag, 
+    required this.onFocus,
   }) : super(key: key);
 
   @override
@@ -48,6 +61,12 @@ class AppWindow extends StatelessWidget {
       windowContent = MediaQuery.removePadding(context: context, removeTop: true, child: windowContent);
     } else if (useSafeArea) {
       windowContent = SafeArea(bottom: false, child: windowContent);
+    } else {
+      // FIX: Apply top padding for full-screen apps (like Edge) so they don't overlap the physical camera notch/status bar.
+      windowContent = Padding(
+        padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top), 
+        child: windowContent
+      );
     }
 
     return Positioned(
@@ -96,6 +115,10 @@ class AppWindow extends StatelessWidget {
   }
 
   Widget _buildControlButton(IconData icon, VoidCallback onTap, Color color, {bool isClose = false}) {
-    return InkWell(onTap: onTap, child: Container(width: 32, height: 36, alignment: Alignment.center, child: Icon(icon, size: 14, color: color)));
+    return InkWell(
+      onTap: onTap, 
+      hoverColor: isClose ? Colors.red : null,
+      child: Container(width: 32, height: 36, alignment: Alignment.center, child: Icon(icon, size: 14, color: color))
+    );
   }
 }

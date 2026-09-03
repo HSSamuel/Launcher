@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.windows_11_launcher">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Permissions for Hardware Integration & Internet -->
     <uses-permission android:name="android.permission.INTERNET" />
