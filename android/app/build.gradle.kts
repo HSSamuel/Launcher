@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.win_launcher"
+    namespace = "com.example.launcher"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -14,7 +14,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.win_launcher"
+        applicationId = "com.example.launcher"
         minSdk = flutter.minSdkVersion
         targetSdk = 36
         versionCode = flutter.versionCode

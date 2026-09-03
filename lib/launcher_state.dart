@@ -32,10 +32,12 @@ class LauncherState extends ChangeNotifier {
   String userName = 'HUNSA S. S.';
   String userEmail = 'smkmayomisamuel@gmail.com';
   Uint8List? userImageBytes;
-  String actualWallpaperUrl = 'https://images.pexels.com/photos/1624496/pexels-photo-1624496.jpeg?auto=compress&cs=tinysrgb&w=2000';
+  
+  // Default to your new local dark theme
+  String actualWallpaperUrl = 'assets/wallpapers/theme_dark.jpg';
 
   bool isDarkMode = true;
-  String currentThemeName = 'Dark theme';
+  String currentThemeName = 'Dark Mountains';
   String taskbarAlignment = 'left';
   String? slideshowFolderPath;
 
@@ -66,13 +68,15 @@ class LauncherState extends ChangeNotifier {
   String gestureTwoFingerUpAction = 'Start Menu';
   String gestureTwoFingerDownAction = 'Device Notification Bar';
 
+  // Completely updated to use your local assets
   final List<WinTheme> win11Themes = const [
-    WinTheme(name: 'Windows 11 (Light)', wallpaperUrl: 'https://images.pexels.com/photos/1743165/pexels-photo-1743165.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: false, accentColor: Color(0xFF0067C0)),
-    WinTheme(name: 'Windows 11 (Dark)', wallpaperUrl: 'https://images.pexels.com/photos/1624496/pexels-photo-1624496.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: true, accentColor: Color(0xFF4CC2FF)),
-    WinTheme(name: 'Glow', wallpaperUrl: 'https://images.pexels.com/photos/2088203/pexels-photo-2088203.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: true, accentColor: Color(0xFF9E64FF)),
-    WinTheme(name: 'Captured Motion', wallpaperUrl: 'https://images.pexels.com/photos/289569/pexels-photo-289569.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: true, accentColor: Color(0xFFFF4343)),
-    WinTheme(name: 'Sunrise', wallpaperUrl: 'https://images.pexels.com/photos/1287145/pexels-photo-1287145.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: false, accentColor: Color(0xFFFF8C00)),
-    WinTheme(name: 'Flow', wallpaperUrl: 'https://images.pexels.com/photos/1323550/pexels-photo-1323550.jpeg?auto=compress&cs=tinysrgb&w=2000', isDark: false, accentColor: Color(0xFF00A2ED)),
+    WinTheme(name: 'Dark Mountains', wallpaperUrl: 'assets/wallpapers/theme_dark.jpg', isDark: true, accentColor: Color(0xFF4CC2FF)),
+    WinTheme(name: 'Sunrise Horizon', wallpaperUrl: 'assets/wallpapers/theme_sunrise.jpg', isDark: false, accentColor: Color(0xFFFF8C00)),
+    WinTheme(name: 'Snowy Peaks', wallpaperUrl: 'assets/wallpapers/theme_snow.jpg', isDark: false, accentColor: Color(0xFF00A2ED)),
+    WinTheme(name: 'Yellow Flora', wallpaperUrl: 'assets/wallpapers/theme_flora.jpg', isDark: false, accentColor: Color(0xFFFFD700)),
+    WinTheme(name: 'Pink Sky', wallpaperUrl: 'assets/wallpapers/theme_pink.png', isDark: false, accentColor: Color(0xFFE91E63)),
+    WinTheme(name: 'Gray Minimal', wallpaperUrl: 'assets/wallpapers/theme_gray.jpg', isDark: true, accentColor: Color(0xFF9E9E9E)),
+    WinTheme(name: 'Grey Contrast', wallpaperUrl: 'assets/wallpapers/theme_grey.jpg', isDark: true, accentColor: Color(0xFF607D8B)),
   ];
 
   List<AppInfo> installedApps = [];
@@ -135,7 +139,6 @@ class LauncherState extends ChangeNotifier {
     }
   }
 
-  // RESTORED: Explicitly pins items without toggling (used by Desktop/Folders)
   void pinToStart(String name) async {
     if (!pinnedStart.contains(name)) {
       pinnedStart.add(name);
@@ -187,8 +190,8 @@ class LauncherState extends ChangeNotifier {
     if (base64Image != null) userImageBytes = base64Decode(base64Image);
 
     actualWallpaperUrl = prefs.getString('wallpaper') ?? actualWallpaperUrl;
-    isDarkMode = prefs.getBool('isDarkMode') ?? true;
-    currentThemeName = prefs.getString('currentThemeName') ?? 'Dark theme';
+    isDarkMode = prefs.getBool('isDarkMode') ?? isDarkMode;
+    currentThemeName = prefs.getString('currentThemeName') ?? currentThemeName;
     taskbarAlignment = prefs.getString('taskbarAlignment') ?? 'left';
     slideshowFolderPath = prefs.getString('slideshowFolderPath');
 
@@ -261,7 +264,7 @@ class LauncherState extends ChangeNotifier {
 
   Future<void> setDarkMode(bool dark) async {
     isDarkMode = dark;
-    currentThemeName = dark ? 'Dark theme' : 'Light theme';
+    currentThemeName = dark ? 'Dark Mountains' : 'Sunrise Horizon';
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isDarkMode', dark);
     await prefs.setString('currentThemeName', currentThemeName);
@@ -348,7 +351,7 @@ class LauncherState extends ChangeNotifier {
     if (kIsWeb) { isLoadingApps = false; notifyListeners(); return; }
     try {
       List<AppInfo> apps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: true);
-      apps.removeWhere((app) => app.name == 'Win11 Simulator' || (app.packageName != null && app.packageName!.contains('win_launcher')));
+      apps.removeWhere((app) => app.name == 'Windows 11 Launcher' || (app.packageName != null && app.packageName!.contains('Windows 11 Luncher')));
       apps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
       installedApps = apps;
 

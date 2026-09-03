@@ -1,4 +1,4 @@
-package com.example.win_launcher
+package com.example.windows_11_launcher
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
@@ -80,8 +80,8 @@ class LauncherAccessibilityService : AccessibilityService() {
 class LauncherAdminReceiver : DeviceAdminReceiver()
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "win_launcher/native"
-    private val NOTIF_CHANNEL = "win_launcher/notifications"
+    private val CHANNEL = "launcher/native"
+    private val NOTIF_CHANNEL = "launcher/notifications"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

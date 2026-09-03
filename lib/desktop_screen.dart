@@ -292,7 +292,8 @@ class _DesktopScreenState extends State<DesktopScreen> {
 
   Widget _buildContextMenuItem(
     String title,
-    IconData? icon, {
+    IconData? icon,
+    LauncherState state, {
     Color? iconColor,
     String? shortcut,
     bool hasSubMenu = false,
@@ -300,6 +301,12 @@ class _DesktopScreenState extends State<DesktopScreen> {
     double subMenuY = 0,
     VoidCallback? onTap,
   }) {
+    final isDark = state.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final defaultIconColor = isDark ? Colors.white : Colors.black87;
+    final hoverColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+    final chevronColor = isDark ? Colors.white54 : Colors.grey.shade600;
+
     return InkWell(
       onTap: () {
         if (hasSubMenu) {
@@ -312,16 +319,16 @@ class _DesktopScreenState extends State<DesktopScreen> {
           if (onTap != null) onTap();
         }
       },
-      hoverColor: Colors.black.withOpacity(0.05),
+      hoverColor: hoverColor,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         child: Row(
           children: [
-            if (icon != null) Icon(icon, size: 16, color: iconColor ?? Colors.black87),
+            if (icon != null) Icon(icon, size: 16, color: iconColor ?? defaultIconColor),
             if (icon != null) const SizedBox(width: 12),
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w400))),
-            if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            if (hasSubMenu) Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade600),
+            Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: textColor, fontWeight: FontWeight.w400))),
+            if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 12, color: chevronColor)),
+            if (hasSubMenu) Icon(Icons.chevron_right, size: 16, color: chevronColor),
           ],
         ),
       ),
@@ -330,19 +337,25 @@ class _DesktopScreenState extends State<DesktopScreen> {
 
   Widget _buildSubMenuItem(
     String title,
-    IconData? icon, {
+    IconData? icon,
+    LauncherState state, {
     bool isActive = false,
     bool isChecked = false,
     bool isDot = false,
     VoidCallback? onTap,
   }) {
+    final isDark = state.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final iconColor = isDark ? Colors.white : Colors.black87;
+    final hoverColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
     bool hasLeading = icon != null || isActive || isDot || isChecked;
+
     return InkWell(
       onTap: () {
         if (onTap != null) onTap();
         _closeOverlays();
       },
-      hoverColor: Colors.black.withOpacity(0.05),
+      hoverColor: hoverColor,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
@@ -351,23 +364,23 @@ class _DesktopScreenState extends State<DesktopScreen> {
               SizedBox(
                 width: 16,
                 child: isActive || isDot
-                    ? const Icon(Icons.circle, size: 6, color: Colors.black87)
-                    : (isChecked ? const Icon(Icons.check, size: 14, color: Colors.black87) : null),
+                    ? Icon(Icons.circle, size: 6, color: iconColor)
+                    : (isChecked ? Icon(Icons.check, size: 14, color: iconColor) : null),
               ),
               const SizedBox(width: 8),
-              if (icon != null) Icon(icon, size: 16, color: Colors.black87),
+              if (icon != null) Icon(icon, size: 16, color: iconColor),
               if (icon != null) const SizedBox(width: 12),
             ],
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 13, color: Colors.black87))),
+            Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: textColor))),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildContextDivider() => Container(
+  Widget _buildContextDivider(LauncherState state) => Container(
     height: 1,
-    color: Colors.grey.shade300,
+    color: state.isDarkMode ? Colors.white24 : Colors.grey.shade300,
     margin: const EdgeInsets.symmetric(vertical: 4),
   );
 
@@ -375,15 +388,15 @@ class _DesktopScreenState extends State<DesktopScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildContextMenuItem('View', Icons.grid_view, hasSubMenu: true, subMenuKey: 'view', subMenuY: 0),
-        _buildContextMenuItem('Sort by', Icons.swap_vert, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 36),
-        _buildContextMenuItem('Refresh', Icons.refresh, onTap: () => _showToast('Desktop refreshed')),
-        _buildContextDivider(),
-        _buildContextMenuItem('New', Icons.add_circle_outline, onTap: () => _showToast('Create new...')),
-        _buildContextDivider(),
-        _buildContextMenuItem('Next desktop background', Icons.wallpaper, onTap: () => state.nextWallpaper()),
-        _buildContextMenuItem('Display settings', Icons.monitor, onTap: () => state.openApp('settings')),
-        _buildContextMenuItem('Personalize', Icons.brush_outlined, iconColor: const Color(0xFF0078D4), onTap: () => state.openApp('settings')),
+        _buildContextMenuItem('View', Icons.grid_view, state, hasSubMenu: true, subMenuKey: 'view', subMenuY: 0),
+        _buildContextMenuItem('Sort by', Icons.swap_vert, state, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 36),
+        _buildContextMenuItem('Refresh', Icons.refresh, state, onTap: () => _showToast('Desktop refreshed')),
+        _buildContextDivider(state),
+        _buildContextMenuItem('New', Icons.add_circle_outline, state, onTap: () => _showToast('Create new...')),
+        _buildContextDivider(state),
+        _buildContextMenuItem('Next desktop background', Icons.wallpaper, state, onTap: () => state.nextWallpaper()),
+        _buildContextMenuItem('Display settings', Icons.monitor, state, onTap: () => state.openApp('settings')),
+        _buildContextMenuItem('Personalize', Icons.brush_outlined, state, iconColor: const Color(0xFF0078D4), onTap: () => state.openApp('settings')),
       ],
     );
   }
@@ -392,29 +405,29 @@ class _DesktopScreenState extends State<DesktopScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildContextMenuItem('Open', Icons.folder, iconColor: Colors.amber.shade400, onTap: _contextOpenAction),
-        _buildContextMenuItem('Pin to Quick access', Icons.push_pin_outlined, iconColor: const Color(0xFF0078D4), onTap: () {
+        _buildContextMenuItem('Open', Icons.folder, state, iconColor: Colors.amber.shade400, onTap: _contextOpenAction),
+        _buildContextMenuItem('Pin to Quick access', Icons.push_pin_outlined, state, iconColor: const Color(0xFF0078D4), onTap: () {
           state.pinToQuickAccess(_contextTargetName);
           _showToast('Pinned $_contextTargetName to Quick access');
         }),
-        _buildContextMenuItem('Pin to Start', Icons.push_pin, iconColor: const Color(0xFF0078D4), onTap: () {
+        _buildContextMenuItem('Pin to Start', Icons.push_pin, state, iconColor: const Color(0xFF0078D4), onTap: () {
           state.pinToStart(_contextTargetName);
           _showToast('Pinned $_contextTargetName to Start');
         }),
-        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 108),
-        _buildContextMenuItem('Properties', Icons.build_circle_outlined, onTap: () => _showPropertiesDialog()),
-        _buildContextDivider(),
-        _buildContextMenuItem('Show more options', Icons.layers_outlined, hasSubMenu: true, subMenuKey: 'more_options', subMenuY: 160),
-        _buildContextDivider(),
+        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, state, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 108),
+        _buildContextMenuItem('Properties', Icons.build_circle_outlined, state, onTap: () => _showPropertiesDialog()),
+        _buildContextDivider(state),
+        _buildContextMenuItem('Show more options', Icons.layers_outlined, state, hasSubMenu: true, subMenuKey: 'more_options', subMenuY: 160),
+        _buildContextDivider(state),
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildBottomContextAction(Icons.content_cut, 'Cut'),
-              _buildBottomContextAction(Icons.content_copy, 'Copy'),
-              _buildBottomContextAction(Icons.drive_file_rename_outline, 'Rename'),
-              _buildBottomContextAction(Icons.delete_outline, 'Delete'),
+              _buildBottomContextAction(Icons.content_cut, 'Cut', state),
+              _buildBottomContextAction(Icons.content_copy, 'Copy', state),
+              _buildBottomContextAction(Icons.drive_file_rename_outline, 'Rename', state),
+              _buildBottomContextAction(Icons.delete_outline, 'Delete', state),
             ],
           ),
         ),
@@ -422,12 +435,17 @@ class _DesktopScreenState extends State<DesktopScreen> {
     );
   }
 
-  Widget _buildBottomContextAction(IconData icon, String label) {
+  Widget _buildBottomContextAction(IconData icon, String label, LauncherState state) {
+    final isDark = state.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final hoverColor = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+
     return InkWell(
       onTap: () {
         _closeOverlays();
         _showToast('$label action recorded.');
       },
+      hoverColor: hoverColor,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -436,7 +454,7 @@ class _DesktopScreenState extends State<DesktopScreen> {
           children: [
             Icon(icon, size: 18, color: const Color(0xFF0078D4)),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 11, color: Colors.black87)),
+            Text(label, style: TextStyle(fontSize: 11, color: textColor)),
           ],
         ),
       ),
@@ -448,46 +466,46 @@ class _DesktopScreenState extends State<DesktopScreen> {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Large icons', Icons.crop_square, isActive: state.iconSize == 'Large', onTap: () => state.updateDesktopSetting('iconSize', 'Large')),
-          _buildSubMenuItem('Medium icons', Icons.crop_7_5, isActive: state.iconSize == 'Medium', onTap: () => state.updateDesktopSetting('iconSize', 'Medium')),
-          _buildSubMenuItem('Small icons', Icons.apps, isActive: state.iconSize == 'Small', onTap: () => state.updateDesktopSetting('iconSize', 'Small')),
-          _buildContextDivider(),
-          _buildSubMenuItem('Auto arrange icons', Icons.bolt, isChecked: true, onTap: () => _showToast('Auto arrange toggled')),
-          _buildSubMenuItem('Align icons to grid', Icons.grid_4x4, isChecked: true, onTap: () => _showToast('Grid alignment toggled')),
-          _buildSubMenuItem('Show desktop icons', Icons.desktop_windows, isChecked: true, onTap: () => _showToast('Desktop icons toggled')),
+          _buildSubMenuItem('Large icons', Icons.crop_square, state, isActive: state.iconSize == 'Large', onTap: () => state.updateDesktopSetting('iconSize', 'Large')),
+          _buildSubMenuItem('Medium icons', Icons.crop_7_5, state, isActive: state.iconSize == 'Medium', onTap: () => state.updateDesktopSetting('iconSize', 'Medium')),
+          _buildSubMenuItem('Small icons', Icons.apps, state, isActive: state.iconSize == 'Small', onTap: () => state.updateDesktopSetting('iconSize', 'Small')),
+          _buildContextDivider(state),
+          _buildSubMenuItem('Auto arrange icons', Icons.bolt, state, isChecked: true, onTap: () => _showToast('Auto arrange toggled')),
+          _buildSubMenuItem('Align icons to grid', Icons.grid_4x4, state, isChecked: true, onTap: () => _showToast('Grid alignment toggled')),
+          _buildSubMenuItem('Show desktop icons', Icons.desktop_windows, state, isChecked: true, onTap: () => _showToast('Desktop icons toggled')),
         ],
       );
     } else if (_activeSubMenu == 'sort') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Name', null, isDot: true, onTap: () => _showToast('Sorted by Name')),
-          _buildSubMenuItem('Size', null, onTap: () => _showToast('Sorted by Size')),
-          _buildSubMenuItem('Item type', null, onTap: () => _showToast('Sorted by Type')),
-          _buildSubMenuItem('Date modified', null, onTap: () => _showToast('Sorted by Date')),
+          _buildSubMenuItem('Name', null, state, isDot: true, onTap: () => _showToast('Sorted by Name')),
+          _buildSubMenuItem('Size', null, state, onTap: () => _showToast('Sorted by Size')),
+          _buildSubMenuItem('Item type', null, state, onTap: () => _showToast('Sorted by Type')),
+          _buildSubMenuItem('Date modified', null, state, onTap: () => _showToast('Sorted by Date')),
         ],
       );
     } else if (_activeSubMenu == 'compress') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('ZIP File', null, onTap: () => _mockZipCreation('.zip')),
-          _buildSubMenuItem('7z File', null, onTap: () => _mockZipCreation('.7z')),
+          _buildSubMenuItem('ZIP File', null, state, onTap: () => _mockZipCreation('.zip')),
+          _buildSubMenuItem('7z File', null, state, onTap: () => _mockZipCreation('.7z')),
         ],
       );
     } else if (_activeSubMenu == 'more_options') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Send to', null, onTap: () => _showToast('Opening Share menu...')),
-          _buildContextDivider(),
-          _buildSubMenuItem('Cut', null, onTap: () => _showToast('Cut to clipboard')),
-          _buildSubMenuItem('Copy', null, onTap: () => _showToast('Copied to clipboard')),
-          _buildContextDivider(),
-          _buildSubMenuItem('Delete', null, onTap: () => _showToast('Moved to Recycle Bin')),
-          _buildSubMenuItem('Rename', null, onTap: () => _showToast('Renaming file...')),
-          _buildContextDivider(),
-          _buildSubMenuItem('Properties', null, onTap: () => _showPropertiesDialog()),
+          _buildSubMenuItem('Send to', null, state, onTap: () => _showToast('Opening Share menu...')),
+          _buildContextDivider(state),
+          _buildSubMenuItem('Cut', null, state, onTap: () => _showToast('Cut to clipboard')),
+          _buildSubMenuItem('Copy', null, state, onTap: () => _showToast('Copied to clipboard')),
+          _buildContextDivider(state),
+          _buildSubMenuItem('Delete', null, state, onTap: () => _showToast('Moved to Recycle Bin')),
+          _buildSubMenuItem('Rename', null, state, onTap: () => _showToast('Renaming file...')),
+          _buildContextDivider(state),
+          _buildSubMenuItem('Properties', null, state, onTap: () => _showPropertiesDialog()),
         ],
       );
     }
@@ -505,28 +523,38 @@ class _DesktopScreenState extends State<DesktopScreen> {
   }
 
   void _showPropertiesDialog() {
+    final isDark = context.read<LauncherState>().isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white70 : Colors.grey.shade800;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('$_contextTargetName Properties', style: const TextStyle(fontSize: 15)),
+        backgroundColor: bgColor,
+        title: Text('$_contextTargetName Properties', style: TextStyle(fontSize: 15, color: textColor)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Type: System App / Shortcut', style: TextStyle(fontSize: 13, color: Colors.grey.shade800)),
+            Text('Type: System App / Shortcut', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
-            Text('Location: Desktop > $_contextTargetName', style: TextStyle(fontSize: 13, color: Colors.grey.shade800)),
+            Text('Location: Desktop > $_contextTargetName', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
-            Text('Size: ${(12 + _contextTargetName.length * 0.5).toStringAsFixed(2)} MB', style: TextStyle(fontSize: 13, color: Colors.grey.shade800)),
+            Text('Size: ${(12 + _contextTargetName.length * 0.5).toStringAsFixed(2)} MB', style: TextStyle(fontSize: 13, color: subTextColor)),
           ],
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK', style: TextStyle(color: Colors.blueAccent)))],
       ),
     );
   }
 
   Widget _buildContextMenuOverlay(LauncherState state) {
     if (!_isContextMenuOpen) return const SizedBox.shrink();
+
+    final isDark = state.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
+    final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
     double menuWidth = 240;
     double menuHeight = _contextMenuType == 'folder' ? 300 : 250;
@@ -542,9 +570,9 @@ class _DesktopScreenState extends State<DesktopScreen> {
     Widget mainMenu = Container(
       width: menuWidth,
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F3F3).withOpacity(0.95),
+        color: bgColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300, width: 1),
+        border: Border.all(color: borderColor, width: 1),
         boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
       ),
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -567,9 +595,9 @@ class _DesktopScreenState extends State<DesktopScreen> {
         child: Container(
           width: subMenuWidth,
           decoration: BoxDecoration(
-            color: const Color(0xFFF3F3F3).withOpacity(0.95),
+            color: bgColor,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade300, width: 1),
+            border: Border.all(color: borderColor, width: 1),
             boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
           ),
           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -604,7 +632,6 @@ class _DesktopScreenState extends State<DesktopScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        // FIXED: Explicitly prevents the keyboard from pushing the desktop UI up
         resizeToAvoidBottomInset: false,
         body: GestureDetector(
           onTap: _closeOverlays,
@@ -666,20 +693,15 @@ class _DesktopScreenState extends State<DesktopScreen> {
                     duration: const Duration(milliseconds: 500),
                     child: SizedBox.expand(
                       key: ValueKey<String>(state.actualWallpaperUrl),
-                      child: CachedNetworkImage(
-                        imageUrl: state.actualWallpaperUrl,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(color: const Color(0xFF003D73)),
-                        errorWidget: (_, __, ___) => Container(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Color(0xFF003D73), Color(0xFF191919)],
-                            ),
-                          ),
-                        ),
-                      ),
+                      child: state.actualWallpaperUrl.startsWith('assets/')
+                          ? Image.asset(state.actualWallpaperUrl, fit: BoxFit.cover)
+                          : (state.actualWallpaperUrl.startsWith('http')
+                              ? CachedNetworkImage(
+                                  imageUrl: state.actualWallpaperUrl,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(color: const Color(0xFF003D73)),
+                                )
+                              : Image.file(File(state.actualWallpaperUrl), fit: BoxFit.cover)),
                     ),
                   ),
                 ),

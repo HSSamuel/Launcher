@@ -21,7 +21,7 @@ class Win11LauncherApp extends StatelessWidget {
       builder: (context, state, child) {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Win11 Simulator',
+          title: 'Windows 11 Launcher',
           themeMode: state.isDarkMode ? ThemeMode.dark : ThemeMode.light,
           theme: ThemeData.light().copyWith(
             scaffoldBackgroundColor: const Color(0xFFF3F3F3),

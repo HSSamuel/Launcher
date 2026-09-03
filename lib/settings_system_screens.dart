@@ -220,9 +220,9 @@ class _AboutScreenState extends State<AboutScreen> {
           SettingsCard(title: 'Privacy Policy', subtitle: 'View the latest privacy policy.', icon: Icons.privacy_tip_outlined, onTap: () {}),
           SettingsCard(title: 'FAQ', subtitle: 'All frequently asked questions answered here.', icon: Icons.chat_bubble_outline, onTap: () {}),
           SettingsCard(title: 'Rate us on Google Play', subtitle: 'Your feedback matters us', icon: Icons.star_border, onTap: () {}),
-          SettingsCard(title: 'Share us', subtitle: 'Share Win11 Launcher easily with your loved ones', icon: Icons.share, onTap: () {}),
-          SettingsCard(title: 'Reset launcher', subtitle: 'Tap to reset Win11 Launcher. Resetting will\nremove all modified settings.', icon: Icons.refresh, trailing: const SizedBox.shrink(), onTap: () {}),
-          SettingsCard(title: 'Uninstall launcher', subtitle: 'Uninstall Win11 Launcher.', icon: Icons.delete_outline, trailing: const SizedBox.shrink(), onTap: () {}),
+          SettingsCard(title: 'Share us', subtitle: 'Share Windows 11 Launcher easily with your loved ones', icon: Icons.share, onTap: () {}),
+          SettingsCard(title: 'Reset launcher', subtitle: 'Tap to reset Windows 11 Launcher. Resetting will\nremove all modified settings.', icon: Icons.refresh, trailing: const SizedBox.shrink(), onTap: () {}),
+          SettingsCard(title: 'Uninstall launcher', subtitle: 'Uninstall Windows 11 Launcher.', icon: Icons.delete_outline, trailing: const SizedBox.shrink(), onTap: () {}),
         ],
       ),
     );

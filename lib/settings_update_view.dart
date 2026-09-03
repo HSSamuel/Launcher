@@ -64,7 +64,7 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Win11 Launcher Update',
+                    'Windows 11 Launcher Update',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
                   ),
                   const SizedBox(height: 4),

@@ -25,7 +25,9 @@ class StartMenu extends StatefulWidget {
 class _StartMenuState extends State<StartMenu> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  bool _showAllPinned = false;
+  
+  // NEW: State to toggle All Apps view
+  bool _isAllAppsGridView = false;
 
   List<AppInfo> _cachedApps = [];
   List<AppInfo> _filteredApps = [];
@@ -204,7 +206,6 @@ class _StartMenuState extends State<StartMenu> {
         ),
       ]);
     } else {
-      // FIXED: Safely toggles between Pin/Unpin based on its current status
       menuItems.addAll([
         PopupMenuItem<String>(
           value: 'pin_start',
@@ -296,6 +297,73 @@ class _StartMenuState extends State<StartMenu> {
         : Icon(Icons.android, size: size, color: Colors.green);
   }
 
+  Widget _buildAppGridItem(AppInfo app, LauncherState state, Color textColor, {required bool isPinnedSection}) {
+    Offset tapPosition = Offset.zero;
+    return Listener(
+      onPointerDown: (details) => tapPosition = details.position,
+      child: InkWell(
+        onTap: () => _launchApp(app.packageName!, state),
+        onLongPress: () => _showAppContextMenu(
+          context,
+          tapPosition,
+          app,
+          state,
+          isPinnedSection: isPinnedSection,
+        ),
+        borderRadius: BorderRadius.circular(6),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _buildAppIcon(app, 28),
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+              child: Text(
+                app.name ?? '',
+                style: TextStyle(color: textColor, fontSize: 11),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppListItem(AppInfo app, LauncherState state, Color textColor) {
+    Offset tapPosition = Offset.zero;
+    return Listener(
+      onPointerDown: (details) => tapPosition = details.position,
+      child: InkWell(
+        onTap: () => _launchApp(app.packageName!, state),
+        onLongPress: () => _showAppContextMenu(
+          context,
+          tapPosition,
+          app,
+          state,
+          isPinnedSection: false,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              _buildAppIcon(app, 24),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  app.name ?? '',
+                  style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<LauncherState>();
@@ -312,8 +380,6 @@ class _StartMenuState extends State<StartMenu> {
         ? const Color(0xFF1E1E1E).withOpacity(0.5)
         : const Color(0xFFE5E5E5).withOpacity(0.5);
 
-    // FIXED: Pinned apps will now strictly map to what is saved in LauncherState.
-    // We removed the `.take(8)` truncation, so unpinning won't cause hidden apps to magically slide up.
     List<AppInfo> pinnedApps = [];
     for (String pkg in state.pinnedStart) {
       try {
@@ -425,49 +491,41 @@ class _StartMenuState extends State<StartMenu> {
                           ),
                           itemCount: pinnedApps.length,
                           itemBuilder: (context, index) {
-                            final app = pinnedApps[index];
-                            Offset tapPosition = Offset.zero;
-                            return Listener(
-                              onPointerDown: (details) => tapPosition = details.position,
-                              child: InkWell(
-                                onTap: () => _launchApp(app.packageName!, state),
-                                onLongPress: () => _showAppContextMenu(
-                                  context,
-                                  tapPosition,
-                                  app,
-                                  state,
-                                  isPinnedSection: true,
-                                ),
-                                borderRadius: BorderRadius.circular(6),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    _buildAppIcon(app, 28),
-                                    const SizedBox(height: 6),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 2.0),
-                                      child: Text(
-                                        app.name ?? '',
-                                        style: TextStyle(color: textColor, fontSize: 11),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
+                            return _buildAppGridItem(pinnedApps[index], state, textColor, isPinnedSection: true);
                           },
                         ),
                         const SizedBox(height: 16),
+                        
+                        // NEW: All Apps header with view toggles
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Text(
-                            'All',
-                            style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('All', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold)),
+                              Row(
+                                children: [
+                                  InkWell(
+                                    onTap: () => setState(() => _isAllAppsGridView = false),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4.0),
+                                      child: Icon(Icons.format_list_bulleted, size: 16, color: !_isAllAppsGridView ? Colors.blue.shade400 : secText),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  InkWell(
+                                    onTap: () => setState(() => _isAllAppsGridView = true),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(4.0),
+                                      child: Icon(Icons.grid_view_sharp, size: 16, color: _isAllAppsGridView ? Colors.blue.shade400 : secText),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
+
                         Padding(
                           padding: const EdgeInsets.only(left: 16.0, top: 12.0, bottom: 4.0),
                           child: Text('Recently used', style: TextStyle(color: secText, fontSize: 11)),
@@ -478,85 +536,52 @@ class _StartMenuState extends State<StartMenu> {
                             child: Text('No recent apps yet.', style: TextStyle(color: secText.withOpacity(0.5), fontSize: 12)),
                           )
                         else
-                          ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: recentAppInfos.length,
-                            itemBuilder: (context, index) {
-                              final app = recentAppInfos[index];
-                              Offset tapPosition = Offset.zero;
-                              return Listener(
-                                onPointerDown: (details) => tapPosition = details.position,
-                                child: InkWell(
-                                  onTap: () => _launchApp(app.packageName!, state),
-                                  onLongPress: () => _showAppContextMenu(
-                                    context,
-                                    tapPosition,
-                                    app,
-                                    state,
-                                    isPinnedSection: false,
+                          _isAllAppsGridView
+                              ? GridView.builder(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 4,
+                                    childAspectRatio: 0.85,
+                                    crossAxisSpacing: 4,
+                                    mainAxisSpacing: 12,
                                   ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                                    child: Row(
-                                      children: [
-                                        _buildAppIcon(app, 24),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: Text(
-                                            app.name ?? '',
-                                            style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  itemCount: recentAppInfos.length,
+                                  itemBuilder: (context, index) => _buildAppGridItem(recentAppInfos[index], state, textColor, isPinnedSection: false),
+                                )
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: recentAppInfos.length,
+                                  itemBuilder: (context, index) => _buildAppListItem(recentAppInfos[index], state, textColor),
                                 ),
-                              );
-                            },
-                          ),
+
                         const SizedBox(height: 16),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16.0),
                           child: Text('Installed apps', style: TextStyle(color: secText, fontSize: 11)),
                         ),
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _filteredApps.length,
-                          itemBuilder: (context, index) {
-                            final app = _filteredApps[index];
-                            Offset tapPosition = Offset.zero;
-                            return Listener(
-                              onPointerDown: (details) => tapPosition = details.position,
-                              child: InkWell(
-                                onTap: () => _launchApp(app.packageName!, state),
-                                onLongPress: () => _showAppContextMenu(
-                                  context,
-                                  tapPosition,
-                                  app,
-                                  state,
-                                  isPinnedSection: false,
+                        _isAllAppsGridView
+                            ? GridView.builder(
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 4,
+                                  childAspectRatio: 0.85,
+                                  crossAxisSpacing: 4,
+                                  mainAxisSpacing: 12,
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                                  child: Row(
-                                    children: [
-                                      _buildAppIcon(app, 24),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Text(
-                                          app.name ?? '',
-                                          style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                itemCount: _filteredApps.length,
+                                itemBuilder: (context, index) => _buildAppGridItem(_filteredApps[index], state, textColor, isPinnedSection: false),
+                              )
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: _filteredApps.length,
+                                itemBuilder: (context, index) => _buildAppListItem(_filteredApps[index], state, textColor),
                               ),
-                            );
-                          },
-                        ),
                         const SizedBox(height: 8),
                       ],
                     ),

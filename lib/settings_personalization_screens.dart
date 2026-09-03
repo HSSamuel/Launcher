@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:app_settings/app_settings.dart';
 
 import 'launcher_state.dart';
@@ -97,7 +96,17 @@ class BrowseThemesScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(8)), child: CachedNetworkImage(imageUrl: theme.wallpaperUrl, fit: BoxFit.cover, width: double.infinity, placeholder: (_, __) => Container(color: Colors.grey.shade200), errorWidget: (_, __, ___) => const Icon(Icons.error)))),
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(8)), 
+                        child: Image.asset(
+                          theme.wallpaperUrl, 
+                          fit: BoxFit.cover, 
+                          width: double.infinity, 
+                          errorBuilder: (_, __, ___) => Container(color: Colors.grey.shade200)
+                        )
+                      )
+                    ),
                     Padding(padding: const EdgeInsets.all(10.0), child: Row(children: [Container(width: 12, height: 12, decoration: BoxDecoration(color: theme.accentColor, shape: BoxShape.circle)), const SizedBox(width: 8), Expanded(child: Text(theme.name, style: TextStyle(color: Colors.black87, fontSize: 11.5, fontWeight: isSelected ? FontWeight.bold : FontWeight.w600), overflow: TextOverflow.ellipsis))])),
                   ],
                 ),
@@ -315,7 +324,6 @@ class FileManagerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // UPDATED: Converted to Stateless Widget to persist data through LauncherState
     final state = context.watch<LauncherState>();
 
     return Scaffold(

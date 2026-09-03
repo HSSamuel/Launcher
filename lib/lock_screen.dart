@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -14,7 +15,6 @@ class LockScreen extends StatefulWidget {
   State<LockScreen> createState() => _LockScreenState();
 }
 
-// UPDATED: Added WidgetsBindingObserver to listen to app lifecycle
 class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   bool _isSigningIn = false;
   String _currentTime = '';
@@ -38,7 +38,6 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // UPDATED: Pause timer when app is in the background
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -112,20 +111,15 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
         child: Stack(
           children: [
             Positioned.fill(
-              child: CachedNetworkImage(
-                imageUrl: wallpaperUrl,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(color: const Color(0xFF191919)),
-                errorWidget: (context, url, error) => Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.blue.shade900, const Color(0xFF191919)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                ),
-              ),
+              child: wallpaperUrl.startsWith('assets/')
+                  ? Image.asset(wallpaperUrl, fit: BoxFit.cover)
+                  : (wallpaperUrl.startsWith('http')
+                      ? CachedNetworkImage(
+                          imageUrl: wallpaperUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(color: const Color(0xFF191919)),
+                        )
+                      : Image.file(File(wallpaperUrl), fit: BoxFit.cover)),
             ),
             
             if (_isSigningIn)

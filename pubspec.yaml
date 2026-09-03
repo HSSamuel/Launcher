@@ -1,4 +1,4 @@
-name: win_launcher
+name: windows_11_launcher
 description: A Windows 11 Simulator in Flutter.
 publish_to: 'none'
 
@@ -39,8 +39,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-assets:
-  - assets/icons/
+  assets:
+    - assets/icons/
+    - assets/wallpapers/
   
 flutter_launcher_icons:
   android: true
