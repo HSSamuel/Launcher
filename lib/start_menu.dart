@@ -29,23 +29,10 @@ class _StartMenuState extends State<StartMenu> {
   
   bool _isAllAppsGridView = false;
 
-  List<AppInfo> _cachedApps = [];
-  List<AppInfo> _filteredApps = [];
-
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final state = context.watch<LauncherState>();
-    if (_cachedApps != state.installedApps) {
-      _cachedApps = state.installedApps;
-      _filterApps();
-    }
   }
 
   @override
@@ -58,19 +45,8 @@ class _StartMenuState extends State<StartMenu> {
   void _onSearchChanged() {
     final query = _searchController.text.toLowerCase();
     if (_searchQuery != query) {
-      _searchQuery = query;
-      _filterApps();
-    }
-  }
-
-  void _filterApps() {
-    if (_searchQuery.isEmpty) {
-      setState(() => _filteredApps = _cachedApps);
-    } else {
       setState(() {
-        _filteredApps = _cachedApps
-            .where((app) => (app.name ?? '').toLowerCase().contains(_searchQuery))
-            .toList();
+        _searchQuery = query;
       });
     }
   }
@@ -80,7 +56,6 @@ class _StartMenuState extends State<StartMenu> {
     state.launchNativeApp(packageName);
   }
 
-  // FIX: Helper to prompt user to enable accessibility to access the native power menu
   void _showAccessibilityPrompt(BuildContext context, bool isDark) {
     showDialog(
       context: context,
@@ -112,69 +87,47 @@ class _StartMenuState extends State<StartMenu> {
 
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy - 120,
-        position.dx + 50,
-        position.dy,
-      ),
+      position: RelativeRect.fromLTRB(position.dx, position.dy - 120, position.dx + 50, position.dy),
       color: bgColor,
       elevation: 8,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(6),
-        side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
       items: <PopupMenuEntry<String>>[
         PopupMenuItem<String>(
           value: 'sleep',
           onTap: () {
-            widget.onOverlaysClosed();
-            platform.invokeMethod('lockScreen'); // Trigger native lock
-            widget.onPowerTapped(); // Transition Flutter UI to lock screen
+            Future.delayed(const Duration(milliseconds: 100), () {
+              widget.onOverlaysClosed();
+              platform.invokeMethod('lockScreen'); 
+              widget.onPowerTapped(); 
+            });
           },
-          child: Row(
-            children: [
-              Icon(Icons.bedtime_outlined, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Sleep', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.bedtime_outlined, size: 18, color: textColor), const SizedBox(width: 12), Text('Sleep', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
         PopupMenuItem<String>(
           value: 'shutdown',
           onTap: () async {
-            widget.onOverlaysClosed();
-            // FIX: Triggers the native Android Power Dialog (requires Accessibility)
-            final success = await platform.invokeMethod('showPowerDialog');
-            if (success != true && context.mounted) {
-              _showAccessibilityPrompt(context, isDark);
-            }
+            Future.delayed(const Duration(milliseconds: 100), () async {
+              widget.onOverlaysClosed();
+              final success = await platform.invokeMethod('showPowerDialog');
+              if (success != true && context.mounted) {
+                _showAccessibilityPrompt(context, isDark);
+              }
+            });
           },
-          child: Row(
-            children: [
-              Icon(Icons.power_settings_new, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Shut down', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.power_settings_new, size: 18, color: textColor), const SizedBox(width: 12), Text('Shut down', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
         PopupMenuItem<String>(
           value: 'restart',
           onTap: () async {
-            widget.onOverlaysClosed();
-            // FIX: Triggers the native Android Power Dialog (requires Accessibility)
-            final success = await platform.invokeMethod('showPowerDialog');
-            if (success != true && context.mounted) {
-              _showAccessibilityPrompt(context, isDark);
-            }
+            Future.delayed(const Duration(milliseconds: 100), () async {
+              widget.onOverlaysClosed();
+              final success = await platform.invokeMethod('showPowerDialog');
+              if (success != true && context.mounted) {
+                _showAccessibilityPrompt(context, isDark);
+              }
+            });
           },
-          child: Row(
-            children: [
-              Icon(Icons.restart_alt, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Restart', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.restart_alt, size: 18, color: textColor), const SizedBox(width: 12), Text('Restart', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
       ],
     );
@@ -191,22 +144,20 @@ class _StartMenuState extends State<StartMenu> {
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
     final isPinnedToStart = state.pinnedStart.contains(app.packageName);
-    final isOnDesktop = state.desktopApps.contains(app.packageName);
+    
+    // FIX: Evaluates against the new Multi-Workspace coordinate system
+    final isOnDesktop = state.desktopItems.any((i) => i.type == 'app' && i.package == app.packageName);
 
     List<PopupMenuEntry<String>> menuItems = [
       PopupMenuItem<String>(
         value: 'open',
         onTap: () {
-          widget.onOverlaysClosed();
-          state.launchNativeApp(app.packageName!);
+          Future.delayed(const Duration(milliseconds: 100), () {
+            widget.onOverlaysClosed();
+            state.launchNativeApp(app.packageName!);
+          });
         },
-        child: Row(
-          children: [
-            Icon(Icons.open_in_new, size: 18, color: textColor),
-            const SizedBox(width: 12),
-            Text('Open', style: TextStyle(color: textColor, fontSize: 13)),
-          ],
-        ),
+        child: Row(children: [Icon(Icons.open_in_new, size: 18, color: textColor), const SizedBox(width: 12), Text('Open', style: TextStyle(color: textColor, fontSize: 13))]),
       ),
     ];
 
@@ -215,27 +166,17 @@ class _StartMenuState extends State<StartMenu> {
         PopupMenuItem<String>(
           value: 'unpin',
           onTap: () => state.togglePinToStart(app.packageName!),
-          child: Row(
-            children: [
-              Icon(Icons.push_pin_outlined, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Unpin from Start', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.push_pin_outlined, size: 18, color: textColor), const SizedBox(width: 12), Text('Unpin from Start', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
         PopupMenuItem<String>(
           value: 'uninstall',
           onTap: () {
-            widget.onOverlaysClosed();
-            platform.invokeMethod('uninstallApp', {'package': app.packageName});
+            Future.delayed(const Duration(milliseconds: 100), () {
+              widget.onOverlaysClosed();
+              platform.invokeMethod('uninstallApp', {'package': app.packageName});
+            });
           },
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Uninstall', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.delete_outline, size: 18, color: textColor), const SizedBox(width: 12), Text('Uninstall', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
       ]);
     } else {
@@ -243,46 +184,32 @@ class _StartMenuState extends State<StartMenu> {
         PopupMenuItem<String>(
           value: 'pin_start',
           onTap: () => state.togglePinToStart(app.packageName!),
-          child: Row(
-            children: [
-              Icon(isPinnedToStart ? Icons.push_pin_outlined : Icons.push_pin, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text(isPinnedToStart ? 'Unpin from Start' : 'Pin to Start', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(isPinnedToStart ? Icons.push_pin_outlined : Icons.push_pin, size: 18, color: textColor), const SizedBox(width: 12), Text(isPinnedToStart ? 'Unpin from Start' : 'Pin to Start', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
         PopupMenuItem<String>(
           value: 'pin_desktop',
           onTap: () {
-            state.toggleDesktopApp(app.packageName!);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(isOnDesktop ? 'Removed from Desktop' : 'Added to Desktop'),
-                duration: const Duration(seconds: 1),
-              ),
-            );
+            // FIX: Safely add or remove from the new drag-and-drop workspace system
+            if (isOnDesktop) {
+              final item = state.desktopItems.firstWhere((i) => i.package == app.packageName);
+              state.removeDesktopItem(item.id);
+            } else {
+              // Defaults to dropping it in the top-left of the first workspace
+              state.addDesktopApp(app, 0, 0, 0);
+            }
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isOnDesktop ? 'Removed from Desktop' : 'Added to Desktop'), duration: const Duration(seconds: 1)));
           },
-          child: Row(
-            children: [
-              Icon(isOnDesktop ? Icons.desktop_access_disabled : Icons.desktop_windows, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text(isOnDesktop ? 'Remove from Desktop' : 'Add to Desktop', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(isOnDesktop ? Icons.desktop_access_disabled : Icons.desktop_windows, size: 18, color: textColor), const SizedBox(width: 12), Text(isOnDesktop ? 'Remove from Desktop' : 'Add to Desktop', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
         PopupMenuItem<String>(
           value: 'uninstall',
           onTap: () {
-            widget.onOverlaysClosed();
-            platform.invokeMethod('uninstallApp', {'package': app.packageName});
+            Future.delayed(const Duration(milliseconds: 100), () {
+              widget.onOverlaysClosed();
+              platform.invokeMethod('uninstallApp', {'package': app.packageName});
+            });
           },
-          child: Row(
-            children: [
-              Icon(Icons.delete_outline, size: 18, color: textColor),
-              const SizedBox(width: 12),
-              Text('Uninstall', style: TextStyle(color: textColor, fontSize: 13)),
-            ],
-          ),
+          child: Row(children: [Icon(Icons.delete_outline, size: 18, color: textColor), const SizedBox(width: 12), Text('Uninstall', style: TextStyle(color: textColor, fontSize: 13))]),
         ),
       ]);
     }
@@ -292,33 +219,20 @@ class _StartMenuState extends State<StartMenu> {
       PopupMenuItem<String>(
         value: 'settings',
         onTap: () {
-          widget.onOverlaysClosed();
-          InstalledApps.openSettings(app.packageName!);
+          Future.delayed(const Duration(milliseconds: 100), () {
+            widget.onOverlaysClosed();
+            InstalledApps.openSettings(app.packageName!);
+          });
         },
-        child: Row(
-          children: [
-            Icon(Icons.settings_applications, size: 18, color: textColor),
-            const SizedBox(width: 12),
-            Text('App settings', style: TextStyle(color: textColor, fontSize: 13)),
-          ],
-        ),
+        child: Row(children: [Icon(Icons.settings_applications, size: 18, color: textColor), const SizedBox(width: 12), Text('App settings', style: TextStyle(color: textColor, fontSize: 13))]),
       ),
     ]);
 
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy,
-        position.dx + 50,
-        position.dy + 50,
-      ),
-      color: bgColor,
-      elevation: 8,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(6),
-        side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300),
-      ),
+      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx + 50, position.dy + 50),
+      color: bgColor, elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
       items: menuItems,
     );
   }
@@ -335,13 +249,7 @@ class _StartMenuState extends State<StartMenu> {
       onPointerDown: (details) => tapPosition = details.position,
       child: InkWell(
         onTap: () => _launchApp(app.packageName!, state),
-        onLongPress: () => _showAppContextMenu(
-          context,
-          tapPosition,
-          app,
-          state,
-          isPinnedSection: isPinnedSection,
-        ),
+        onLongPress: () => _showAppContextMenu(context, tapPosition, app, state, isPinnedSection: isPinnedSection),
         borderRadius: BorderRadius.circular(6),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -350,13 +258,7 @@ class _StartMenuState extends State<StartMenu> {
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2.0),
-              child: Text(
-                app.name ?? '',
-                style: TextStyle(color: textColor, fontSize: 11),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-              ),
+              child: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
             ),
           ],
         ),
@@ -370,25 +272,14 @@ class _StartMenuState extends State<StartMenu> {
       onPointerDown: (details) => tapPosition = details.position,
       child: InkWell(
         onTap: () => _launchApp(app.packageName!, state),
-        onLongPress: () => _showAppContextMenu(
-          context,
-          tapPosition,
-          app,
-          state,
-          isPinnedSection: false,
-        ),
+        onLongPress: () => _showAppContextMenu(context, tapPosition, app, state, isPinnedSection: false),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Row(
             children: [
               _buildAppIcon(app, 24),
               const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  app.name ?? '',
-                  style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500),
-                ),
-              ),
+              Expanded(child: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500))),
             ],
           ),
         ),
@@ -401,30 +292,26 @@ class _StartMenuState extends State<StartMenu> {
     final state = context.watch<LauncherState>();
     final isDark = state.isDarkMode;
 
-    final bgColor = isDark
-        ? const Color(0xFF242424).withOpacity(0.95)
-        : const Color(0xFFF3F3F3).withOpacity(0.95);
+    final bgColor = isDark ? const Color(0xFF242424).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
     final textColor = isDark ? Colors.white : Colors.black87;
     final secText = isDark ? Colors.white70 : Colors.grey.shade600;
     final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
     final searchBg = isDark ? const Color(0xFF333333) : Colors.white;
-    final bottomBarBg = isDark
-        ? const Color(0xFF1E1E1E).withOpacity(0.5)
-        : const Color(0xFFE5E5E5).withOpacity(0.5);
+    final bottomBarBg = isDark ? const Color(0xFF1E1E1E).withOpacity(0.5) : const Color(0xFFE5E5E5).withOpacity(0.5);
+
+    List<AppInfo> filteredApps = state.installedApps;
+    if (_searchQuery.isNotEmpty) {
+      filteredApps = state.installedApps.where((app) => (app.name ?? '').toLowerCase().contains(_searchQuery)).toList();
+    }
 
     List<AppInfo> pinnedApps = [];
     for (String pkg in state.pinnedStart) {
-      try {
-        pinnedApps.add(_filteredApps.firstWhere((a) => a.packageName == pkg));
-      } catch (_) {}
+      try { pinnedApps.add(state.installedApps.firstWhere((a) => a.packageName == pkg)); } catch (_) {}
     }
 
     List<AppInfo> recentAppInfos = [];
     for (String pkg in state.recentApps) {
-      try {
-        final app = state.installedApps.firstWhere((a) => a.packageName == pkg);
-        recentAppInfos.add(app);
-      } catch (_) {}
+      try { recentAppInfos.add(state.installedApps.firstWhere((a) => a.packageName == pkg)); } catch (_) {}
     }
 
     return Container(
@@ -452,18 +339,9 @@ class _StartMenuState extends State<StartMenu> {
                   filled: true,
                   fillColor: searchBg,
                   contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide(color: Colors.blue.shade400),
-                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: borderColor)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: borderColor)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Colors.blue.shade400)),
                 ),
               ),
             ),
@@ -472,9 +350,9 @@ class _StartMenuState extends State<StartMenu> {
             child: _searchQuery.isNotEmpty
                 ? ListView.builder(
                     physics: const BouncingScrollPhysics(),
-                    itemCount: _filteredApps.length,
+                    itemCount: filteredApps.length,
                     itemBuilder: (context, index) {
-                      final app = _filteredApps[index];
+                      final app = filteredApps[index];
                       Offset tapPosition = Offset.zero;
                       return Listener(
                         onPointerDown: (details) => tapPosition = details.position,
@@ -482,13 +360,7 @@ class _StartMenuState extends State<StartMenu> {
                           leading: _buildAppIcon(app, 24),
                           title: Text(app.name ?? 'Unknown', style: TextStyle(color: textColor, fontSize: 13)),
                           onTap: () => _launchApp(app.packageName!, state),
-                          onLongPress: () => _showAppContextMenu(
-                            context,
-                            tapPosition,
-                            app,
-                            state,
-                            isPinnedSection: false,
-                          ),
+                          onLongPress: () => _showAppContextMenu(context, tapPosition, app, state, isPinnedSection: false),
                         ),
                       );
                     },
@@ -503,10 +375,7 @@ class _StartMenuState extends State<StartMenu> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                'Pinned',
-                                style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
+                              Text('Pinned', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
@@ -516,15 +385,10 @@ class _StartMenuState extends State<StartMenu> {
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 4,
-                            childAspectRatio: 0.85,
-                            crossAxisSpacing: 4,
-                            mainAxisSpacing: 12,
+                            crossAxisCount: 4, childAspectRatio: 0.85, crossAxisSpacing: 4, mainAxisSpacing: 12,
                           ),
                           itemCount: pinnedApps.length,
-                          itemBuilder: (context, index) {
-                            return _buildAppGridItem(pinnedApps[index], state, textColor, isPinnedSection: true);
-                          },
+                          itemBuilder: (context, index) => _buildAppGridItem(pinnedApps[index], state, textColor, isPinnedSection: true),
                         ),
                         const SizedBox(height: 16),
                         
@@ -538,18 +402,12 @@ class _StartMenuState extends State<StartMenu> {
                                 children: [
                                   InkWell(
                                     onTap: () => setState(() => _isAllAppsGridView = false),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(4.0),
-                                      child: Icon(Icons.format_list_bulleted, size: 16, color: !_isAllAppsGridView ? Colors.blue.shade400 : secText),
-                                    ),
+                                    child: Padding(padding: const EdgeInsets.all(4.0), child: Icon(Icons.format_list_bulleted, size: 16, color: !_isAllAppsGridView ? Colors.blue.shade400 : secText)),
                                   ),
                                   const SizedBox(width: 8),
                                   InkWell(
                                     onTap: () => setState(() => _isAllAppsGridView = true),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(4.0),
-                                      child: Icon(Icons.grid_view_sharp, size: 16, color: _isAllAppsGridView ? Colors.blue.shade400 : secText),
-                                    ),
+                                    child: Padding(padding: const EdgeInsets.all(4.0), child: Icon(Icons.grid_view_sharp, size: 16, color: _isAllAppsGridView ? Colors.blue.shade400 : secText)),
                                   ),
                                 ],
                               ),
@@ -562,56 +420,34 @@ class _StartMenuState extends State<StartMenu> {
                           child: Text('Recently used', style: TextStyle(color: secText, fontSize: 11)),
                         ),
                         if (recentAppInfos.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            child: Text('No recent apps yet.', style: TextStyle(color: secText.withOpacity(0.5), fontSize: 12)),
-                          )
+                          Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0), child: Text('No recent apps yet.', style: TextStyle(color: secText.withOpacity(0.5), fontSize: 12)))
                         else
                           _isAllAppsGridView
                               ? GridView.builder(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 4,
-                                    childAspectRatio: 0.85,
-                                    crossAxisSpacing: 4,
-                                    mainAxisSpacing: 12,
-                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12.0), shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+                                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, childAspectRatio: 0.85, crossAxisSpacing: 4, mainAxisSpacing: 12),
                                   itemCount: recentAppInfos.length,
                                   itemBuilder: (context, index) => _buildAppGridItem(recentAppInfos[index], state, textColor, isPinnedSection: false),
                                 )
                               : ListView.builder(
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
+                                  shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
                                   itemCount: recentAppInfos.length,
                                   itemBuilder: (context, index) => _buildAppListItem(recentAppInfos[index], state, textColor),
                                 ),
 
                         const SizedBox(height: 16),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Text('Installed apps', style: TextStyle(color: secText, fontSize: 11)),
-                        ),
+                        Padding(padding: const EdgeInsets.symmetric(horizontal: 16.0), child: Text('Installed apps', style: TextStyle(color: secText, fontSize: 11))),
                         _isAllAppsGridView
                             ? GridView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 4,
-                                  childAspectRatio: 0.85,
-                                  crossAxisSpacing: 4,
-                                  mainAxisSpacing: 12,
-                                ),
-                                itemCount: _filteredApps.length,
-                                itemBuilder: (context, index) => _buildAppGridItem(_filteredApps[index], state, textColor, isPinnedSection: false),
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, childAspectRatio: 0.85, crossAxisSpacing: 4, mainAxisSpacing: 12),
+                                itemCount: filteredApps.length,
+                                itemBuilder: (context, index) => _buildAppGridItem(filteredApps[index], state, textColor, isPinnedSection: false),
                               )
                             : ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _filteredApps.length,
-                                itemBuilder: (context, index) => _buildAppListItem(_filteredApps[index], state, textColor),
+                                shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+                                itemCount: filteredApps.length,
+                                itemBuilder: (context, index) => _buildAppListItem(filteredApps[index], state, textColor),
                               ),
                         const SizedBox(height: 8),
                       ],
@@ -620,19 +456,16 @@ class _StartMenuState extends State<StartMenu> {
           ),
           Container(
             height: 54,
-            decoration: BoxDecoration(
-              color: bottomBarBg,
-              border: Border(top: BorderSide(color: borderColor)),
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
-            ),
+            decoration: BoxDecoration(color: bottomBarBg, border: Border(top: BorderSide(color: borderColor)), borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10))),
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Row(
               children: [
                 Expanded(
                   child: InkWell(
                     onTap: () {
+                      final nav = Navigator.of(context);
                       widget.onOverlaysClosed();
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const YourInfoScreen()));
+                      nav.push(MaterialPageRoute(builder: (_) => const YourInfoScreen()));
                     },
                     borderRadius: BorderRadius.circular(4),
                     child: Padding(
@@ -640,24 +473,14 @@ class _StartMenuState extends State<StartMenu> {
                       child: Row(
                         children: [
                           Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: Colors.blueAccent.shade100,
-                              shape: BoxShape.circle,
-                            ),
+                            width: 32, height: 32,
+                            decoration: BoxDecoration(color: Colors.blueAccent.shade100, shape: BoxShape.circle),
                             child: state.userImageBytes != null
                                 ? ClipOval(child: Image.memory(state.userImageBytes!, fit: BoxFit.cover))
                                 : const Icon(Icons.person, size: 20, color: Colors.white),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              state.userName,
-                              style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
+                          Expanded(child: Text(state.userName, style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
                         ],
                       ),
                     ),
@@ -671,10 +494,7 @@ class _StartMenuState extends State<StartMenu> {
                       _showPowerMenu(context, offset);
                     },
                     borderRadius: BorderRadius.circular(4),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6.0),
-                      child: Icon(Icons.power_settings_new, color: textColor, size: 20),
-                    ),
+                    child: Padding(padding: const EdgeInsets.all(6.0), child: Icon(Icons.power_settings_new, color: textColor, size: 20)),
                   ),
                 ),
               ],

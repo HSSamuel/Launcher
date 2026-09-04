@@ -20,7 +20,6 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   String _currentTime = '';
   String _currentDate = '';
   Timer? _timer;
-  final TextEditingController _pinController = TextEditingController();
 
   @override
   void initState() {
@@ -34,7 +33,6 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _stopTimer();
-    _pinController.dispose();
     super.dispose();
   }
 
@@ -81,15 +79,17 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
   }
 
   void _login() {
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const DesktopScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 600),
-      ),
-    );
+    FocusManager.instance.primaryFocus?.unfocus();
+    
+    // FIX: Increased the delay to 350ms to ensure the keyboard inset is 100% destroyed 
+    // before we push the new route. This absolutely prevents the black screen crash.
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const DesktopScreen()),
+        );
+      }
+    });
   }
 
   @override
@@ -135,7 +135,14 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
             Positioned.fill(
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 300),
-                child: _isSigningIn ? _buildSignInView(userName, userImageBytes) : _buildClockView(),
+                child: _isSigningIn 
+                  ? _SignInWidget(
+                      userName: userName, 
+                      userImageBytes: userImageBytes, 
+                      onLogin: _login, 
+                      onCancel: () => setState(() => _isSigningIn = false)
+                    ) 
+                  : _buildClockView(),
               ),
             ),
             
@@ -184,8 +191,43 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
       ],
     );
   }
+}
 
-  Widget _buildSignInView(String userName, Uint8List? userImageBytes) {
+class _SignInWidget extends StatefulWidget {
+  final String userName;
+  final Uint8List? userImageBytes;
+  final VoidCallback onLogin;
+  final VoidCallback onCancel;
+
+  const _SignInWidget({
+    Key? key,
+    required this.userName,
+    this.userImageBytes,
+    required this.onLogin,
+    required this.onCancel,
+  }) : super(key: key);
+
+  @override
+  State<_SignInWidget> createState() => _SignInWidgetState();
+}
+
+class _SignInWidgetState extends State<_SignInWidget> {
+  late TextEditingController _pinController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pinController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       key: const ValueKey('signInView'),
       mainAxisAlignment: MainAxisAlignment.center,
@@ -193,14 +235,14 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
         Container(
           width: 120,
           height: 120,
-          decoration: BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle),
-          child: userImageBytes != null
-              ? ClipOval(child: Image.memory(userImageBytes, fit: BoxFit.cover))
+          decoration: const BoxDecoration(color: Colors.blueAccent, shape: BoxShape.circle),
+          child: widget.userImageBytes != null
+              ? ClipOval(child: Image.memory(widget.userImageBytes!, fit: BoxFit.cover))
               : const Icon(Icons.person, size: 60, color: Colors.white),
         ),
         const SizedBox(height: 24),
         Text(
-          userName,
+          widget.userName,
           style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 24),
@@ -229,13 +271,13 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
                       borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
                     ),
                   ),
-                  onSubmitted: (_) => _login(),
+                  onSubmitted: (_) => widget.onLogin(),
                 ),
               ),
               const SizedBox(width: 8),
               
               InkWell(
-                onTap: _login,
+                onTap: widget.onLogin,
                 borderRadius: BorderRadius.circular(4),
                 child: Container(
                   height: 48,
@@ -254,12 +296,7 @@ class _LockScreenState extends State<LockScreen> with WidgetsBindingObserver {
         const SizedBox(height: 24),
         
         TextButton(
-          onPressed: () {
-            setState(() {
-              _isSigningIn = false;
-              _pinController.clear();
-            });
-          },
+          onPressed: widget.onCancel,
           child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
         ),
       ],

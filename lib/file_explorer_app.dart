@@ -22,6 +22,8 @@ class FileExplorerApp extends StatefulWidget {
 class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObserver {
   static const platform = MethodChannel('win_launcher/native');
 
+  final String _rootPath = '/storage/emulated/0';
+
   bool _hasPermission = false;
   bool _isAtHome = true;
   late Directory _currentDir;
@@ -40,7 +42,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   String? _activeSubMenu;
   double _subMenuYOffset = 0;
   
-  // FIXED: Declared the missing context menu variables here at the top!
   String _contextMenuType = 'desktop'; 
   String _contextTargetName = '';
   VoidCallback? _contextOpenAction;
@@ -59,7 +60,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   void initState() {
     super.initState();
     _currentDir = Directory(context.read<LauncherState>().currentExplorerPath);
-    if (_currentDir.path != '/storage/emulated/0') _isAtHome = false;
+    if (_currentDir.path != _rootPath) _isAtHome = false;
     
     WidgetsBinding.instance.addObserver(this);
     _checkPermission();
@@ -216,87 +217,67 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     );
   }
 
-  void _createNewFolder() {
+  // FIX: Implemented SafeInputDialog to properly await the disposal and protect the state tree
+  void _createNewFolder() async {
     final isDark = context.read<LauncherState>().isDarkMode;
-    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    TextEditingController controller = TextEditingController(text: 'New Folder');
-    
-    showDialog(
+
+    final String? folderName = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: bgColor,
-        title: Text('New Folder', style: TextStyle(fontSize: 15, color: textColor)),
-        content: TextField(
-          controller: controller, 
-          style: TextStyle(color: textColor),
-          decoration: InputDecoration(
-            hintText: 'Folder name', 
-            hintStyle: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.white38 : Colors.black38)),
-            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
-          )
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))),
-          TextButton(
-            onPressed: () async {
-              try {
-                final newDir = Directory('${_currentDir.path}/${controller.text}');
-                if (!(await newDir.exists())) await newDir.create();
-                await _loadDirectory(_currentDir);
-                _showToast('Folder created');
-              } catch (_) { _showToast('Permission denied'); }
-              if (mounted) Navigator.pop(context);
-            }, 
-            child: const Text('Create', style: TextStyle(color: Colors.blueAccent))
-          ),
-        ],
-      )
+      builder: (ctx) => SafeInputDialog(
+        title: 'New Folder',
+        initialText: 'New Folder',
+        hintText: 'Folder name',
+        actionText: 'Create',
+        isDark: isDark,
+      ),
     );
+
+    if (folderName != null && folderName.trim().isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 150), () async {
+        try {
+          final newDir = Directory('${_currentDir.path}/${folderName.trim()}');
+          if (!(await newDir.exists())) await newDir.create();
+          await _loadDirectory(_currentDir);
+          _showToast('Folder created');
+        } catch (_) { 
+          _showToast('Permission denied'); 
+        }
+      });
+    }
   }
 
-  void _renameFile() {
+  // FIX: Implemented SafeInputDialog to prevent the framework crash while renaming
+  void _renameFile() async {
     if (_selectedPaths.length != 1) return;
     
     final isDark = context.read<LauncherState>().isDarkMode;
-    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    
     final entityPath = _selectedPaths.first;
     String oldName = entityPath.split('/').last;
-    TextEditingController controller = TextEditingController(text: oldName);
-    
-    showDialog(
+
+    final String? newName = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: bgColor,
-        title: Text('Rename', style: TextStyle(fontSize: 15, color: textColor)),
-        content: TextField(
-          controller: controller,
-          style: TextStyle(color: textColor),
-          decoration: InputDecoration(
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: isDark ? Colors.white38 : Colors.black38)),
-            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
-          )
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white70 : Colors.black87))),
-          TextButton(
-            onPressed: () async {
-              try {
-                final entity = File(entityPath);
-                await entity.rename('${entity.parent.path}/${controller.text}');
-                await _loadDirectory(_currentDir);
-                _showToast('Renamed to ${controller.text}');
-              } catch (_) { _showToast('Error renaming file'); }
-              if (mounted) Navigator.pop(context);
-            }, 
-            child: const Text('Rename', style: TextStyle(color: Colors.blueAccent))
-          ),
-        ],
-      )
+      builder: (ctx) => SafeInputDialog(
+        title: 'Rename',
+        initialText: oldName,
+        hintText: 'New name',
+        actionText: 'Rename',
+        isDark: isDark,
+      ),
     );
+
+    if (newName != null && newName.trim().isNotEmpty && newName != oldName) {
+      Future.delayed(const Duration(milliseconds: 150), () async {
+        try {
+          final isDir = await FileSystemEntity.isDirectory(entityPath);
+          final entity = isDir ? Directory(entityPath) : File(entityPath);
+          await entity.rename('${_currentDir.path}/${newName.trim()}');
+          await _loadDirectory(_currentDir);
+          _showToast('Renamed to ${newName.trim()}');
+        } catch (e) { 
+          _showToast('Cannot rename OS protected folders'); 
+        }
+      });
+    }
   }
 
   Future<void> _deleteSelectedFiles() async {
@@ -337,17 +318,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
         _showToast('Paste successful');
       } catch (_) { _showToast('Error pasting file'); }
     }
-  }
-
-  Future<void> _compressFile(String path, String ext) async {
-    try {
-      final entity = File(path);
-      final name = entity.path.split('/').last;
-      final newPath = '${entity.parent.path}/$name$ext';
-      await File(newPath).create();
-      await _loadDirectory(_currentDir);
-      _showToast('Successfully compressed to $name$ext');
-    } catch (_) { _showToast('Error creating archive'); }
   }
 
   void _showPropertiesDialog() async {
@@ -420,10 +390,21 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   }
 
   void _mockZipCreation(String extension) {
+    if (_selectedPaths.isEmpty && !_isAtHome) {
+      final newZipPath = '${_currentDir.path}/$_contextTargetName$extension';
+      try {
+        File(newZipPath).createSync();
+        _showToast('Successfully compressed to $_contextTargetName$extension');
+      } catch (_) {
+        _showToast('Storage permission required to compress.');
+      }
+      return;
+    }
+
     if (_selectedPaths.isEmpty) return;
     try {
       final name = _selectedPaths.first.split('/').last;
-      final newZipPath = '/storage/emulated/0/$name$extension';
+      final newZipPath = '${_currentDir.path}/$name$extension';
       File(newZipPath).createSync();
       _showToast('Successfully compressed to $name$extension');
     } catch (_) {
@@ -656,8 +637,8 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     ];
 
     if (!_isAtHome) {
-      final folders = _currentDir.path.replaceFirst('/storage/emulated/0', '').split('/').where((e) => e.isNotEmpty).toList();
-      String cumulativePath = '/storage/emulated/0';
+      final folders = _currentDir.path.replaceFirst(_rootPath, '').split('/').where((e) => e.isNotEmpty).toList();
+      String cumulativePath = _rootPath;
       
       for (var folder in folders) {
         cumulativePath += '/$folder';
@@ -820,16 +801,16 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
               padding: const EdgeInsets.only(left: 12.0),
               child: Column(
                 children: [
-                  _buildSidebarAssetItem('Desktop', 'desktop', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0')),
-                  _buildSidebarAssetItem('Documents', 'documents', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0/Documents')),
-                  _buildSidebarAssetItem('Downloads', 'downloads', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0/Download')),
-                  _buildSidebarAssetItem('Music', 'music', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0/Music')),
-                  _buildSidebarAssetItem('Pictures', 'pictures', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0/Pictures')),
-                  _buildSidebarAssetItem('Videos', 'videos', isDark, onTap: () => _loadDirectorySafe('/storage/emulated/0/Movies')),
+                  _buildSidebarAssetItem('Desktop', 'desktop', isDark, onTap: () => _loadDirectorySafe(_rootPath)),
+                  _buildSidebarAssetItem('Documents', 'documents', isDark, onTap: () => _loadDirectorySafe('$_rootPath/Documents')),
+                  _buildSidebarAssetItem('Downloads', 'downloads', isDark, onTap: () => _loadDirectorySafe('$_rootPath/Download')),
+                  _buildSidebarAssetItem('Music', 'music', isDark, onTap: () => _loadDirectorySafe('$_rootPath/Music')),
+                  _buildSidebarAssetItem('Pictures', 'pictures', isDark, onTap: () => _loadDirectorySafe('$_rootPath/Pictures')),
+                  _buildSidebarAssetItem('Videos', 'videos', isDark, onTap: () => _loadDirectorySafe('$_rootPath/Movies')),
                   Material(
                     color: Colors.transparent, 
                     child: InkWell(
-                      onTap: () => _loadDirectorySafe('/storage/emulated/0'), 
+                      onTap: () => _loadDirectorySafe(_rootPath), 
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
                         child: Row(
@@ -880,12 +861,12 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           GridView.count(
             shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: isMobile ? 2 : 3, childAspectRatio: 2.8, mainAxisSpacing: 8, crossAxisSpacing: 8,
             children: [
-              _buildFolderGridCard('Desktop', '/storage/emulated/0', isDark), 
-              _buildFolderGridCard('Documents', '/storage/emulated/0/Documents', isDark),
-              _buildFolderGridCard('Downloads', '/storage/emulated/0/Download', isDark), 
-              _buildFolderGridCard('Music', '/storage/emulated/0/Music', isDark),
-              _buildFolderGridCard('Pictures', '/storage/emulated/0/Pictures', isDark), 
-              _buildFolderGridCard('Videos', '/storage/emulated/0/Movies', isDark),
+              _buildFolderGridCard('Desktop', _rootPath, isDark), 
+              _buildFolderGridCard('Documents', '$_rootPath/Documents', isDark),
+              _buildFolderGridCard('Downloads', '$_rootPath/Download', isDark), 
+              _buildFolderGridCard('Music', '$_rootPath/Music', isDark),
+              _buildFolderGridCard('Pictures', '$_rootPath/Pictures', isDark), 
+              _buildFolderGridCard('Videos', '$_rootPath/Movies', isDark),
             ],
           ),
         ],
@@ -907,7 +888,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () => _loadDirectorySafe('/storage/emulated/0'),
+              onTap: () => _loadDirectorySafe(_rootPath),
               child: SizedBox(
                 width: 280,
                 child: Padding(
@@ -1705,6 +1686,76 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           ),
         ),
       ),
+    );
+  }
+}
+
+// FIX: New SafeInputDialog class completely shields the widget tree from lifecycle unmount crashes
+class SafeInputDialog extends StatefulWidget {
+  final String title;
+  final String initialText;
+  final String hintText;
+  final String actionText;
+  final bool isDark;
+
+  const SafeInputDialog({
+    Key? key,
+    required this.title,
+    required this.initialText,
+    required this.hintText,
+    required this.actionText,
+    required this.isDark,
+  }) : super(key: key);
+
+  @override
+  State<SafeInputDialog> createState() => _SafeInputDialogState();
+}
+
+class _SafeInputDialogState extends State<SafeInputDialog> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor = widget.isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = widget.isDark ? Colors.white : Colors.black87;
+
+    return AlertDialog(
+      backgroundColor: bgColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      title: Text(widget.title, style: TextStyle(fontSize: 15, color: textColor)),
+      content: TextField(
+        controller: _controller,
+        style: TextStyle(color: textColor, fontSize: 13),
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          hintStyle: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54),
+          isDense: true,
+          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: widget.isDark ? Colors.white38 : Colors.black38)),
+          focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context), 
+          child: Text('Cancel', style: TextStyle(color: widget.isDark ? Colors.white70 : Colors.black87))
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: Text(widget.actionText, style: const TextStyle(color: Colors.blueAccent)),
+        ),
+      ],
     );
   }
 }

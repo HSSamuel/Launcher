@@ -5,11 +5,14 @@ import android.annotation.SuppressLint
 import android.app.SearchManager
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.os.StatFs
 import android.provider.MediaStore
@@ -17,14 +20,20 @@ import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsetsController
 import android.view.accessibility.AccessibilityEvent
 import android.webkit.MimeTypeMap
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.StandardMessageCodec
+import io.flutter.plugin.platform.PlatformView
+import io.flutter.plugin.platform.PlatformViewFactory
 import java.io.File
 import java.util.Locale
 
@@ -92,8 +101,101 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "win_launcher/native"
     private val NOTIF_CHANNEL = "win_launcher/notifications"
 
+    private val APPWIDGET_HOST_ID = 1024
+    private val REQUEST_PICK_APPWIDGET = 5
+    private val REQUEST_CREATE_APPWIDGET = 6
+    
+    var appWidgetManager: AppWidgetManager? = null
+    var appWidgetHost: AppWidgetHost? = null
+    private var pendingWidgetResult: MethodChannel.Result? = null
+
+    inner class NativeWidgetFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+        override fun create(context: Context, viewId: Int, args: Any?): PlatformView {
+            val params = args as? Map<*, *>
+            val appWidgetId = (params?.get("appWidgetId") as? Number)?.toInt() ?: -1
+            return NativeWidgetView(context, appWidgetId, appWidgetHost, appWidgetManager)
+        }
+    }
+
+    class NativeWidgetView(
+        private val context: Context,
+        private val appWidgetId: Int,
+        private val appWidgetHost: AppWidgetHost?,
+        private val appWidgetManager: AppWidgetManager?
+    ) : PlatformView {
+        
+        private val container = FrameLayout(context)
+
+        init {
+            container.layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+
+            try {
+                if (appWidgetId != -1 && appWidgetHost != null && appWidgetManager != null) {
+                    val info = appWidgetManager.getAppWidgetInfo(appWidgetId)
+                    if (info != null) {
+                        val hostView = appWidgetHost.createView(context, appWidgetId, info)
+                        hostView.layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        container.addView(hostView)
+                    } else {
+                        showError("Widget Info Not Found")
+                    }
+                } else {
+                    showError("Host Not Ready")
+                }
+            } catch (e: Exception) {
+                showError("Initialization Error: ${e.message}")
+            }
+        }
+
+        private fun showError(msg: String) {
+            val errorView = TextView(context).apply {
+                text = "Widget Error:\n$msg"
+                setTextColor(android.graphics.Color.WHITE)
+                setBackgroundColor(android.graphics.Color.parseColor("#8B0000")) 
+                gravity = android.view.Gravity.CENTER
+            }
+            container.addView(errorView)
+        }
+
+        override fun getView(): View = container
+        override fun dispose() {}
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        appWidgetManager = AppWidgetManager.getInstance(this)
+        appWidgetHost = AppWidgetHost(this, APPWIDGET_HOST_ID)
+        appWidgetHost?.startListening()
+
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        appWidgetHost?.startListening()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        appWidgetHost?.stopListening()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        appWidgetHost?.stopListening()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        flutterEngine.platformViewsController.registry.registerViewFactory(
+            "NativeWidget", NativeWidgetFactory()
+        )
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, NOTIF_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -114,6 +216,42 @@ class MainActivity: FlutterActivity() {
                     } else { result.success(emptyList<Map<String, Any>>()) }
                 }
 
+                "pickWidget" -> {
+                    pendingWidgetResult = result
+                    selectWidget()
+                }
+
+                "removeWidget" -> {
+                    val id = call.argument<Int>("appWidgetId") ?: -1
+                    if (id != -1) {
+                        appWidgetHost?.deleteAppWidgetId(id)
+                    }
+                    result.success(true)
+                }
+
+                // NEW: Informs the OS when the widget size is modified so it dynamically updates its layout
+                "updateWidgetSize" -> {
+                    val id = call.argument<Int>("appWidgetId") ?: -1
+                    val width = call.argument<Int>("width") ?: 0
+                    val height = call.argument<Int>("height") ?: 0
+                    if (id != -1 && width > 0 && height > 0) {
+                        try {
+                            val options = Bundle()
+                            val density = resources.displayMetrics.density
+                            val dpWidth = (width / density).toInt()
+                            val dpHeight = (height / density).toInt()
+                            
+                            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, dpWidth)
+                            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, dpWidth)
+                            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, dpHeight)
+                            options.putInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, dpHeight)
+                            
+                            appWidgetManager?.updateAppWidgetOptions(id, options)
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    result.success(true)
+                }
+
                 "triggerNotificationAction" -> {
                     val key = call.argument<String>("key") ?: ""
                     val actionIndex = call.argument<Int>("actionIndex") ?: -1
@@ -126,21 +264,18 @@ class MainActivity: FlutterActivity() {
                                 val intent = Intent()
                                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 
-                                // CRITICAL FIX: Android 14+ explicitly blocks background PendingIntent launches
-                                // We use reflection to safely inject the API 34 security bypass (MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
                                 var optionsBundle: android.os.Bundle? = null
                                 if (Build.VERSION.SDK_INT >= 34) {
                                     try {
                                         val options = android.app.ActivityOptions.makeBasic()
                                         val method = options.javaClass.getMethod("setPendingIntentBackgroundActivityStartMode", Int::class.javaPrimitiveType)
-                                        method.invoke(options, 1) // 1 = MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                                        method.invoke(options, 1) 
                                         optionsBundle = options.toBundle()
                                     } catch (e: Exception) { e.printStackTrace() }
                                 }
 
                                 if (actionIndex == -1) {
                                     if (sbn.notification.contentIntent != null) {
-                                        // Sends the deep link intent perfectly to Android
                                         sbn.notification.contentIntent.send(this@MainActivity, 0, intent, null, null, null, optionsBundle)
                                         service.cancelNotification(key)
                                         result.success(true)
@@ -165,7 +300,6 @@ class MainActivity: FlutterActivity() {
                                     }
                                 }
                             } catch (e: Exception) { 
-                                // Ultimate Fallback: Just open the app normally if the specific chat intent is broken
                                 val launchIntent = packageManager.getLaunchIntentForPackage(sbn.packageName)
                                 if (launchIntent != null) {
                                     launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -354,6 +488,66 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun selectWidget() {
+        val appWidgetId = appWidgetHost?.allocateAppWidgetId() ?: -1
+        val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).apply {
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        }
+        startActivityForResult(pickIntent, REQUEST_PICK_APPWIDGET)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_PICK_APPWIDGET) {
+            if (resultCode == RESULT_OK && data != null) {
+                val appWidgetId = data.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
+                configureWidget(appWidgetId, data)
+            } else {
+                val appWidgetId = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+                if (appWidgetId != -1) appWidgetHost?.deleteAppWidgetId(appWidgetId)
+                pendingWidgetResult?.success(null)
+                pendingWidgetResult = null
+            }
+        } else if (requestCode == REQUEST_CREATE_APPWIDGET) {
+            if (resultCode == RESULT_OK && data != null) {
+                val appWidgetId = data.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1)
+                finishWidgetConfiguration(appWidgetId)
+            } else {
+                val appWidgetId = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+                if (appWidgetId != -1) appWidgetHost?.deleteAppWidgetId(appWidgetId)
+                pendingWidgetResult?.success(null)
+                pendingWidgetResult = null
+            }
+        }
+    }
+
+    private fun configureWidget(appWidgetId: Int, data: Intent) {
+        val appWidgetInfo = appWidgetManager?.getAppWidgetInfo(appWidgetId)
+        if (appWidgetInfo?.configure != null) {
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+            intent.component = appWidgetInfo.configure
+            intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            startActivityForResult(intent, REQUEST_CREATE_APPWIDGET)
+        } else {
+            finishWidgetConfiguration(appWidgetId)
+        }
+    }
+
+    private fun finishWidgetConfiguration(appWidgetId: Int) {
+        val appWidgetInfo = appWidgetManager?.getAppWidgetInfo(appWidgetId)
+        val minWidth = appWidgetInfo?.minWidth ?: 100
+        val minHeight = appWidgetInfo?.minHeight ?: 100
+        
+        val widgetData = mapOf(
+            "appWidgetId" to appWidgetId,
+            "minWidth" to minWidth,
+            "minHeight" to minHeight,
+            "label" to (appWidgetInfo?.loadLabel(packageManager)?.toString() ?: "Widget")
+        )
+        pendingWidgetResult?.success(widgetData)
+        pendingWidgetResult = null
     }
 
     private fun searchLocalMedia(query: String): Map<String, List<Map<String, String>>> {

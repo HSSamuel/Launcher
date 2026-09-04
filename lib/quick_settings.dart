@@ -143,111 +143,107 @@ class _QuickSettingsState extends State<QuickSettings> {
     );
   }
 
+  // FIX: Wrapping the entire contents inside SingleChildScrollView entirely eliminates the layout engine crash
   Widget _buildNormalMode(bool isDark, Color accentColor, Color primaryText, Color secText, Color borderCol, Color inactiveTileBg, Color inactiveTrackColor) {
     bool isCharging = widget.batteryState == BatteryState.charging || widget.batteryState == BatteryState.full;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: GridView.count(
-              padding: EdgeInsets.zero, 
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 3,
-              childAspectRatio: 1.35, 
-              mainAxisSpacing: 4, 
-              crossAxisSpacing: 4, 
-              children: widget.visibleTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg)).toList(),
-            ),
+    // FIX: A final mathematical safety net preventing NaN slider crashes
+    double sBright = widget.brightness.isNaN || widget.brightness.isInfinite ? 0.5 : widget.brightness.clamp(0.0, 1.0);
+    double sVol = widget.volume.isNaN || widget.volume.isInfinite ? 0.5 : widget.volume.clamp(0.0, 1.0);
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GridView.count(
+            padding: EdgeInsets.zero, 
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 3,
+            childAspectRatio: 1.35, 
+            mainAxisSpacing: 4, 
+            crossAxisSpacing: 4, 
+            children: widget.visibleTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg)).toList(),
           ),
-        ),
-        const SizedBox(height: 8),
-        _buildSliderRow(Icons.brightness_6, widget.brightness, widget.onBrightnessChanged, accentColor, secText, inactiveTrackColor),
-        _buildSliderRow(Icons.volume_up, widget.volume, widget.onVolumeChanged, accentColor, secText, inactiveTrackColor),
-        Divider(height: 12, thickness: 1, color: borderCol), 
-        Row(
-          children: [
-            Icon(
-              isCharging ? Icons.battery_charging_full : Icons.battery_full, 
-              size: 16, 
-              color: isCharging ? Colors.green.shade500 : primaryText
-            ),
-            const SizedBox(width: 6),
-            Text('${widget.batteryLevel}%', style: TextStyle(fontSize: 11, color: primaryText, fontWeight: FontWeight.bold)),
-            const Spacer(),
-            InkWell(
-              onTap: () => setState(() => _isEditing = true),
-              child: Padding(padding: const EdgeInsets.all(4), child: Icon(Icons.edit, size: 16, color: primaryText)),
-            ),
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: widget.onOpenSettings,
-              child: Padding(padding: const EdgeInsets.all(4), child: Icon(Icons.settings, size: 16, color: primaryText)),
-            ),
-          ],
-        ),
-      ],
+          const SizedBox(height: 8),
+          _buildSliderRow(Icons.brightness_6, sBright, widget.onBrightnessChanged, accentColor, secText, inactiveTrackColor),
+          _buildSliderRow(Icons.volume_up, sVol, widget.onVolumeChanged, accentColor, secText, inactiveTrackColor),
+          Divider(height: 12, thickness: 1, color: borderCol), 
+          Row(
+            children: [
+              Icon(
+                isCharging ? Icons.battery_charging_full : Icons.battery_full, 
+                size: 16, 
+                color: isCharging ? Colors.green.shade500 : primaryText
+              ),
+              const SizedBox(width: 6),
+              Text('${widget.batteryLevel}%', style: TextStyle(fontSize: 11, color: primaryText, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              InkWell(
+                onTap: () => setState(() => _isEditing = true),
+                child: Padding(padding: const EdgeInsets.all(4), child: Icon(Icons.edit, size: 16, color: primaryText)),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: widget.onOpenSettings,
+                child: Padding(padding: const EdgeInsets.all(4), child: Icon(Icons.settings, size: 16, color: primaryText)),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildEditMode(bool isDark, Color accentColor, Color primaryText, Color inactiveTileBg) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Visible Panels', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryText)),
-            InkWell(
-              onTap: () => setState(() => _isEditing = false),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(16)),
-                child: const Text('Done', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Visible Panels', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryText)),
+              InkWell(
+                onTap: () => setState(() => _isEditing = false),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(color: accentColor, borderRadius: BorderRadius.circular(16)),
+                  child: const Text('Done', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Flexible(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GridView.count(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  childAspectRatio: 1.35,
-                  mainAxisSpacing: 4,
-                  crossAxisSpacing: 4,
-                  children: widget.visibleTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg, isEditMode: true, isHidden: false)).toList(),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10.0),
-                  child: Text('Hidden Panels', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryText)),
-                ),
-                GridView.count(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  childAspectRatio: 1.35,
-                  mainAxisSpacing: 4,
-                  crossAxisSpacing: 4,
-                  children: widget.hiddenTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg, isEditMode: true, isHidden: true)).toList(),
-                ),
-              ],
-            ),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 10),
+          GridView.count(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 3,
+            childAspectRatio: 1.35,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
+            children: widget.visibleTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg, isEditMode: true, isHidden: false)).toList(),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10.0),
+            child: Text('Hidden Panels', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: primaryText)),
+          ),
+          GridView.count(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 3,
+            childAspectRatio: 1.35,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
+            children: widget.hiddenTiles.map((key) => _buildTile(key, isDark, accentColor, primaryText, inactiveTileBg, isEditMode: true, isHidden: true)).toList(),
+          ),
+        ],
+      ),
     );
   }
 

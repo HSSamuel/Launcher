@@ -1,10 +1,74 @@
 import 'dart:typed_data';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+
+class DesktopItemModel {
+  final String id;
+  final String type; // 'system', 'app', 'file', 'widget', 'native_widget'
+  String label;      
+  final String? package;
+  final String? path;
+  final String? widgetType; 
+  final int? appWidgetId;
+  int spanX;
+  int spanY;
+  int page;
+  int col;
+  int row;
+
+  DesktopItemModel({
+    required this.id,
+    required this.type,
+    required this.label,
+    this.package,
+    this.path,
+    this.widgetType,
+    this.appWidgetId,
+    this.spanX = 1,
+    this.spanY = 1,
+    required this.page,
+    required this.col,
+    required this.row,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type,
+    'label': label,
+    'package': package,
+    'path': path,
+    'widgetType': widgetType,
+    'appWidgetId': appWidgetId,
+    'spanX': spanX,
+    'spanY': spanY,
+    'page': page,
+    'col': col,
+    'row': row,
+  };
+
+  factory DesktopItemModel.fromJson(Map<String, dynamic> json) {
+    return DesktopItemModel(
+      id: json['id'],
+      type: json['type'],
+      label: json['label'],
+      package: json['package'],
+      path: json['path'],
+      widgetType: json['widgetType'],
+      appWidgetId: json['appWidgetId'],
+      spanX: json['spanX'] ?? (json['type'] == 'widget' || json['type'] == 'native_widget' ? 2 : 1),
+      spanY: json['spanY'] ?? 1,
+      page: json['page'] ?? 0,
+      col: json['col'] ?? 0,
+      row: json['row'] ?? 0,
+    );
+  }
+}
 
 class WinTheme {
   final String name;
@@ -29,11 +93,10 @@ class LauncherState extends ChangeNotifier {
   Offset browserPos = const Offset(10, 15);
   Offset settingsPos = const Offset(10, 15);
 
-  String userName = 'HUNSA S. S.';
-  String userEmail = 'smkmayomisamuel@gmail.com';
+  String userName = 'Windows User';
+  String userEmail = 'Local Account';
   Uint8List? userImageBytes;
   
-  // Default to your new local dark theme
   String actualWallpaperUrl = 'assets/wallpapers/theme_dark.jpg';
 
   bool isDarkMode = true;
@@ -46,9 +109,9 @@ class LauncherState extends ChangeNotifier {
   bool showRecommended = true;
 
   String iconSize = 'Small';
-  int portraitGridX = 6;
-  int portraitGridY = 10;
-  int landscapeGridX = 7;
+  int portraitGridX = 5; 
+  int portraitGridY = 8;
+  int landscapeGridX = 8;
   int landscapeGridY = 5;
   bool doubleTapToSleep = true;
   bool dragIcons = true;
@@ -68,7 +131,23 @@ class LauncherState extends ChangeNotifier {
   String gestureTwoFingerUpAction = 'Start Menu';
   String gestureTwoFingerDownAction = 'Device Notification Bar';
 
-  // Completely updated to use your local assets
+  bool searchShowTopApps = true;
+  bool searchCatApps = true;
+  bool searchCatDocs = true;
+  bool searchCatPhotos = true;
+  bool searchCatAudio = true;
+  bool searchCatVideos = true;
+  bool searchCatSettings = true;
+
+  bool taskbarItemSearch = true;
+  bool taskbarItemTaskView = true;
+  bool taskbarItemWidget = true;
+  bool taskbarOverInternet = true;
+  bool taskbarOverSound = true;
+  bool taskbarOverBattery = true;
+  bool taskbarOverDate = true;
+  bool hideNetworkIcons = false;
+
   final List<WinTheme> win11Themes = const [
     WinTheme(name: 'Dark Mountains', wallpaperUrl: 'assets/wallpapers/theme_dark.jpg', isDark: true, accentColor: Color(0xFF4CC2FF)),
     WinTheme(name: 'Sunrise Horizon', wallpaperUrl: 'assets/wallpapers/theme_sunrise.jpg', isDark: false, accentColor: Color(0xFFFF8C00)),
@@ -89,7 +168,9 @@ class LauncherState extends ChangeNotifier {
   List<String> pinnedQuickAccess = [];
   List<String> pinnedStart = [];
   List<String> recentApps = [];
-  List<String> desktopApps = [];
+  
+  int desktopPages = 1;
+  List<DesktopItemModel> desktopItems = [];
 
   List<String> visibleQuickSettings = [
     'Airplane mode', 'Battery saver', 'Wi-Fi',
@@ -107,7 +188,162 @@ class LauncherState extends ChangeNotifier {
 
   LauncherState() {
     _loadState();
-    _loadRealAndroidApps();
+    Future.delayed(const Duration(seconds: 2), () {
+      _loadRealAndroidApps();
+    });
+  }
+  
+  Future<void> addNativeWidget(int page, int col, int row) async {
+    try {
+      final result = await const MethodChannel('win_launcher/native').invokeMethod('pickWidget');
+      if (result != null) {
+        final Map<String, dynamic> data = Map<String, dynamic>.from(result);
+        final int appWidgetId = data['appWidgetId'];
+        final String label = data['label'];
+        final int minWidth = data['minWidth'];
+        final int minHeight = data['minHeight'];
+        
+        int spanX = (minWidth / 80).ceil().clamp(1, 4);
+        int spanY = (minHeight / 80).ceil().clamp(1, 4);
+
+        desktopItems.add(DesktopItemModel(
+          id: 'native_widget_$appWidgetId',
+          type: 'native_widget',
+          label: label,
+          appWidgetId: appWidgetId,
+          spanX: spanX,
+          spanY: spanY,
+          page: page,
+          col: col,
+          row: row,
+        ));
+        _saveDesktopItems();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint("Error picking native widget: $e");
+    }
+  }
+
+  // NEW: Executes real-time widget resizing by updating the grid state and firing the MethodChannel
+  void resizeDesktopItem(String id, int spanX, int spanY, double cellWidth, double cellHeight) {
+    final index = desktopItems.indexWhere((i) => i.id == id);
+    if (index != -1) {
+      desktopItems[index].spanX = spanX;
+      desktopItems[index].spanY = spanY;
+      _saveDesktopItems();
+      notifyListeners();
+      
+      if (desktopItems[index].type == 'native_widget' && desktopItems[index].appWidgetId != null) {
+        const MethodChannel('win_launcher/native').invokeMethod('updateWidgetSize', {
+           'appWidgetId': desktopItems[index].appWidgetId,
+           'width': (spanX * cellWidth).toInt(),
+           'height': (spanY * cellHeight).toInt(),
+        });
+      }
+    }
+  }
+
+  void addDesktopPage() async {
+    desktopPages++;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('desktopPages', desktopPages);
+  }
+
+  void removeDesktopPage() async {
+    if (desktopPages > 1) {
+      desktopPages--;
+      for (var item in desktopItems.where((i) => i.page >= desktopPages)) {
+        item.page = desktopPages - 1;
+      }
+      _saveDesktopItems();
+      notifyListeners();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('desktopPages', desktopPages);
+    }
+  }
+
+  void updateItemPosition(String id, int page, int col, int row) {
+    final index = desktopItems.indexWhere((i) => i.id == id);
+    if (index != -1) {
+      final collisionIndex = desktopItems.indexWhere((i) => i.page == page && i.col == col && i.row == row && i.id != id);
+      if (collisionIndex != -1) {
+        desktopItems[collisionIndex].col = desktopItems[index].col;
+        desktopItems[collisionIndex].row = desktopItems[index].row;
+        desktopItems[collisionIndex].page = desktopItems[index].page;
+      }
+      
+      desktopItems[index].page = page;
+      desktopItems[index].col = col;
+      desktopItems[index].row = row;
+      _saveDesktopItems();
+      notifyListeners();
+    }
+  }
+
+  void renameDesktopItem(String id, String newName) {
+    final index = desktopItems.indexWhere((i) => i.id == id);
+    if (index != -1) {
+      desktopItems[index].label = newName;
+      _saveDesktopItems();
+      notifyListeners();
+    }
+  }
+
+  void addDesktopApp(AppInfo app, int page, int col, int row) {
+    if (!desktopItems.any((i) => i.id == app.packageName)) {
+      desktopItems.add(DesktopItemModel(
+        id: app.packageName ?? DateTime.now().toString(),
+        type: 'app',
+        label: app.name ?? 'App',
+        package: app.packageName,
+        page: page,
+        col: col,
+        row: row,
+      ));
+      _saveDesktopItems();
+      notifyListeners();
+    }
+  }
+
+  void addDesktopWidget(String widgetType, String label, int page, int col, int row, {int spanX = 2, int spanY = 1}) {
+    desktopItems.add(DesktopItemModel(
+      id: 'widget_${widgetType}_${DateTime.now().millisecondsSinceEpoch}',
+      type: 'widget',
+      label: label,
+      widgetType: widgetType,
+      spanX: spanX,
+      spanY: spanY,
+      page: page,
+      col: col,
+      row: row,
+    ));
+    _saveDesktopItems();
+    notifyListeners();
+  }
+
+  void removeDesktopItem(String id) {
+    desktopItems.removeWhere((i) => i.id == id);
+    _saveDesktopItems();
+    notifyListeners();
+  }
+
+  Future<void> _saveDesktopItems() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String jsonString = jsonEncode(desktopItems.map((i) => i.toJson()).toList());
+    await prefs.setString('desktopItems', jsonString);
+  }
+
+  void _initializeDefaultDesktop() {
+    desktopItems = [
+      DesktopItemModel(id: 'recycle_bin', type: 'system', label: 'Recycle Bin', page: 0, col: 0, row: 0),
+      DesktopItemModel(id: 'my_files', type: 'system', label: 'My Files', page: 0, col: 1, row: 0),
+      DesktopItemModel(id: 'calculator', type: 'system', label: 'Calculator', page: 0, col: 2, row: 0),
+      DesktopItemModel(id: 'browser', type: 'system', label: 'Edge', page: 0, col: 3, row: 0),
+      DesktopItemModel(id: 'settings', type: 'system', label: 'Settings', page: 0, col: 4, row: 0),
+    ];
+    _saveDesktopItems();
   }
 
   void toggleQuickSettingVisibility(String item) async {
@@ -159,17 +395,6 @@ class LauncherState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleDesktopApp(String name) async {
-    if (desktopApps.contains(name)) {
-      desktopApps.remove(name);
-    } else {
-      desktopApps.add(name);
-    }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('desktopApps', desktopApps);
-    notifyListeners();
-  }
-
   void setClipboard(String path, bool cut) {
     clipboardPath = path;
     isCut = cut;
@@ -184,8 +409,10 @@ class LauncherState extends ChangeNotifier {
 
   Future<void> _loadState() async {
     final prefs = await SharedPreferences.getInstance();
-    userName = prefs.getString('userName') ?? 'HUNSA S. S.';
-    userEmail = prefs.getString('userEmail') ?? 'smkmayomisamuel@gmail.com';
+    
+    userName = prefs.getString('userName') ?? 'Windows User';
+    userEmail = prefs.getString('userEmail') ?? 'Local Account';
+    
     String? base64Image = prefs.getString('userImage');
     if (base64Image != null) userImageBytes = base64Decode(base64Image);
 
@@ -200,9 +427,9 @@ class LauncherState extends ChangeNotifier {
     showRecommended = prefs.getBool('showRecommended') ?? true;
 
     iconSize = prefs.getString('iconSize') ?? 'Small';
-    portraitGridX = prefs.getInt('portraitGridX') ?? 6;
-    portraitGridY = prefs.getInt('portraitGridY') ?? 10;
-    landscapeGridX = prefs.getInt('landscapeGridX') ?? 7;
+    portraitGridX = prefs.getInt('portraitGridX') ?? 5;
+    portraitGridY = prefs.getInt('portraitGridY') ?? 8;
+    landscapeGridX = prefs.getInt('landscapeGridX') ?? 8;
     landscapeGridY = prefs.getInt('landscapeGridY') ?? 5;
     doubleTapToSleep = prefs.getBool('doubleTapToSleep') ?? true;
     dragIcons = prefs.getBool('dragIcons') ?? true;
@@ -222,13 +449,69 @@ class LauncherState extends ChangeNotifier {
     gestureTwoFingerUpAction = prefs.getString('gestureTwoFingerUpAction') ?? 'Start Menu';
     gestureTwoFingerDownAction = prefs.getString('gestureTwoFingerDownAction') ?? 'Device Notification Bar';
 
+    searchShowTopApps = prefs.getBool('search_showTopApps') ?? true;
+    searchCatApps = prefs.getBool('search_catApps') ?? true;
+    searchCatDocs = prefs.getBool('search_catDocs') ?? true;
+    searchCatPhotos = prefs.getBool('search_catPhotos') ?? true;
+    searchCatAudio = prefs.getBool('search_catAudio') ?? true;
+    searchCatVideos = prefs.getBool('search_catVideos') ?? true;
+    searchCatSettings = prefs.getBool('search_catSettings') ?? true;
+
+    taskbarItemSearch = prefs.getBool('taskbar_itemSearch') ?? true;
+    taskbarItemTaskView = prefs.getBool('taskbar_itemTaskView') ?? true;
+    taskbarItemWidget = prefs.getBool('taskbar_itemWidget') ?? true;
+    taskbarOverInternet = prefs.getBool('taskbar_overInternet') ?? true;
+    taskbarOverSound = prefs.getBool('taskbar_overSound') ?? true;
+    taskbarOverBattery = prefs.getBool('taskbar_overBattery') ?? true;
+    taskbarOverDate = prefs.getBool('taskbar_overDate') ?? true;
+    hideNetworkIcons = prefs.getBool('taskbar_hideNetworkIcons') ?? false;
+
     visibleQuickSettings = prefs.getStringList('visibleQuickSettings') ?? visibleQuickSettings;
     hiddenQuickSettings = prefs.getStringList('hiddenQuickSettings') ?? hiddenQuickSettings;
 
     recentApps = prefs.getStringList('recentApps') ?? [];
-    desktopApps = prefs.getStringList('desktopApps') ?? [];
     pinnedStart = prefs.getStringList('pinnedStart') ?? [];
+    desktopPages = prefs.getInt('desktopPages') ?? 1;
 
+    final String? itemsJson = prefs.getString('desktopItems');
+    if (itemsJson != null && itemsJson.isNotEmpty) {
+      try {
+        final List<dynamic> decoded = jsonDecode(itemsJson);
+        desktopItems = decoded.map((e) => DesktopItemModel.fromJson(e)).toList();
+      } catch (_) {
+        _initializeDefaultDesktop();
+      }
+    } else {
+      _initializeDefaultDesktop();
+    }
+
+    notifyListeners();
+  }
+
+  Future<void> updateSearchSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (key == 'showTopApps') searchShowTopApps = value;
+    if (key == 'catApps') searchCatApps = value;
+    if (key == 'catDocs') searchCatDocs = value;
+    if (key == 'catPhotos') searchCatPhotos = value;
+    if (key == 'catAudio') searchCatAudio = value;
+    if (key == 'catVideos') searchCatVideos = value;
+    if (key == 'catSettings') searchCatSettings = value;
+    await prefs.setBool('search_$key', value);
+    notifyListeners();
+  }
+
+  Future<void> updateTaskbarSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (key == 'itemSearch') taskbarItemSearch = value;
+    if (key == 'itemTaskView') taskbarItemTaskView = value;
+    if (key == 'itemWidget') taskbarItemWidget = value;
+    if (key == 'overInternet') taskbarOverInternet = value;
+    if (key == 'overSound') taskbarOverSound = value;
+    if (key == 'overBattery') taskbarOverBattery = value;
+    if (key == 'overDate') taskbarOverDate = value;
+    if (key == 'hideNetworkIcons') hideNetworkIcons = value;
+    await prefs.setBool('taskbar_$key', value);
     notifyListeners();
   }
 
@@ -377,12 +660,11 @@ class LauncherState extends ChangeNotifier {
       recentApps.insert(0, packageName);
       if (recentApps.length > 6) recentApps.removeLast();
 
-      // FIX: Add native app to the Taskbar Window Stack so it appears open
       if (!windowStack.contains(packageName)) {
         windowStack.add(packageName);
       } else {
         windowStack.remove(packageName);
-        windowStack.add(packageName); // Bring to front
+        windowStack.add(packageName); 
       }
 
       final prefs = await SharedPreferences.getInstance();

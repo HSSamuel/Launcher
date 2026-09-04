@@ -10,66 +10,103 @@ class CalculatorApp extends StatefulWidget {
 }
 
 class _CalculatorAppState extends State<CalculatorApp> {
+  String _leftOperand = "0";
+  String _operator = "";
+  String _rightOperand = "";
   String _history = "";
-  String _output = "0";
-  double _num1 = 0.0;
-  String _operand = "";
-  bool _isNewEquation = true;
 
   void _buttonPressed(String buttonText) {
     setState(() {
       if (buttonText == "C") {
-        _output = "0";
+        _leftOperand = "0";
+        _operator = "";
+        _rightOperand = "";
         _history = "";
-        _num1 = 0.0;
-        _operand = "";
-        _isNewEquation = true;
       } else if (buttonText == "⌫") {
-        if (_output.length > 1) {
-          _output = _output.substring(0, _output.length - 1);
+        if (_rightOperand.isNotEmpty) {
+          _rightOperand = _rightOperand.substring(0, _rightOperand.length - 1);
+        } else if (_operator.isNotEmpty) {
+          _operator = "";
+        } else if (_leftOperand.length > 1) {
+          _leftOperand = _leftOperand.substring(0, _leftOperand.length - 1);
         } else {
-          _output = "0";
-          _isNewEquation = true;
+          _leftOperand = "0";
         }
       } else if (buttonText == "+" || buttonText == "-" || buttonText == "x" || buttonText == "/") {
-        if (_output.isNotEmpty) {
-          _num1 = double.parse(_output);
-          _operand = buttonText;
-          _history = "${_output.endsWith('.0') ? _output.replaceAll('.0', '') : _output} $_operand";
-          _isNewEquation = true;
+        if (_rightOperand.isNotEmpty) {
+          _calculateResult();
+        }
+        if (_leftOperand != "Error") {
+          _operator = buttonText;
         }
       } else if (buttonText == "=") {
-        if (_operand.isNotEmpty && _output.isNotEmpty) {
-          double num2 = double.parse(_output);
-          _history = "$_history ${_output.endsWith('.0') ? _output.replaceAll('.0', '') : _output} =";
-          
-          double result = 0.0;
-          if (_operand == "+") result = _num1 + num2;
-          if (_operand == "-") result = _num1 - num2;
-          if (_operand == "x") result = _num1 * num2;
-          if (_operand == "/") result = num2 != 0 ? _num1 / num2 : 0.0;
-          
-          _output = result.toString();
-          if (_output.endsWith(".0")) {
-            _output = _output.substring(0, _output.length - 2);
-          }
-          _operand = "";
-          _isNewEquation = true;
+        if (_operator.isNotEmpty && _rightOperand.isNotEmpty) {
+          _history = "$_leftOperand $_operator $_rightOperand =";
+          _calculateResult();
+          _operator = "";
+          _rightOperand = "";
         }
       } else {
-        if (_isNewEquation) {
-          _output = buttonText == "." ? "0." : buttonText;
-          _isNewEquation = false;
+        // Handle numbers and decimal points
+        if (_operator.isEmpty) {
+          if (_leftOperand == "Error") _leftOperand = "0";
+          if (buttonText == "." && _leftOperand.contains(".")) return;
+          if (_leftOperand == "0" && buttonText != ".") {
+            _leftOperand = buttonText;
+          } else {
+            _leftOperand += buttonText;
+          }
         } else {
-          if (buttonText == "." && _output.contains(".")) return;
-          _output += buttonText;
+          if (buttonText == "." && _rightOperand.contains(".")) return;
+          if (_rightOperand == "0" && buttonText != ".") {
+            _rightOperand = buttonText;
+          } else {
+            _rightOperand += buttonText;
+          }
         }
       }
     });
   }
 
-  // FIX: Converted to Pure Expanded/Flex to completely eliminate RenderFlex Overflows
-  Widget _buildButton(String text, {Color? textColor, Color? bgColor, int flexWidth = 1}) {
+  void _calculateResult() {
+    double num1 = double.tryParse(_leftOperand) ?? 0.0;
+    double num2 = double.tryParse(_rightOperand) ?? 0.0;
+    double res = 0.0;
+    
+    if (_operator == "+") res = num1 + num2;
+    if (_operator == "-") res = num1 - num2;
+    if (_operator == "x") res = num1 * num2;
+    if (_operator == "/") {
+      if (num2 == 0) {
+        _leftOperand = "Error";
+        return;
+      }
+      res = num1 / num2;
+    }
+    
+    _leftOperand = res.toString();
+    if (_leftOperand.endsWith(".0")) {
+      _leftOperand = _leftOperand.substring(0, _leftOperand.length - 2);
+    }
+  }
+
+  // FIX: Dynamically builds the visible string so users can see the full equation being typed
+  String get _displayText {
+    String text = _leftOperand;
+    if (_operator.isNotEmpty) {
+      text += " $_operator";
+      if (_rightOperand.isNotEmpty) {
+        text += " $_rightOperand";
+      }
+    }
+    return text;
+  }
+
+  Widget _buildButton(String text, bool isDark, {Color? textColor, Color? bgColor, int flexWidth = 1}) {
+    final defaultBg = isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05);
+    final defaultBorder = isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05);
+    final defaultText = isDark ? Colors.white : Colors.black87;
+
     return Expanded(
       flex: flexWidth,
       child: Container(
@@ -79,14 +116,14 @@ class _CalculatorAppState extends State<CalculatorApp> {
           borderRadius: BorderRadius.circular(6),
           child: Container(
             decoration: BoxDecoration(
-              color: bgColor ?? Colors.white.withOpacity(0.08),
+              color: bgColor ?? defaultBg,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.white.withOpacity(0.05), width: 1),
+              border: Border.all(color: defaultBorder, width: 1),
             ),
             child: Center(
               child: Text(
                 text, 
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w500, color: textColor ?? Colors.white)
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w500, color: textColor ?? defaultText)
               ),
             ),
           ),
@@ -97,20 +134,29 @@ class _CalculatorAppState extends State<CalculatorApp> {
 
   @override
   Widget build(BuildContext context) {
+    final state = context.watch<LauncherState>();
+    final isDark = state.isDarkMode;
+    
+    // FIX: Theme-aware colors for light and dark modes
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subTextColor = isDark ? Colors.white54 : Colors.black54;
+    final operatorColor = isDark ? Colors.blueAccent.shade100 : Colors.blueAccent.shade700;
+    final equalBgColor = isDark ? Colors.blueAccent.withOpacity(0.3) : Colors.blueAccent.withOpacity(0.15);
+    final equalTextColor = isDark ? Colors.blueAccent.shade100 : Colors.blueAccent.shade700;
+
     return Container(
-      color: Colors.black, // Strict Black and White Theme
+      // FIX: Seamlessly blends with the parent AppWindow background, erasing the white padding
+      color: Colors.transparent, 
       child: Column(
         children: [
-          // FIX: Close icon at the edge
           Align(
             alignment: Alignment.topRight,
             child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white54, size: 20),
-              onPressed: () => context.read<LauncherState>().closeApp('calculator'),
+              icon: Icon(Icons.close, color: subTextColor, size: 20),
+              onPressed: () => state.closeApp('calculator'),
             ),
           ),
           
-          // FIX: Display Area wrapped in Expanded/FittedBox to prevent vertical overflow
           Expanded(
             flex: 2,
             child: Container(
@@ -123,9 +169,9 @@ class _CalculatorAppState extends State<CalculatorApp> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(_history, style: const TextStyle(fontSize: 16, color: Colors.white54)),
+                    Text(_history, style: TextStyle(fontSize: 16, color: subTextColor)),
                     const SizedBox(height: 4),
-                    Text(_output, style: const TextStyle(fontSize: 54, fontWeight: FontWeight.w600, color: Colors.white)),
+                    Text(_displayText, style: TextStyle(fontSize: 54, fontWeight: FontWeight.w600, color: textColor)),
                   ],
                 ),
               ),
@@ -139,9 +185,9 @@ class _CalculatorAppState extends State<CalculatorApp> {
               padding: const EdgeInsets.all(6.0),
               child: Column(
                 children: [
-                  Expanded(child: Row(children: [_buildButton("C", textColor: Colors.white), _buildButton("⌫", textColor: Colors.white), _buildButton("/", textColor: Colors.white), _buildButton("x", textColor: Colors.white)])),
-                  Expanded(child: Row(children: [_buildButton("7"), _buildButton("8"), _buildButton("9"), _buildButton("-", textColor: Colors.white)])),
-                  Expanded(child: Row(children: [_buildButton("4"), _buildButton("5"), _buildButton("6"), _buildButton("+", textColor: Colors.white)])),
+                  Expanded(child: Row(children: [_buildButton("C", isDark, textColor: Colors.redAccent), _buildButton("⌫", isDark, textColor: operatorColor), _buildButton("/", isDark, textColor: operatorColor), _buildButton("x", isDark, textColor: operatorColor)])),
+                  Expanded(child: Row(children: [_buildButton("7", isDark), _buildButton("8", isDark), _buildButton("9", isDark), _buildButton("-", isDark, textColor: operatorColor)])),
+                  Expanded(child: Row(children: [_buildButton("4", isDark), _buildButton("5", isDark), _buildButton("6", isDark), _buildButton("+", isDark, textColor: operatorColor)])),
                   Expanded(
                     flex: 2,
                     child: Row(
@@ -150,12 +196,12 @@ class _CalculatorAppState extends State<CalculatorApp> {
                           flex: 3,
                           child: Column(
                             children: [
-                              Expanded(child: Row(children: [_buildButton("1"), _buildButton("2"), _buildButton("3")])),
-                              Expanded(child: Row(children: [_buildButton("0", flexWidth: 2), _buildButton(".")])),
+                              Expanded(child: Row(children: [_buildButton("1", isDark), _buildButton("2", isDark), _buildButton("3", isDark)])),
+                              Expanded(child: Row(children: [_buildButton("0", isDark, flexWidth: 2), _buildButton(".", isDark)])),
                             ],
                           ),
                         ),
-                        _buildButton("=", bgColor: Colors.white24, flexWidth: 1), // Black & White theme equals button
+                        _buildButton("=", isDark, bgColor: equalBgColor, textColor: equalTextColor, flexWidth: 1), 
                       ],
                     ),
                   ),

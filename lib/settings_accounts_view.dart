@@ -32,7 +32,72 @@ class SettingsAccountsView extends StatelessWidget {
           title: 'Email & accounts',
           subtitle: 'Accounts used by email, calender and contacts',
           icon: Icons.mail_outline,
-          onTap: () => _openNativeSettings('add_account'), // Native routing
+          onTap: () => _openNativeSettings('add_account'), 
+        ),
+      ],
+    );
+  }
+}
+
+// FIX: Extracted the dialog into a StatefulWidget so controller disposal is tied to the widget lifecycle safely
+class _EditInfoDialog extends StatefulWidget {
+  final String initialText;
+  final String title;
+  final bool isDark;
+
+  const _EditInfoDialog({
+    Key? key,
+    required this.initialText,
+    required this.title,
+    required this.isDark,
+  }) : super(key: key);
+
+  @override
+  State<_EditInfoDialog> createState() => _EditInfoDialogState();
+}
+
+class _EditInfoDialogState extends State<_EditInfoDialog> {
+  late TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    // This will only fire AFTER the dialog has safely animated off the screen
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dialogBg = widget.isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = widget.isDark ? Colors.white : Colors.black87;
+
+    return AlertDialog(
+      backgroundColor: dialogBg,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      title: Text(widget.title, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+      content: TextField(
+        controller: _controller,
+        style: TextStyle(color: textColor, fontSize: 13),
+        decoration: const InputDecoration(
+          isDense: true,
+          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent, width: 1.5)),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context), 
+          child: Text('Cancel', style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54))
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('Save', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -42,43 +107,28 @@ class SettingsAccountsView extends StatelessWidget {
 class YourInfoScreen extends StatelessWidget {
   const YourInfoScreen({Key? key}) : super(key: key);
 
-  void _editValue(BuildContext context, LauncherState state, bool isName) {
-    TextEditingController controller = TextEditingController(text: isName ? state.userName : state.userEmail);
-    final isDark = state.isDarkMode;
-    final dialogBg = isDark ? const Color(0xFF2B2B2B) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    showDialog(
+  void _editValue(BuildContext context, bool isName) async {
+    final state = context.read<LauncherState>();
+    final initialText = isName ? state.userName : state.userEmail;
+    
+    // Wait for the dialog to return a string (or null if cancelled)
+    final String? newText = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: dialogBg,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        title: Text(isName ? 'Edit Name' : 'Edit Email', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          style: TextStyle(color: textColor, fontSize: 13),
-          decoration: InputDecoration(
-            isDense: true,
-            enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
-            focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent, width: 1.5)),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))),
-          TextButton(
-            onPressed: () {
-              if (isName) {
-                state.updateUserName(controller.text);
-              } else {
-                state.updateUserEmail(controller.text);
-              }
-              Navigator.pop(ctx);
-            },
-            child: const Text('Save', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (ctx) => _EditInfoDialog(
+        initialText: initialText,
+        title: isName ? 'Edit Name' : 'Edit Email',
+        isDark: state.isDarkMode,
       ),
     );
+
+    // If the user saved a new value, update the state securely after pop completes
+    if (newText != null && newText.trim().isNotEmpty && newText != initialText) {
+      if (isName) {
+        state.updateUserName(newText.trim());
+      } else {
+        state.updateUserEmail(newText.trim());
+      }
+    }
   }
 
   @override
@@ -119,7 +169,7 @@ class YourInfoScreen extends StatelessWidget {
               decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)),
               child: Text(state.userName, style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)),
             ),
-            onTap: () => _editValue(context, state, true),
+            onTap: () => _editValue(context, true),
           ),
           SettingsCard(
             title: 'Email',
@@ -130,7 +180,7 @@ class YourInfoScreen extends StatelessWidget {
               decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)),
               child: Text(state.userEmail, style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)),
             ),
-            onTap: () => _editValue(context, state, false),
+            onTap: () => _editValue(context, false),
           ),
         ],
       ),

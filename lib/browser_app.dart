@@ -33,6 +33,13 @@ class _BrowserAppState extends State<BrowserApp> {
       ..loadRequest(Uri.parse('https://www.google.com'));
   }
 
+  // FIX: Added dispose method to prevent memory leak when the window is closed
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
   void _loadUrl(String url) {
     if (url.isEmpty) return;
     if (!url.startsWith("http://") && !url.startsWith("https://")) {

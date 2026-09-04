@@ -1,33 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'launcher_state.dart';
 
 class DesktopIcon extends StatelessWidget {
+  final DesktopItemModel itemData;
   final IconData? icon;
   final Widget? customIcon; 
   final String label;
   final Color iconColor;
   final VoidCallback onTap;
+  final VoidCallback onSecondaryTap;
+  final VoidCallback onLongPress;
 
   const DesktopIcon({
     Key? key,
+    required this.itemData,
     this.icon,
     this.customIcon,
     required this.label,
     this.iconColor = Colors.white,
     required this.onTap,
+    required this.onSecondaryTap,
+    required this.onLongPress,
   }) : super(key: key);
 
-  @override
-  Widget build(BuildContext context) {
+  // FIX: Created a builder method so Draggable gets unique widget instances 
+  // instead of reusing the exact same element simultaneously
+  Widget _buildContent() {
     return InkWell(
       onTap: onTap,
+      onSecondaryTapDown: (_) => onSecondaryTap(),
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
         padding: const EdgeInsets.all(2.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
           children: [
-            // FIXED: Expanded + FittedBox ensures the icon gracefully shrinks 
-            // if the desktop grid is too small, completely preventing overflows!
             Expanded(
               child: FittedBox(
                 fit: BoxFit.contain,
@@ -53,6 +62,29 @@ class DesktopIcon extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.read<LauncherState>();
+    
+    if (!state.dragIcons) return _buildContent();
+
+    return Draggable<DesktopItemModel>(
+      data: itemData,
+      feedback: Material(
+        color: Colors.transparent,
+        child: Opacity(
+          opacity: 0.8,
+          child: SizedBox(
+            width: 70, height: 80,
+            child: _buildContent(),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.3, child: _buildContent()),
+      child: _buildContent(),
     );
   }
 }
