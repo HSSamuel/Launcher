@@ -88,7 +88,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     return '$h:${m.toString().padLeft(2, '0')} $ampm';
   }
 
-  // FIX: Exact requested Taskbar date format
   String _formatDate(DateTime date) {
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
@@ -155,7 +154,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
       
       return Container(
         width: 38, height: 38,
-        margin: const EdgeInsets.symmetric(horizontal: 0), // Zero Gaps
+        margin: const EdgeInsets.symmetric(horizontal: 0),
         decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
         child: Stack(
           alignment: Alignment.center,
@@ -167,7 +166,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
       );
     }
 
-    // FIX: Using Exact Desktop Icons for internal apps
     Widget iconWidget;
     switch (windowId) {
       case 'browser': iconWidget = Image.asset('assets/icons/edge.png', width: 22, height: 22); break;
@@ -179,7 +177,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
 
     return Container(
       width: 38, height: 38,
-      margin: const EdgeInsets.symmetric(horizontal: 0), // Zero Gaps
+      margin: const EdgeInsets.symmetric(horizontal: 0),
       decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
       child: Stack(
         alignment: Alignment.center,
@@ -266,91 +264,89 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     final taskbarColor = Color.alphaBlend(theme.accentColor.withOpacity(0.08), baseColor).withOpacity(0.95);
     final iconColor = isDark ? Colors.white : Colors.black87;
 
-    return Positioned(
-      bottom: 0, left: 0, right: 0,
+    // CRITICAL FIX: Removed nested 'Positioned' parent wrapper to prevent ParentDataWidget exception.
+    return Container(
       height: 48,
-      child: Container(
-        color: taskbarColor,
-        child: Row(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(width: 6),
-                    
-                    InkWell(
-                      onTap: widget.onStartToggled,
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        width: 38, height: 38,
-                        margin: const EdgeInsets.symmetric(horizontal: 0),
-                        decoration: BoxDecoration(color: widget.isStartMenuOpen ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
-                        child: Center(child: Image.asset('assets/icons/start.png', width: 22, height: 22, errorBuilder: (context, error, stackTrace) => const Icon(Icons.window, color: Colors.blue, size: 24))),
-                      ),
+      color: taskbarColor,
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(width: 6),
+                  
+                  InkWell(
+                    onTap: widget.onStartToggled,
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      width: 38, height: 38,
+                      margin: const EdgeInsets.symmetric(horizontal: 0),
+                      decoration: BoxDecoration(color: widget.isStartMenuOpen ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
+                      child: Center(child: Image.asset('assets/icons/start.png', width: 22, height: 22, errorBuilder: (context, error, stackTrace) => const Icon(Icons.window, color: Colors.blue, size: 24))),
                     ),
-                    
-                    InkWell(
+                  ),
+                  
+                  InkWell(
+                    onTap: () {
+                      widget.onOverlaysClosed(); 
+                      _openSearchOverlay(context, state);
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(margin: const EdgeInsets.symmetric(horizontal: 0), width: 38, height: 38, child: Icon(Icons.search, size: 22, color: iconColor)),
+                  ),
+                  
+                  InkWell(
+                    onTap: () async {
+                      widget.onOverlaysClosed();
+                      final success = await platform.invokeMethod('toggleRecents'); 
+                      if (success != true) {
+                        _showAccessibilityPrompt(isDark);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 0),
+                      width: 38, height: 38, 
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Icon(Icons.filter_none, size: 20, color: iconColor.withOpacity(0.6)),
+                          Positioned(top: 10, left: 10, child: Icon(Icons.crop_square, size: 18, color: iconColor)),
+                        ],
+                      )
+                    ),
+                  ),
+                  
+                  const SizedBox(width: 4), 
+                  
+                  ...state.windowStack.map((appId) {
+                    bool isActive = state.windowStack.last == appId && !state.minimizedApps.contains(appId);
+                    return InkWell(
                       onTap: () {
-                        widget.onOverlaysClosed(); 
-                        _openSearchOverlay(context, state);
-                      },
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(margin: const EdgeInsets.symmetric(horizontal: 0), width: 38, height: 38, child: Icon(Icons.search, size: 22, color: iconColor)),
-                    ),
-                    
-                    InkWell(
-                      onTap: () async {
-                        widget.onOverlaysClosed();
-                        final success = await platform.invokeMethod('toggleRecents'); 
-                        if (success != true) {
-                          _showAccessibilityPrompt(isDark);
+                        if (appId.contains('.')) {
+                          platform.invokeMethod('launchApp', {'package': appId});
+                        } else {
+                          state.openApp(appId);
                         }
                       },
-                      borderRadius: BorderRadius.circular(4),
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 0),
-                        width: 38, height: 38, 
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Icon(Icons.filter_none, size: 20, color: iconColor.withOpacity(0.6)),
-                            Positioned(top: 10, left: 10, child: Icon(Icons.crop_square, size: 18, color: iconColor)),
-                          ],
-                        )
-                      ),
-                    ),
-                    
-                    const SizedBox(width: 4), 
-                    
-                    ...state.windowStack.map((appId) {
-                      bool isActive = state.windowStack.last == appId && !state.minimizedApps.contains(appId);
-                      return InkWell(
-                        onTap: () {
-                          if (appId.contains('.')) {
-                            platform.invokeMethod('launchApp', {'package': appId});
-                          } else {
-                            state.openApp(appId);
-                          }
-                        },
-                        onLongPress: () => state.closeApp(appId), 
-                        child: _getAppIcon(appId, isActive, state),
-                      );
-                    }).toList(),
-                  ],
-                ),
+                      onLongPress: () => state.closeApp(appId), 
+                      child: _getAppIcon(appId, isActive, state),
+                    );
+                  }).toList(),
+                ],
               ),
             ),
+          ),
 
-            Padding(
-              padding: const EdgeInsets.only(right: 2.0),
-              child: _buildSystemTray(state),
-            ),
-          ],
-        ),
+          Padding(
+            padding: const EdgeInsets.only(right: 2.0),
+            child: _buildSystemTray(state),
+          ),
+        ],
       ),
     );
   }
@@ -371,6 +367,9 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
   final TextEditingController _searchController = TextEditingController();
   static const platform = MethodChannel('win_launcher/native');
   
+  // CRITICAL FIX: Debounce timer to prevent sequential MediaStore query lockups
+  Timer? _debounce;
+  
   List<AppInfo> _filteredApps = [];
   Map<String, dynamic> _mediaResults = {};
   
@@ -386,13 +385,23 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     super.initState();
     _filteredApps = widget.installedApps;
     _checkPermissions();
-    _searchController.addListener(_performSearch);
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     super.dispose();
+  }
+
+  // CRITICAL FIX: Rate limits search calls
+  void _onSearchChanged() {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _performSearch();
+    });
   }
 
   Future<void> _checkPermissions() async {
@@ -480,7 +489,11 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
+      // CRITICAL FIX: Safe global positioning that prevents rendering distortion and crashes
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(position.dx, position.dy, 0, 0),
+        Offset.zero & MediaQuery.of(context).size,
+      ),
       color: bgColor,
       elevation: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: widget.isDark ? Colors.white24 : Colors.grey.shade300)),
@@ -522,13 +535,18 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     );
   }
 
-  void _showPropertiesDialog(Map<String, String> item, Color textColor, Color bgColor) {
+  // CRITICAL FIX: Converted to async to prevent synchronous disk I/O UI freezing
+  void _showPropertiesDialog(Map<String, String> item, Color textColor, Color bgColor) async {
     File file = File(item['path'] ?? '');
     String sizeStr = "Unknown Size";
-    if (file.existsSync()) {
-      double sizeMb = file.lengthSync() / (1024 * 1024);
+    
+    if (await file.exists()) {
+      int length = await file.length();
+      double sizeMb = length / (1024 * 1024);
       sizeStr = "${sizeMb.toStringAsFixed(2)} MB";
     }
+
+    if (!mounted) return;
 
     showDialog(
       context: context,

@@ -164,7 +164,9 @@ class MainActivity: FlutterActivity() {
         }
 
         override fun getView(): View = container
-        override fun dispose() {}
+        override fun dispose() {
+            container.removeAllViews()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -229,7 +231,6 @@ class MainActivity: FlutterActivity() {
                     result.success(true)
                 }
 
-                // NEW: Informs the OS when the widget size is modified so it dynamically updates its layout
                 "updateWidgetSize" -> {
                     val id = call.argument<Int>("appWidgetId") ?: -1
                     val width = call.argument<Int>("width") ?: 0
@@ -699,6 +700,7 @@ class MainActivity: FlutterActivity() {
         return permissions
     }
 
+    // CRITICAL FIX: Re-mapped all the missing intents required by the internal Flutter Settings screens
     private fun openCustomSettings(type: String?) {
         try {
             var useNewTask = true
@@ -716,6 +718,16 @@ class MainActivity: FlutterActivity() {
                 "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                 "add_account" -> Intent(Settings.ACTION_ADD_ACCOUNT)
                 "notification_access" -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                "manage_apps" -> Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)
+                "default_apps" -> if (Build.VERSION.SDK_INT >= 24) Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS) else Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)
+                "print_settings" -> Intent(Settings.ACTION_PRINT_SETTINGS)
+                "storage" -> Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
+                "display" -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
+                "airplane" -> Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+                "location" -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                "hotspot" -> Intent(Settings.ACTION_WIRELESS_SETTINGS)
+                "locale" -> Intent(Settings.ACTION_LOCALE_SETTINGS)
+                "keyboard" -> Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
                 else -> Intent(Settings.ACTION_SETTINGS)
             }
             if (useNewTask) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

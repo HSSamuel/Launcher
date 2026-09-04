@@ -55,23 +55,24 @@ class _DesktopScreenState extends State<DesktopScreen> {
   String _contextTargetName = '';
   VoidCallback? _contextOpenAction;
 
-  // NEW: State variables mapping the live visual drag interactions during resize
   String? _resizingWidgetId;
   double _resizeAccumulatorX = 0;
   double _resizeAccumulatorY = 0;
 
-  double _volume = 0.5;
-  double _brightness = 0.5;
-  int _batteryLevel = 100;
-  BatteryState _batteryState = BatteryState.discharging;
-  List<Map<String, dynamic>> _realNotifications = [];
-  int _unreadNotifications = 0;
+  // CRITICAL FIX: Converted expensive global state variables into highly targeted ValueNotifiers
+  final ValueNotifier<double> _volume = ValueNotifier<double>(0.5);
+  final ValueNotifier<double> _brightness = ValueNotifier<double>(0.5);
+  final ValueNotifier<int> _batteryLevel = ValueNotifier<int>(100);
+  final ValueNotifier<BatteryState> _batteryState = ValueNotifier<BatteryState>(BatteryState.discharging);
+  final ValueNotifier<List<Map<String, dynamic>>> _realNotifications = ValueNotifier<List<Map<String, dynamic>>>([]);
+  final ValueNotifier<int> _unreadNotifications = ValueNotifier<int>(0);
 
-  final Map<String, bool> _quickSettings = {
+  final ValueNotifier<Map<String, bool>> _quickSettings = ValueNotifier<Map<String, bool>>({
     'Airplane mode': false, 'Battery saver': false, 'Wi-Fi': false, 'Bluetooth': false, 'Flash': false, 'Data': false, 'Rotate': false, 'Location': false, 'Hotspot': false, 'VPN': false, 'Brightness': false, 'Accessibility': false,
     'Play': false, 'Ring': true, 'ChatGPT': false, 'Storage': false, 'Dark Theme': false, 'Calculator': false, 'Song Search': false, 'DND': false, 'Screen Cast': false, 'Eye Care': false, 'Scan QR Code': false, 'PC Connection': false, 'Kids Mode': false,
     'Adaptive Brightness': false
-  };
+  });
+  
   final double taskbarHeight = 48.0;
 
   int _maxPointers = 0;
@@ -93,20 +94,28 @@ class _DesktopScreenState extends State<DesktopScreen> {
       try { VolumeController.instance.removeListener(); } catch (_) {}
     }
     _pageController.dispose();
+    
+    _volume.dispose();
+    _brightness.dispose();
+    _batteryLevel.dispose();
+    _batteryState.dispose();
+    _realNotifications.dispose();
+    _unreadNotifications.dispose();
+    _quickSettings.dispose();
+    
     super.dispose();
   }
 
   void _initHardware() async {
     try {
-      _batteryLevel = await Battery().batteryLevel;
-      _batteryState = await Battery().batteryState;
+      _batteryLevel.value = await Battery().batteryLevel;
+      _batteryState.value = await Battery().batteryState;
       Battery().onBatteryStateChanged.listen((state) async {
         if (!mounted) return;
         final level = await Battery().batteryLevel;
-        setState(() {
-          _batteryState = state;
-          _batteryLevel = level;
-        });
+        // Updating value instead of setState prevents the 1000+ line UI tree from constantly rebuilding
+        _batteryState.value = state;
+        _batteryLevel.value = level;
       });
     } catch (_) {}
     
@@ -114,11 +123,11 @@ class _DesktopScreenState extends State<DesktopScreen> {
       double v = await VolumeController.instance.getVolume();
       if (v.isNaN || v.isInfinite) v = 0.5;
       if (v > 1.0) v = v / 15.0; 
-      _volume = v.clamp(0.0, 1.0);
+      _volume.value = v.clamp(0.0, 1.0);
       VolumeController.instance.addListener((vol) {
         if (mounted) {
            if (vol.isNaN || vol.isInfinite) vol = 0.5;
-           setState(() => _volume = (vol > 1.0 ? vol / 15.0 : vol).clamp(0.0, 1.0));
+           _volume.value = (vol > 1.0 ? vol / 15.0 : vol).clamp(0.0, 1.0);
         }
       });
     } catch (_) {}
@@ -126,11 +135,11 @@ class _DesktopScreenState extends State<DesktopScreen> {
     try {
       double b = await ScreenBrightness().current;
       if (b.isNaN || b.isInfinite) b = 0.5;
-      _brightness = b.clamp(0.0, 1.0);
+      _brightness.value = b.clamp(0.0, 1.0);
       ScreenBrightness().onCurrentBrightnessChanged.listen((bValue) {
         if (mounted) {
            if (bValue.isNaN || bValue.isInfinite) bValue = 0.5;
-           setState(() => _brightness = bValue.clamp(0.0, 1.0));
+           _brightness.value = bValue.clamp(0.0, 1.0);
         }
       });
     } catch (_) {}
@@ -148,15 +157,16 @@ class _DesktopScreenState extends State<DesktopScreen> {
       notificationStream.receiveBroadcastStream().listen((event) {
         if (!mounted) return;
         final data = Map<String, dynamic>.from(event);
-        setState(() {
-          if (data['removed'] == true) {
-            _realNotifications.removeWhere((n) => n['key'] == data['key']);
-          } else {
-            _realNotifications.removeWhere((n) => n['key'] == data['key']);
-            _realNotifications.insert(0, data);
-            if (!_isNotificationCenterOpen) _unreadNotifications++;
-          }
-        });
+        
+        final currentNotifs = List<Map<String, dynamic>>.from(_realNotifications.value);
+        if (data['removed'] == true) {
+          currentNotifs.removeWhere((n) => n['key'] == data['key']);
+        } else {
+          currentNotifs.removeWhere((n) => n['key'] == data['key']);
+          currentNotifs.insert(0, data);
+          if (!_isNotificationCenterOpen) _unreadNotifications.value++;
+        }
+        _realNotifications.value = currentNotifs;
       });
     } catch (_) {}
   }
@@ -165,28 +175,26 @@ class _DesktopScreenState extends State<DesktopScreen> {
     try {
       final List<dynamic> active = await platform.invokeMethod('getActiveNotifications');
       if (mounted) {
-        setState(() {
-          _realNotifications = active.map((e) => Map<String, dynamic>.from(e)).toList();
-        });
+        _realNotifications.value = active.map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } catch (_) {}
   }
 
   void _updateBrightness(double val) {
     if (val.isNaN || val.isInfinite) val = 0.5;
-    setState(() => _brightness = val.clamp(0.0, 1.0));
-    if (!kIsWeb) ScreenBrightness().setScreenBrightness(_brightness);
+    _brightness.value = val.clamp(0.0, 1.0);
+    if (!kIsWeb) ScreenBrightness().setScreenBrightness(_brightness.value);
   }
 
   void _updateVolume(double val) {
     if (val.isNaN || val.isInfinite) val = 0.5;
-    setState(() => _volume = val.clamp(0.0, 1.0));
-    if (!kIsWeb) VolumeController.instance.setVolume(_volume);
+    _volume.value = val.clamp(0.0, 1.0);
+    if (!kIsWeb) VolumeController.instance.setVolume(_volume.value);
   }
 
   void _handleHardwareToggle(String key) async {
     final state = context.read<LauncherState>();
-    bool currentVal = _quickSettings[key] ?? false;
+    bool currentVal = _quickSettings.value[key] ?? false;
     bool newVal = !currentVal;
 
     if (key == 'Calculator') { state.openApp('calculator'); _toggleOverlay('quick'); return; }
@@ -199,13 +207,13 @@ class _DesktopScreenState extends State<DesktopScreen> {
     }
     if (key == 'Dark Theme') {
       state.setDarkMode(newVal);
-      setState(() { _quickSettings[key] = state.isDarkMode; });
+      _quickSettings.value = Map.from(_quickSettings.value)..[key] = state.isDarkMode;
       platform.invokeMethod('toggleHardware', {'key': key, 'enable': state.isDarkMode});
       return;
     }
 
     if (['Bluetooth', 'Rotate', 'Adaptive Brightness', 'Ring', 'DND'].contains(key)) {
-      setState(() { _quickSettings[key] = newVal; });
+      _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
       platform.invokeMethod('toggleHardware', {'key': key, 'enable': newVal});
       return;
     }
@@ -214,10 +222,10 @@ class _DesktopScreenState extends State<DesktopScreen> {
       try {
         if (currentVal) {
           await TorchLight.disableTorch();
-          setState(() => _quickSettings['Flash'] = false);
+          _quickSettings.value = Map.from(_quickSettings.value)..['Flash'] = false;
         } else {
           await TorchLight.enableTorch();
-          setState(() => _quickSettings['Flash'] = true);
+          _quickSettings.value = Map.from(_quickSettings.value)..['Flash'] = true;
         }
       } catch (e) {
         _showToast('Flashlight not available');
@@ -238,7 +246,7 @@ class _DesktopScreenState extends State<DesktopScreen> {
       case 'Brightness': settingsType = 'display'; break;
     }
 
-    setState(() { _quickSettings[key] = newVal; });
+    _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
     _toggleOverlay('quick');
 
     try {
@@ -289,7 +297,7 @@ class _DesktopScreenState extends State<DesktopScreen> {
       if (overlay == 'notification') {
         _isNotificationCenterOpen = !_isNotificationCenterOpen;
         if (_isNotificationCenterOpen) {
-          _unreadNotifications = 0;
+          _unreadNotifications.value = 0;
           _fetchActiveNotifications();
         }
       } else {
@@ -646,7 +654,6 @@ class _DesktopScreenState extends State<DesktopScreen> {
       ]);
     } else if (item.type == 'widget' || item.type == 'native_widget') {
       menuItems.addAll([
-        // FIX: The Context Menu explicitly engages Resize Mode and clears old drag accumulators
         _buildContextMenuItem('Resize Widget', Icons.aspect_ratio, state, onTap: () {
           setState(() {
             _resizingWidgetId = item.id;
@@ -930,20 +937,28 @@ class _DesktopScreenState extends State<DesktopScreen> {
         break;
 
       case 'battery':
-        bool isCharging = _batteryState == BatteryState.charging || _batteryState == BatteryState.full;
-        content = Row(
-          children: [
-            Icon(isCharging ? Icons.battery_charging_full : Icons.battery_full, color: isCharging ? Colors.green : Colors.blueAccent, size: 28),
-            const SizedBox(width: 8),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('$_batteryLevel%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
-                Text(isCharging ? 'Charging' : 'Discharging', style: TextStyle(fontSize: 10, color: subColor)),
-              ],
-            ),
-          ],
+        content = ValueListenableBuilder<BatteryState>(
+          valueListenable: _batteryState,
+          builder: (context, bState, _) => ValueListenableBuilder<int>(
+            valueListenable: _batteryLevel,
+            builder: (context, bLevel, _) {
+              bool isCharging = bState == BatteryState.charging || bState == BatteryState.full;
+              return Row(
+                children: [
+                  Icon(isCharging ? Icons.battery_charging_full : Icons.battery_full, color: isCharging ? Colors.green : Colors.blueAccent, size: 28),
+                  const SizedBox(width: 8),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('$bLevel%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                      Text(isCharging ? 'Charging' : 'Discharging', style: TextStyle(fontSize: 10, color: subColor)),
+                    ],
+                  ),
+                ],
+              );
+            }
+          )
         );
         break;
 
@@ -1262,7 +1277,6 @@ class _DesktopScreenState extends State<DesktopScreen> {
                                       Widget positionedChild = content;
 
                                       if (isWidget || isNativeWidget) {
-                                         // FIX: The core Resize Overlay engine that wraps the widget when 'Resize' is tapped
                                          final isResizing = _resizingWidgetId == item.id;
                                          if (isResizing) {
                                             positionedChild = Stack(
@@ -1527,22 +1541,26 @@ class _DesktopScreenState extends State<DesktopScreen> {
                       width: quickSettingsWidth,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxHeight: math.max(0, overlayMaxHeight)),
-                        child: QuickSettings(
-                          settingsState: _quickSettings,
-                          onToggle: _handleHardwareToggle,
-                          brightness: _brightness,
-                          onBrightnessChanged: _updateBrightness,
-                          volume: _volume,
-                          onVolumeChanged: _updateVolume,
-                          batteryLevel: _batteryLevel,
-                          batteryState: _batteryState,
-                          onOpenSettings: () {
-                            state.openApp('settings');
-                            _toggleOverlay('quick');
-                          },
-                          visibleTiles: state.visibleQuickSettings,
-                          hiddenTiles: state.hiddenQuickSettings,
-                          onToggleVisibility: state.toggleQuickSettingVisibility,
+                        // CRITICAL FIX: Wrapped QuickSettings in AnimatedBuilder tied ONLY to hardware ValueNotifiers
+                        child: AnimatedBuilder(
+                          animation: Listenable.merge([_quickSettings, _brightness, _volume, _batteryLevel, _batteryState]),
+                          builder: (context, child) => QuickSettings(
+                            settingsState: _quickSettings.value,
+                            onToggle: _handleHardwareToggle,
+                            brightness: _brightness.value,
+                            onBrightnessChanged: _updateBrightness,
+                            volume: _volume.value,
+                            onVolumeChanged: _updateVolume,
+                            batteryLevel: _batteryLevel.value,
+                            batteryState: _batteryState.value,
+                            onOpenSettings: () {
+                              state.openApp('settings');
+                              _toggleOverlay('quick');
+                            },
+                            visibleTiles: state.visibleQuickSettings,
+                            hiddenTiles: state.hiddenQuickSettings,
+                            onToggleVisibility: state.toggleQuickSettingVisibility,
+                          ),
                         ),
                       ),
                     ),
@@ -1554,38 +1572,48 @@ class _DesktopScreenState extends State<DesktopScreen> {
                       width: notificationWidth,
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxHeight: math.max(0, screenHeight * 0.88)),
-                        child: NotificationCenterPanel(
-                          notifications: _realNotifications,
-                          installedApps: state.installedApps,
-                          onClosePanel: _closeOverlays,
-                          onClearAll: () {
-                            platform.invokeMethod('clearAllNotifications');
-                            setState(() => _realNotifications.clear());
-                          },
-                          onRemoveNotification: (event) {
-                            platform.invokeMethod('dismissNotification', {'key': event['key']});
-                            setState(() => _realNotifications.removeWhere((n) => n['key'] == event['key']));
-                          },
-                          onLaunchApp: (pkg) async {
-                            _toggleOverlay('notification');
-                            final success = await platform.invokeMethod('launchApp', {'package': pkg});
-                            if (success != true) _showToast('App not found');
-                          },
+                        // CRITICAL FIX: Wrapped NotificationCenter in AnimatedBuilder tied ONLY to the Notif ValueNotifier
+                        child: AnimatedBuilder(
+                          animation: _realNotifications,
+                          builder: (context, child) => NotificationCenterPanel(
+                            notifications: _realNotifications.value,
+                            installedApps: state.installedApps,
+                            onClosePanel: _closeOverlays,
+                            onClearAll: () {
+                              platform.invokeMethod('clearAllNotifications');
+                              _realNotifications.value = [];
+                            },
+                            onRemoveNotification: (event) {
+                              platform.invokeMethod('dismissNotification', {'key': event['key']});
+                              final updated = List<Map<String, dynamic>>.from(_realNotifications.value);
+                              updated.removeWhere((n) => n['key'] == event['key']);
+                              _realNotifications.value = updated;
+                            },
+                            onLaunchApp: (pkg) async {
+                              _toggleOverlay('notification');
+                              final success = await platform.invokeMethod('launchApp', {'package': pkg});
+                              if (success != true) _showToast('App not found');
+                            },
+                          ),
                         ),
                       ),
                     ),
 
                   Positioned(
                     bottom: 0, left: 0, right: 0, height: taskbarHeight,
-                    child: Win11Taskbar(
-                      isStartMenuOpen: _isStartMenuOpen,
-                      onStartToggled: () => _toggleOverlay('start'),
-                      onQuickSettingsToggled: () => _toggleOverlay('quick'),
-                      onNotificationCenterToggled: () => _toggleOverlay('notification'),
-                      onOverlaysClosed: _closeOverlays,
-                      batteryLevel: _batteryLevel,
-                      batteryState: _batteryState,
-                      unreadNotifications: _unreadNotifications,
+                    // CRITICAL FIX: Wrapped Taskbar in AnimatedBuilder tied ONLY to Battery & Notif ValueNotifiers
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_batteryLevel, _batteryState, _unreadNotifications]),
+                      builder: (context, child) => Win11Taskbar(
+                        isStartMenuOpen: _isStartMenuOpen,
+                        onStartToggled: () => _toggleOverlay('start'),
+                        onQuickSettingsToggled: () => _toggleOverlay('quick'),
+                        onNotificationCenterToggled: () => _toggleOverlay('notification'),
+                        onOverlaysClosed: _closeOverlays,
+                        batteryLevel: _batteryLevel.value,
+                        batteryState: _batteryState.value,
+                        unreadNotifications: _unreadNotifications.value,
+                      ),
                     ),
                   ),
 

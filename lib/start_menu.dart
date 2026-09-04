@@ -87,7 +87,11 @@ class _StartMenuState extends State<StartMenu> {
 
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy - 120, position.dx + 50, position.dy),
+      // CRITICAL FIX: Safe global positioning that prevents rendering distortion and crashes
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(position.dx, position.dy - 120, 0, 0),
+        Offset.zero & MediaQuery.of(context).size,
+      ),
       color: bgColor,
       elevation: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
@@ -145,7 +149,6 @@ class _StartMenuState extends State<StartMenu> {
     final textColor = isDark ? Colors.white : Colors.black87;
     final isPinnedToStart = state.pinnedStart.contains(app.packageName);
     
-    // FIX: Evaluates against the new Multi-Workspace coordinate system
     final isOnDesktop = state.desktopItems.any((i) => i.type == 'app' && i.package == app.packageName);
 
     List<PopupMenuEntry<String>> menuItems = [
@@ -189,12 +192,10 @@ class _StartMenuState extends State<StartMenu> {
         PopupMenuItem<String>(
           value: 'pin_desktop',
           onTap: () {
-            // FIX: Safely add or remove from the new drag-and-drop workspace system
             if (isOnDesktop) {
               final item = state.desktopItems.firstWhere((i) => i.package == app.packageName);
               state.removeDesktopItem(item.id);
             } else {
-              // Defaults to dropping it in the top-left of the first workspace
               state.addDesktopApp(app, 0, 0, 0);
             }
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isOnDesktop ? 'Removed from Desktop' : 'Added to Desktop'), duration: const Duration(seconds: 1)));
@@ -230,7 +231,11 @@ class _StartMenuState extends State<StartMenu> {
 
     showMenu<String>(
       context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx + 50, position.dy + 50),
+      // CRITICAL FIX: Safe global positioning that prevents rendering distortion and crashes
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(position.dx, position.dy, 0, 0),
+        Offset.zero & MediaQuery.of(context).size,
+      ),
       color: bgColor, elevation: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6), side: BorderSide(color: isDark ? Colors.white24 : Colors.grey.shade300)),
       items: menuItems,

@@ -1,15 +1,26 @@
 import 'dart:io';
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'launcher_state.dart';
 
+// CRITICAL FIX: Reworked FileItem into a pure primitive data class suitable for Background Isolates
 class FileItem {
-  final FileSystemEntity entity;
-  final FileStat stat;
+  final String path;
+  final bool isDir;
+  final int size;
+  final DateTime modified;
   final int itemCount;
-  FileItem(this.entity, this.stat, {this.itemCount = 0});
+  
+  FileItem({
+    required this.path, 
+    required this.isDir, 
+    required this.size, 
+    required this.modified, 
+    this.itemCount = 0
+  });
 }
 
 class FileExplorerApp extends StatefulWidget {
@@ -125,7 +136,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
       final Map<dynamic, dynamic>? result = await platform.invokeMethod('getPermissionStatuses');
       if (result != null && mounted) {
         setState(() => _hasPermission = result['storage'] ?? false);
-        if (_hasPermission && !_isAtHome) await _loadDirectory(_currentDir);
+        if (_hasPermission && !_isAtHome) await _loadDirectorySafe(_currentDir.path);
       }
     } catch (_) {}
   }
@@ -151,25 +162,43 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     await _loadDirectory(dir);
   }
 
-  Future<void> _loadDirectory(Directory dir) async {
-    try {
-      final entities = await dir.list().toList();
-      List<FileItem> items = [];
-      
-      for (var e in entities) {
+  // CRITICAL FIX: The entire sorting and mapping process is now offloaded to a true background Isolate Core.
+  static Future<List<FileItem>> _processDirectoryInBackground(String dirPath) async {
+    final dir = Directory(dirPath);
+    final entities = await dir.list().toList();
+    
+    List<FileItem> items = [];
+    for (var e in entities) {
+      try {
         final stat = await e.stat();
         int count = 0;
-        if (e is Directory) {
+        bool isDir = e is Directory;
+        if (isDir) {
           try { count = e.listSync().length; } catch (_) {}
         }
-        items.add(FileItem(e, stat, itemCount: count));
-      }
-      
-      items.sort((a, b) {
-        if (a.entity is Directory && b.entity is! Directory) return -1;
-        if (a.entity is! Directory && b.entity is Directory) return 1;
-        return a.entity.path.toLowerCase().compareTo(b.entity.path.toLowerCase());
-      });
+        items.add(FileItem(
+          path: e.path,
+          isDir: isDir,
+          size: stat.size,
+          modified: stat.modified,
+          itemCount: count,
+        ));
+      } catch (_) {}
+    }
+    
+    items.sort((a, b) {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.path.toLowerCase().compareTo(b.path.toLowerCase());
+    });
+    
+    return items;
+  }
+
+  Future<void> _loadDirectory(Directory dir) async {
+    try {
+      // Computes the complex sorting array off the UI Thread
+      final items = await compute(_processDirectoryInBackground, dir.path);
       
       if (mounted) {
         setState(() {
@@ -217,7 +246,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     );
   }
 
-  // FIX: Implemented SafeInputDialog to properly await the disposal and protect the state tree
   void _createNewFolder() async {
     final isDark = context.read<LauncherState>().isDarkMode;
 
@@ -246,7 +274,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     }
   }
 
-  // FIX: Implemented SafeInputDialog to prevent the framework crash while renaming
   void _renameFile() async {
     if (_selectedPaths.length != 1) return;
     
@@ -412,8 +439,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     }
   }
 
-  String _formatAuthenticDate(FileStat stat) {
-    final m = stat.modified;
+  String _formatAuthenticDate(DateTime m) {
     final hour = m.hour % 12 == 0 ? 12 : m.hour % 12;
     final ampm = m.hour >= 12 ? 'PM' : 'AM';
     final min = m.minute.toString().padLeft(2, '0');
@@ -421,10 +447,10 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   }
 
   String _getSizeOrCount(FileItem item) {
-    if (item.entity is Directory) {
+    if (item.isDir) {
       return '${item.itemCount} items';
     } else {
-      final sizeKB = item.stat.size / 1024;
+      final sizeKB = item.size / 1024;
       if (sizeKB > 1024) {
         return '${(sizeKB / 1024).toStringAsFixed(2)} MB';
       }
@@ -1140,17 +1166,19 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     return InkWell(
       onTap: () {
         _closeOverlays();
-        if (label == 'Cut') {
-           state.setClipboard(_selectedPaths.first, true); 
-           _showToast('Cut to clipboard'); 
-        } else if (label == 'Copy') {
-           state.setClipboard(_selectedPaths.first, false); 
-           _showToast('Copied to clipboard'); 
-        } else if (label == 'Rename') {
-           _renameFile(); 
-        } else if (label == 'Delete') {
-           _deleteSelectedFiles(); 
-        }
+        Future.delayed(const Duration(milliseconds: 150), () {
+          if (label == 'Cut') {
+             state.setClipboard(_selectedPaths.first, true); 
+             _showToast('Cut to clipboard'); 
+          } else if (label == 'Copy') {
+             state.setClipboard(_selectedPaths.first, false); 
+             _showToast('Copied to clipboard'); 
+          } else if (label == 'Rename') {
+             _renameFile(); 
+          } else if (label == 'Delete') {
+             _deleteSelectedFiles(); 
+          }
+        });
       },
       hoverColor: hoverColor,
       borderRadius: BorderRadius.circular(4),
@@ -1350,33 +1378,32 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
             itemCount: _files.length,
             itemBuilder: (context, index) {
               final item = _files[index];
-              final isDir = item.entity is Directory;
-              final name = item.entity.path.split('/').last;
+              final name = item.path.split('/').last;
               
-              final isSelected = _selectedPaths.contains(item.entity.path);
+              final isSelected = _selectedPaths.contains(item.path);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
-                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
+                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
+                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
                 onTap: () async {
                   if (_isMultiSelectMode) {
                     setState(() {
                       if (isSelected) {
-                        _selectedPaths.remove(item.entity.path);
+                        _selectedPaths.remove(item.path);
                         if (_selectedPaths.isEmpty) _isMultiSelectMode = false;
                       } else {
-                        _selectedPaths.add(item.entity.path);
+                        _selectedPaths.add(item.path);
                       }
                     });
                   } else {
                     if (isSelected && _selectedPaths.length == 1) { 
-                      if (isDir) {
-                        await _loadDirectorySafe(item.entity.path); 
+                      if (item.isDir) {
+                        await _loadDirectorySafe(item.path); 
                       } else {
-                        platform.invokeMethod('openFile', {'path': item.entity.path});
+                        platform.invokeMethod('openFile', {'path': item.path});
                       }
                     } else { 
-                      setState(() { _selectedPaths = {item.entity.path}; });
+                      setState(() { _selectedPaths = {item.path}; });
                     }
                   }
                 },
@@ -1389,7 +1416,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.entity.path, size: 46),
+                      item.isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.path, size: 46),
                       const SizedBox(height: 8),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 4.0),
@@ -1413,36 +1440,35 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
             padding: const EdgeInsets.only(top: 8, bottom: 40, left: 8, right: 8),
             itemBuilder: (context, index) {
               final item = _files[index];
-              final isDir = item.entity is Directory;
-              final name = item.entity.path.split('/').last;
+              final name = item.path.split('/').last;
               
-              final isSelected = _selectedPaths.contains(item.entity.path);
+              final isSelected = _selectedPaths.contains(item.path);
               
-              final timeStr = _formatAuthenticDate(item.stat);
+              final timeStr = _formatAuthenticDate(item.modified);
               final sizeStr = _getSizeOrCount(item);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
-                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.entity.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
+                onSecondaryTapDown: (details) => setState(() { _selectedPaths.add(item.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }), 
+                onLongPressStart: (details) => setState(() { _isMultiSelectMode = true; _selectedPaths.add(item.path); _contextMenuPos = details.globalPosition; _contextMenuType = 'folder'; _isContextMenuOpen = true; }),
                 onTap: () async {
                   if (_isMultiSelectMode) {
                     setState(() {
                       if (isSelected) {
-                        _selectedPaths.remove(item.entity.path);
+                        _selectedPaths.remove(item.path);
                         if (_selectedPaths.isEmpty) _isMultiSelectMode = false;
                       } else {
-                        _selectedPaths.add(item.entity.path);
+                        _selectedPaths.add(item.path);
                       }
                     });
                   } else {
                     if (isSelected && _selectedPaths.length == 1) { 
-                      if (isDir) {
-                        await _loadDirectorySafe(item.entity.path); 
+                      if (item.isDir) {
+                        await _loadDirectorySafe(item.path); 
                       } else {
-                        platform.invokeMethod('openFile', {'path': item.entity.path});
+                        platform.invokeMethod('openFile', {'path': item.path});
                       }
                     } else { 
-                      setState(() { _selectedPaths = {item.entity.path}; });
+                      setState(() { _selectedPaths = {item.path}; });
                     }
                   }
                 },
@@ -1456,7 +1482,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                   ),
                   child: Row(
                     children: [
-                      isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.entity.path),
+                      item.isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(item.path),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -1690,7 +1716,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   }
 }
 
-// FIX: New SafeInputDialog class completely shields the widget tree from lifecycle unmount crashes
 class SafeInputDialog extends StatefulWidget {
   final String title;
   final String initialText;

@@ -5,6 +5,10 @@ import 'package:installed_apps/app_info.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:provider/provider.dart';
 
+// CRITICAL FIX: Imported timezone library (exported via device_calendar) and initialization
+import 'package:timezone/timezone.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+
 import 'launcher_state.dart';
 
 class NotificationCenterPanel extends StatefulWidget {
@@ -55,6 +59,10 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    
+    // CRITICAL FIX: Initialized TimeZones required for TZDateTime.local()
+    tz_data.initializeTimeZones();
+    
     _now = DateTime.now();
     _currentMonth = DateTime(_now.year, _now.month, 1);
     
@@ -175,10 +183,8 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     );
   }
 
-  // FIX: This function triggers the intent cleanly after the panel has started closing
   void _triggerDeepLink(String key, String pkg) async {
     widget.onClosePanel();
-    // Micro-delay ensures the overlay closes before the heavy intent fires
     await Future.delayed(const Duration(milliseconds: 150));
     bool success = await platform.invokeMethod('triggerNotificationAction', {'key': key, 'actionIndex': -1});
     if (!success) platform.invokeMethod('launchApp', {'package': pkg});
@@ -225,7 +231,6 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Toggle
             Material(
               color: Colors.transparent,
               child: InkWell(
@@ -267,7 +272,6 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
               ),
             ),
             
-            // Body Content
             if (!isExpanded) ...[
               InkWell(
                 onTap: () => _triggerDeepLink(firstEvent['key'], pkg),
@@ -308,7 +312,6 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   _buildMultiLineContent(e, isDark, primaryText, secText),
-                                  // Action Buttons (Reply/Mark Read) - DO NOT close panel on tap
                                   if (actions.isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 8.0),
