@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'launcher_state.dart';
+import '../../launcher_state.dart';
 import 'settings_widgets.dart';
 
 class SettingsGesturesView extends StatefulWidget {

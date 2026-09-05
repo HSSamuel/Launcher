@@ -1,13 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:provider/provider.dart';
-
-// CRITICAL FIX: Imported timezone library (exported via device_calendar) and initialization
 import 'package:timezone/timezone.dart';
-import 'package:timezone/data/latest.dart' as tz_data;
 
 import 'launcher_state.dart';
 
@@ -34,10 +30,8 @@ class NotificationCenterPanel extends StatefulWidget {
 }
 
 class _NotificationCenterPanelState extends State<NotificationCenterPanel> with WidgetsBindingObserver {
-  late DateTime _now;
   late DateTime _currentMonth;
   DateTime? _selectedDate;
-  Timer? _timer;
   
   bool _isCalendarExpanded = false; 
   final Set<String> _expandedPackages = {};
@@ -60,46 +54,25 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     
-    // CRITICAL FIX: Initialized TimeZones required for TZDateTime.local()
-    tz_data.initializeTimeZones();
+    final initialDate = DateTime.now();
+    _currentMonth = DateTime(initialDate.year, initialDate.month, 1);
     
-    _now = DateTime.now();
-    _currentMonth = DateTime(_now.year, _now.month, 1);
-    
-    _startTimer();
     _syncGoogleCalendar();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _stopTimer();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (mounted) setState(() => _now = DateTime.now());
-      _startTimer();
       _syncGoogleCalendar();
-    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
-      _stopTimer();
     }
   }
 
-  void _startTimer() {
-    _stopTimer();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
-  }
-
-  void _stopTimer() {
-    _timer?.cancel();
-    _timer = null;
-  }
-  
   Future<void> _syncGoogleCalendar() async {
     try {
       var permissionsGranted = await _deviceCalendarPlugin.hasPermissions();
@@ -147,8 +120,12 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
   }
 
   String _formatShortTime(DateTime time) {
-    int h = time.hour; int m = time.minute;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+    int h = time.hour; 
+    int m = time.minute;
+    String period = h >= 12 ? 'pm' : 'am';
+    h = h % 12; 
+    if (h == 0) h = 12; 
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} $period';
   }
 
   String _formatFullDate(DateTime date) {
@@ -207,7 +184,12 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
     appName = appName[0].toUpperCase() + appName.substring(1);
 
     bool isExpanded = _expandedPackages.contains(pkg);
-    String timeStr = _formatShortTime(DateTime.now());
+    
+    DateTime notifTime = DateTime.now();
+    if (firstEvent['postTime'] != null) {
+      notifTime = DateTime.fromMillisecondsSinceEpoch(firstEvent['postTime'] as int);
+    }
+    String timeStr = _formatShortTime(notifTime);
 
     AppInfo? appInfo;
     try { appInfo = widget.installedApps.firstWhere((app) => app.packageName == pkg); } catch (_) {}
@@ -380,6 +362,7 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
   }
 
   Widget _buildCalendarGrid(bool isDark, Color accentColor, Color primaryText, Color borderCol, Color cardBg) {
+    final now = DateTime.now();
     int daysInMonth = DateTime(_currentMonth.year, _currentMonth.month + 1, 0).day;
     int firstWeekday = DateTime(_currentMonth.year, _currentMonth.month, 1).weekday;
     int offset = firstWeekday == 7 ? 0 : firstWeekday;
@@ -397,7 +380,7 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
 
     for (int i = 1; i <= daysInMonth; i++) {
       DateTime thisDay = DateTime(_currentMonth.year, _currentMonth.month, i);
-      bool isToday = thisDay.year == _now.year && thisDay.month == _now.month && thisDay.day == _now.day;
+      bool isToday = thisDay.year == now.year && thisDay.month == now.month && thisDay.day == now.day;
       
       String dateKey = '${thisDay.year}-${thisDay.month.toString().padLeft(2, '0')}-${thisDay.day.toString().padLeft(2, '0')}';
       bool hasEvent = _syncedEvents.containsKey(dateKey);
@@ -512,12 +495,18 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(_format24HTime(_now), style: TextStyle(fontSize: 34, fontWeight: FontWeight.w400, color: primaryText, letterSpacing: -0.5)),
-                    Text(_formatFullDate(_now), style: TextStyle(fontSize: 13, color: secText, fontWeight: FontWeight.w400)),
-                  ],
+                StreamBuilder<DateTime>(
+                  stream: TimeService.clockStream,
+                  builder: (context, snapshot) {
+                    final now = snapshot.data ?? DateTime.now();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_format24HTime(now), style: TextStyle(fontSize: 34, fontWeight: FontWeight.w400, color: primaryText, letterSpacing: -0.5)),
+                        Text(_formatFullDate(now), style: TextStyle(fontSize: 13, color: secText, fontWeight: FontWeight.w400)),
+                      ],
+                    );
+                  }
                 ),
                 OutlinedButton(
                   onPressed: () => setState(() => _isCalendarExpanded = !_isCalendarExpanded),

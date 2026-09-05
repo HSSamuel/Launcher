@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'launcher_state.dart';
+
+import '../../launcher_state.dart';
+import '../../models/desktop_item_model.dart';
 
 class DesktopIcon extends StatelessWidget {
   final DesktopItemModel itemData;
@@ -24,8 +26,6 @@ class DesktopIcon extends StatelessWidget {
     required this.onLongPress,
   }) : super(key: key);
 
-  // FIX: Created a builder method so Draggable gets unique widget instances 
-  // instead of reusing the exact same element simultaneously
   Widget _buildContent() {
     return InkWell(
       onTap: onTap,

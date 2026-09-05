@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:app_settings/app_settings.dart';
 import 'package:provider/provider.dart';
 
-import 'launcher_state.dart';
+import '../../launcher_state.dart';
 import 'settings_widgets.dart';
+import '../../services/native_bridge.dart';
 
 class SettingsAppsView extends StatelessWidget {
   const SettingsAppsView({Key? key}) : super(key: key);
 
-  static const platform = MethodChannel('win_launcher/native');
-
   void _openNativeSettings(String type) async {
     try {
-      await platform.invokeMethod('openSettings', {'type': type});
+      await NativeBridge.instance.openSettings(type);
     } catch (e) {
       debugPrint("Native routing failed, falling back to AppSettings: $e");
       AppSettings.openAppSettings(type: AppSettingsType.settings);
@@ -52,7 +50,6 @@ class OptionalFeaturesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // UPDATED: Now listens to the global state for persistency
     final state = context.watch<LauncherState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final headerColor = isDark ? Colors.white : Colors.black87;

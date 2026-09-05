@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import '../../services/native_bridge.dart';
 
 class SettingsPrivacySecurityView extends StatefulWidget {
   const SettingsPrivacySecurityView({Key? key}) : super(key: key);
@@ -9,8 +9,6 @@ class SettingsPrivacySecurityView extends StatefulWidget {
 }
 
 class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityView> with WidgetsBindingObserver {
-  static const platform = MethodChannel('win_launcher/native');
-
   bool _storageGranted = false;
   bool _notificationGranted = false;
   bool _accessibilityGranted = false;
@@ -39,8 +37,8 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
 
   Future<void> _syncNativePermissions() async {
     try {
-      final Map<dynamic, dynamic>? result = await platform.invokeMethod('getPermissionStatuses');
-      if (result != null && mounted) {
+      final result = await NativeBridge.instance.getPermissionStatuses();
+      if (mounted) {
         setState(() {
           _storageGranted = result['storage'] ?? false;
           _notificationGranted = result['notification'] ?? false;
@@ -56,7 +54,7 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
 
   void _openNativeSetting(String type) async {
     try {
-      await platform.invokeMethod('openSettings', {'type': type});
+      await NativeBridge.instance.openSettings(type);
     } catch (e) {
       debugPrint("Failed to open setting: $e");
     }

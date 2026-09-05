@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'launcher_state.dart';
+import '../../launcher_state.dart';
 
 class SettingsCard extends StatelessWidget {
   final String title;
@@ -16,7 +16,8 @@ class SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.watch<LauncherState>().isDarkMode;
+    final state = context.watch<LauncherState>();
+    final isDark = state.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final borderColor = isDark ? Colors.white10 : Colors.grey.shade300;
     final iconColor = isDark ? Colors.white70 : Colors.black54;
@@ -68,7 +69,8 @@ class ExpandableSettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.watch<LauncherState>().isDarkMode;
+    final state = context.watch<LauncherState>();
+    final isDark = state.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final borderColor = isDark ? Colors.white10 : Colors.grey.shade300;
     final iconColor = isDark ? Colors.white70 : Colors.black54;
@@ -115,7 +117,8 @@ class SubScreenAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.watch<LauncherState>().isDarkMode;
+    final state = context.watch<LauncherState>();
+    final isDark = state.isDarkMode;
     final bgColor = isDark ? const Color(0xFF191919) : const Color(0xFFF3F3F3);
     final textColor = isDark ? Colors.white : Colors.black54;
     final iconColor = isDark ? Colors.white : Colors.black87;

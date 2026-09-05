@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+// CRITICAL FIX: Safe global initialization to prevent StateErrors when repeatedly opening the widget
+import 'package:timezone/data/latest.dart' as tz_data;
+
 import 'launcher_state.dart';
 import 'lock_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  tz_data.initializeTimeZones(); // Ensure TimeZones are injected immediately on startup
+
   runApp(
     MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => LauncherState())],

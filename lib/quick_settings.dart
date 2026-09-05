@@ -52,7 +52,6 @@ class _QuickSettingsState extends State<QuickSettings> {
       case 'Rotate': return Icons.screen_rotation;
       case 'Location': return Icons.location_on;
       case 'Hotspot': return Icons.wifi_tethering;
-      case 'VPN': return Icons.vpn_key;
       case 'Brightness': return Icons.brightness_6;
       case 'Accessibility': return Icons.accessibility;
       
@@ -67,7 +66,7 @@ class _QuickSettingsState extends State<QuickSettings> {
       case 'Screen Cast': return Icons.cast;
       case 'Eye Care': return Icons.remove_red_eye;
       case 'Scan QR Code': return Icons.qr_code_scanner;
-      case 'PC Connection': return Icons.computer;
+      case 'Users & Account': return Icons.computer;
       case 'Kids Mode': return Icons.child_care;
       default: return Icons.widgets;
     }
@@ -143,11 +142,9 @@ class _QuickSettingsState extends State<QuickSettings> {
     );
   }
 
-  // FIX: Wrapping the entire contents inside SingleChildScrollView entirely eliminates the layout engine crash
   Widget _buildNormalMode(bool isDark, Color accentColor, Color primaryText, Color secText, Color borderCol, Color inactiveTileBg, Color inactiveTrackColor) {
     bool isCharging = widget.batteryState == BatteryState.charging || widget.batteryState == BatteryState.full;
 
-    // FIX: A final mathematical safety net preventing NaN slider crashes
     double sBright = widget.brightness.isNaN || widget.brightness.isInfinite ? 0.5 : widget.brightness.clamp(0.0, 1.0);
     double sVol = widget.volume.isNaN || widget.volume.isInfinite ? 0.5 : widget.volume.clamp(0.0, 1.0);
 
@@ -265,17 +262,22 @@ class _QuickSettingsState extends State<QuickSettings> {
     final inactiveTileBg = isDark ? Colors.white10 : Colors.grey.shade200;
     final inactiveTrackColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: panelBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: borderCol, width: 1),
-        boxShadow: [BoxShadow(color: isDark ? Colors.black54 : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
+    // CRITICAL FIX: The outer GestureDetector absorbs taps so they don't fall through to the Desktop, fixing the hypersensitivity.
+    return GestureDetector(
+      onTap: () {}, 
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        decoration: BoxDecoration(
+          color: panelBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: borderCol, width: 1),
+          boxShadow: [BoxShadow(color: isDark ? Colors.black54 : Colors.black26, blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        padding: const EdgeInsets.only(top: 10, left: 12, right: 12, bottom: 12),
+        child: _isEditing 
+            ? _buildEditMode(isDark, accentColor, primaryText, inactiveTileBg) 
+            : _buildNormalMode(isDark, accentColor, primaryText, secText, borderCol, inactiveTileBg, inactiveTrackColor),
       ),
-      padding: const EdgeInsets.only(top: 10, left: 12, right: 12, bottom: 12),
-      child: _isEditing 
-          ? _buildEditMode(isDark, accentColor, primaryText, inactiveTileBg) 
-          : _buildNormalMode(isDark, accentColor, primaryText, secText, borderCol, inactiveTileBg, inactiveTrackColor),
     );
   }
 }

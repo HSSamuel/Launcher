@@ -4,7 +4,6 @@ publish_to: 'none'
 
 version: 1.0.0+1
 
-# This is the section you were missing! It fixes the error.
 environment:
   sdk: '^3.0.0'
 
@@ -15,7 +14,6 @@ dependencies:
   battery_plus: ^7.1.1
   volume_controller: ^3.6.1
   screen_brightness: ^2.1.11
-  notification_listener_service: ^1.0.0
   image_picker: ^1.2.3
   shared_preferences: ^2.5.5
   torch_light: ^1.0.2
@@ -29,7 +27,12 @@ dependencies:
   package_info_plus: ^8.1.0
   file_picker: ^8.1.4
   device_calendar: ^4.3.3
-
+  timezone: ^0.9.2
+  http: ^1.2.0
+  geolocator: ^11.0.1
+  flutter_secure_storage: ^9.0.0
+  # CRITICAL FIX: Added crypto package for secure SHA-256 PIN hashing
+  crypto: ^3.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -45,7 +48,7 @@ flutter:
   
 flutter_launcher_icons:
   android: true
-  ios: false # Turn off iOS generation to prevent the crash
+  ios: false 
   image_path: "assets/icon.png"
   adaptive_icon_background: "#1F1F1F"
   adaptive_icon_foreground: "assets/icon.png"

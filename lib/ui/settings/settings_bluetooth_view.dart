@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:app_settings/app_settings.dart';
 import 'settings_widgets.dart';
 import 'settings_usb_screen.dart';
 
+import '../../services/native_bridge.dart';
+
 class SettingsBluetoothView extends StatelessWidget {
   const SettingsBluetoothView({Key? key}) : super(key: key);
 
-  static const platform = MethodChannel('win_launcher/native');
-
   void _openPrintingSettings() async {
     try {
-      await platform.invokeMethod('openSettings', {'type': 'print_settings'});
+      await NativeBridge.instance.openSettings('print_settings');
     } catch (e) {
       debugPrint("Failed to open print settings: $e");
     }
@@ -33,7 +32,6 @@ class SettingsBluetoothView extends StatelessWidget {
           subtitle: 'Preferences, troubleshoot',
           icon: Icons.print_outlined,
           trailing: const SizedBox.shrink(),
-          // FIXED: Routes directly to Android's native Printing service screen
           onTap: _openPrintingSettings,
         ),
         SettingsCard(

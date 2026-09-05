@@ -1,87 +1,25 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
-import 'package:flutter/foundation.dart';
-import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:crypto/crypto.dart';
 
-class DesktopItemModel {
-  final String id;
-  final String type; // 'system', 'app', 'file', 'widget', 'native_widget'
-  String label;      
-  final String? package;
-  final String? path;
-  final String? widgetType; 
-  final int? appWidgetId;
-  int spanX;
-  int spanY;
-  int page;
-  int col;
-  int row;
+import 'models/desktop_item_model.dart';
+import 'models/win_theme.dart';
+import 'services/native_bridge.dart';
 
-  DesktopItemModel({
-    required this.id,
-    required this.type,
-    required this.label,
-    this.package,
-    this.path,
-    this.widgetType,
-    this.appWidgetId,
-    this.spanX = 1,
-    this.spanY = 1,
-    required this.page,
-    required this.col,
-    required this.row,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'type': type,
-    'label': label,
-    'package': package,
-    'path': path,
-    'widgetType': widgetType,
-    'appWidgetId': appWidgetId,
-    'spanX': spanX,
-    'spanY': spanY,
-    'page': page,
-    'col': col,
-    'row': row,
-  };
-
-  factory DesktopItemModel.fromJson(Map<String, dynamic> json) {
-    return DesktopItemModel(
-      id: json['id'],
-      type: json['type'],
-      label: json['label'],
-      package: json['package'],
-      path: json['path'],
-      widgetType: json['widgetType'],
-      appWidgetId: json['appWidgetId'],
-      spanX: json['spanX'] ?? (json['type'] == 'widget' || json['type'] == 'native_widget' ? 2 : 1),
-      spanY: json['spanY'] ?? 1,
-      page: json['page'] ?? 0,
-      col: json['col'] ?? 0,
-      row: json['row'] ?? 0,
-    );
-  }
-}
-
-class WinTheme {
-  final String name;
-  final String wallpaperUrl;
-  final bool isDark;
-  final Color accentColor;
-
-  const WinTheme({
-    required this.name,
-    required this.wallpaperUrl,
-    required this.isDark,
-    required this.accentColor,
-  });
+class TimeService {
+  static final Stream<DateTime> clockStream = Stream.periodic(
+    const Duration(seconds: 1),
+    (_) => DateTime.now(),
+  ).asBroadcastStream();
 }
 
 class LauncherState extends ChangeNotifier {
@@ -97,18 +35,25 @@ class LauncherState extends ChangeNotifier {
   String userEmail = 'Local Account';
   Uint8List? userImageBytes;
   
-  String actualWallpaperUrl = 'assets/wallpapers/theme_dark.jpg';
-
-  bool isDarkMode = true;
-  String currentThemeName = 'Dark Mountains';
+  String actualWallpaperUrl = 'assets/wallpapers/theme_sunrise.jpg'; 
+  bool isDarkMode = false; 
+  String currentThemeName = 'Sunrise Glow';
   String taskbarAlignment = 'left';
+  
   String? slideshowFolderPath;
+  Color? customAccentColor;
+  
+  bool slideshowEnabled = false;
+  int slideshowIntervalMinutes = 15;
+  Timer? _slideshowTimer;
 
   bool showRecentlyAdded = true;
   bool showMostUsed = true;
   bool showRecommended = true;
 
   String iconSize = 'Small';
+  String pageTransition = 'Classical';
+  
   int portraitGridX = 5; 
   int portraitGridY = 8;
   int landscapeGridX = 8;
@@ -148,17 +93,40 @@ class LauncherState extends ChangeNotifier {
   bool taskbarOverDate = true;
   bool hideNetworkIcons = false;
 
+  // --- Notification Settings Variables ---
+  bool notifClearOnOpen = true;
+  bool notifClosePanelOnOpen = true;
+  bool notifShowOnLockScreen = true;
+  bool notifPlaySound = false;
+  List<String> excludedNotificationPkgs = [];
+
+  bool isPinSet = false;
+
   final List<WinTheme> win11Themes = const [
+    WinTheme(name: 'Windows Classic', wallpaperUrl: 'assets/wallpapers/theme_snow.jpg', isDark: false, accentColor: Color(0xFF0078D4)),
     WinTheme(name: 'Dark Mountains', wallpaperUrl: 'assets/wallpapers/theme_dark.jpg', isDark: true, accentColor: Color(0xFF4CC2FF)),
-    WinTheme(name: 'Sunrise Horizon', wallpaperUrl: 'assets/wallpapers/theme_sunrise.jpg', isDark: false, accentColor: Color(0xFFFF8C00)),
-    WinTheme(name: 'Snowy Peaks', wallpaperUrl: 'assets/wallpapers/theme_snow.jpg', isDark: false, accentColor: Color(0xFF00A2ED)),
-    WinTheme(name: 'Yellow Flora', wallpaperUrl: 'assets/wallpapers/theme_flora.jpg', isDark: false, accentColor: Color(0xFFFFD700)),
-    WinTheme(name: 'Pink Sky', wallpaperUrl: 'assets/wallpapers/theme_pink.png', isDark: false, accentColor: Color(0xFFE91E63)),
-    WinTheme(name: 'Gray Minimal', wallpaperUrl: 'assets/wallpapers/theme_gray.jpg', isDark: true, accentColor: Color(0xFF9E9E9E)),
-    WinTheme(name: 'Grey Contrast', wallpaperUrl: 'assets/wallpapers/theme_grey.jpg', isDark: true, accentColor: Color(0xFF607D8B)),
+    WinTheme(name: 'Sunrise Glow', wallpaperUrl: 'assets/wallpapers/theme_sunrise.jpg', isDark: false, accentColor: Color(0xFFFF8C00)),
+    WinTheme(name: 'Glacier Ice', wallpaperUrl: 'assets/wallpapers/theme_snow.jpg', isDark: false, accentColor: Color(0xFF00B4D8)),
+    WinTheme(name: 'Golden Flora', wallpaperUrl: 'assets/wallpapers/theme_flora.jpg', isDark: false, accentColor: Color(0xFFE5A91E)),
+    WinTheme(name: 'Blossom Pink', wallpaperUrl: 'assets/wallpapers/theme_pink.png', isDark: false, accentColor: Color(0xFFE91E63)),
+    WinTheme(name: 'Monochrome Slate', wallpaperUrl: 'assets/wallpapers/theme_gray.jpg', isDark: true, accentColor: Color(0xFF8A99AD)),
+    WinTheme(name: 'Emerald Contrast', wallpaperUrl: 'assets/wallpapers/theme_grey.jpg', isDark: true, accentColor: Color(0xFF00B294)),
   ];
 
+  Color get currentAccentColor {
+    if (!actualWallpaperUrl.startsWith('assets/') && customAccentColor != null) {
+      return customAccentColor!;
+    }
+    final activeTheme = win11Themes.firstWhere(
+      (t) => t.name == currentThemeName,
+      orElse: () => win11Themes.first,
+    );
+    return activeTheme.accentColor;
+  }
+
   List<AppInfo> installedApps = [];
+  Map<String, List<AppInfo>> categorizedApps = {};
+  Map<String, List<String>> categoryMap = {};
   bool isLoadingApps = true;
 
   String currentExplorerPath = '/storage/emulated/0';
@@ -176,28 +144,282 @@ class LauncherState extends ChangeNotifier {
     'Airplane mode', 'Battery saver', 'Wi-Fi',
     'Bluetooth', 'Flash', 'Data',
     'Rotate', 'Location', 'Hotspot',
-    'VPN', 'Brightness', 'Accessibility'
+    'Brightness', 'Accessibility', 'Ring'
   ];
 
   List<String> hiddenQuickSettings = [
-    'Play', 'Ring', 'ChatGPT', 'Storage',
+    'Play', 'ChatGPT', 'Storage',
     'Dark Theme', 'Calculator', 'Song Search',
     'DND', 'Screen Cast', 'Eye Care',
-    'Scan QR Code', 'PC Connection', 'Kids Mode'
+    'Scan QR Code', 'Users & Account', 'Kids Mode'
   ];
 
   LauncherState() {
     _loadState();
+    checkPinStatus();
     Future.delayed(const Duration(seconds: 2), () {
       _loadRealAndroidApps();
     });
   }
-  
+
+  Future<void> checkPinStatus() async {
+    final storage = const FlutterSecureStorage();
+    final hash = await storage.read(key: 'device_pin_hash');
+    isPinSet = hash != null;
+    notifyListeners();
+  }
+
+  Future<bool> verifyAndDisablePin(String enteredPin) async {
+    final storage = const FlutterSecureStorage();
+    final storedHash = await storage.read(key: 'device_pin_hash');
+    
+    final bytes = utf8.encode('Win11_Launcher_Salt_$enteredPin');
+    final enteredHash = sha256.convert(bytes).toString();
+    
+    if (storedHash == enteredHash) {
+      await storage.delete(key: 'device_pin_hash');
+      isPinSet = false;
+      notifyListeners();
+      return true;
+    }
+    return false;
+  }
+
+  void _startSlideshowTimer() {
+    _slideshowTimer?.cancel();
+    if (slideshowEnabled) {
+      _slideshowTimer = Timer.periodic(Duration(minutes: slideshowIntervalMinutes), (timer) {
+        nextWallpaper();
+      });
+    }
+  }
+
+  Future<void> updateSlideshowSettings({bool? enabled, int? interval}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (enabled != null) {
+      slideshowEnabled = enabled;
+      await prefs.setBool('slideshowEnabled', enabled);
+    }
+    if (interval != null) {
+      slideshowIntervalMinutes = interval;
+      await prefs.setInt('slideshowIntervalMinutes', interval);
+    }
+    _startSlideshowTimer();
+    notifyListeners();
+  }
+
+  // --- Notification Settings Methods ---
+  Future<void> updateNotificationSetting(String key, dynamic value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (key == 'notifClearOnOpen') notifClearOnOpen = value;
+    if (key == 'notifClosePanelOnOpen') notifClosePanelOnOpen = value;
+    if (key == 'notifShowOnLockScreen') notifShowOnLockScreen = value;
+    if (key == 'notifPlaySound') notifPlaySound = value;
+    
+    if (value is bool) {
+      await prefs.setBool(key, value);
+    }
+    notifyListeners();
+  }
+
+  Future<void> toggleAppNotificationExclusion(String packageName) async {
+    if (excludedNotificationPkgs.contains(packageName)) {
+      excludedNotificationPkgs.remove(packageName);
+    } else {
+      excludedNotificationPkgs.add(packageName);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('excludedNotificationPkgs', excludedNotificationPkgs);
+    notifyListeners();
+  }
+
+  Future<void> _updateCategorizedApps() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? catJson = prefs.getString('appCategoryMap');
+
+    if (catJson != null && catJson.isNotEmpty) {
+      try {
+        final Map<String, dynamic> decoded = jsonDecode(catJson);
+        categoryMap = decoded.map((k, v) => MapEntry(k, (v as List).cast<String>()));
+      } catch (_) {}
+    }
+
+    if (categoryMap.isEmpty) {
+      final Map<String, List<String>> defaultCategories = {
+        'Productivity': [], 'Developer Tools': [], 'Utilities & Tools': [],
+        'Creativity': [], 'Social': [], 'Entertainment': [], 'Other': [],
+      };
+
+      for (var app in installedApps) {
+        final name = (app.name ?? '').toLowerCase();
+        final pkg = (app.packageName ?? '').toLowerCase();
+        if (pkg.contains('whatsapp') || pkg.contains('facebook') || pkg.contains('instagram') || pkg.contains('telegram') || pkg.contains('twitter') || pkg.contains('tiktok') || pkg.contains('linkedin')) {
+          defaultCategories['Social']!.add(app.packageName!);
+        } else if (pkg.contains('youtube') || pkg.contains('music') || pkg.contains('spotify') || pkg.contains('netflix') || name.contains('video') || name.contains('player') || pkg.contains('games') || pkg.contains('xbox')) {
+          defaultCategories['Entertainment']!.add(app.packageName!);
+        } else if (pkg.contains('chrome') || pkg.contains('edge') || pkg.contains('browser') || pkg.contains('docs') || pkg.contains('drive') || pkg.contains('mail') || pkg.contains('gmail') || pkg.contains('teams') || pkg.contains('zoom') || pkg.contains('word')) {
+          defaultCategories['Productivity']!.add(app.packageName!);
+        } else if (pkg.contains('code') || pkg.contains('term') || pkg.contains('developer') || pkg.contains('studio') || pkg.contains('github')) {
+          defaultCategories['Developer Tools']!.add(app.packageName!);
+        } else if (pkg.contains('draw') || pkg.contains('paint') || pkg.contains('canva') || pkg.contains('photo') || pkg.contains('camera') || pkg.contains('gallery')) {
+          defaultCategories['Creativity']!.add(app.packageName!);
+        } else if (pkg.contains('settings') || pkg.contains('calc') || pkg.contains('clock') || pkg.contains('weather') || pkg.contains('file') || pkg.contains('manager') || pkg.contains('system')) {
+          defaultCategories['Utilities & Tools']!.add(app.packageName!);
+        } else {
+          defaultCategories['Other']!.add(app.packageName!);
+        }
+      }
+      defaultCategories.removeWhere((key, value) => value.isEmpty);
+      categoryMap = defaultCategories;
+      await prefs.setString('appCategoryMap', jsonEncode(categoryMap));
+    }
+
+    Map<String, List<AppInfo>> resolved = {};
+    categoryMap.forEach((catName, pkgList) {
+      final apps = installedApps.where((a) => pkgList.contains(a.packageName)).toList();
+      resolved[catName] = apps;
+    });
+
+    categorizedApps = resolved;
+    notifyListeners();
+  }
+
+  Future<void> _saveCustomCategories() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('appCategoryMap', jsonEncode(categoryMap));
+  }
+
+  Future<void> createCustomCategory(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isNotEmpty && !categoryMap.containsKey(trimmed)) {
+      categoryMap[trimmed] = [];
+      await _saveCustomCategories();
+      await _updateCategorizedApps();
+    }
+  }
+
+  Future<void> deleteCustomCategory(String name) async {
+    if (categoryMap.containsKey(name)) {
+      categoryMap.remove(name);
+      await _saveCustomCategories();
+      await _updateCategorizedApps();
+    }
+  }
+
+  Future<void> setCategoryApps(String categoryName, List<String> packageNames) async {
+    categoryMap[categoryName] = List<String>.from(packageNames);
+    await _saveCustomCategories();
+    await _updateCategorizedApps();
+  }
+
+  Future<void> removeAppFromCategory(String categoryName, String packageName) async {
+    if (categoryMap.containsKey(categoryName)) {
+      categoryMap[categoryName]!.remove(packageName);
+      await _saveCustomCategories();
+      await _updateCategorizedApps();
+    }
+  }
+
+  bool isCustomCategory(String categoryName) {
+    return true; 
+  }
+
+  Future<void> refreshApps() async {
+    if (kIsWeb) return;
+    try {
+      List<AppInfo> apps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: true);
+      apps.removeWhere((app) => app.name == 'Windows 11 Launcher' || (app.packageName != null && app.packageName!.contains('Windows 11 Luncher')));
+      apps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
+      installedApps = apps;
+      await _updateCategorizedApps();
+
+      final validPackages = apps.map((a) => a.packageName).toSet();
+      bool changed = false;
+
+      int initialPinnedLength = pinnedStart.length;
+      pinnedStart.removeWhere((pkg) => !validPackages.contains(pkg));
+      if (pinnedStart.length != initialPinnedLength) changed = true;
+
+      int initialRecentLength = recentApps.length;
+      recentApps.removeWhere((pkg) => !validPackages.contains(pkg));
+      if (recentApps.length != initialRecentLength) changed = true;
+
+      int initialDesktopLength = desktopItems.length;
+      desktopItems.removeWhere((item) => item.type == 'app' && !validPackages.contains(item.package));
+      if (desktopItems.length != initialDesktopLength) {
+        _saveDesktopItems();
+      }
+
+      if (changed) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setStringList('pinnedStart', pinnedStart);
+        await prefs.setStringList('recentApps', recentApps);
+      }
+
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  List<int> _findFirstAvailableSlot(int page, int itemSpanX, int itemSpanY) {
+    int maxCols = 15; 
+    int maxRows = 15; 
+    
+    for (int c = 0; c < maxCols; c++) {
+      for (int r = 0; r < maxRows; r++) {
+        bool isOccupied = desktopItems.any((item) {
+          if (item.page != page) return false;
+          bool overlapX = c < item.col + item.spanX && c + itemSpanX > item.col;
+          bool overlapY = r < item.row + item.spanY && r + itemSpanY > item.row;
+          return overlapX && overlapY;
+        });
+        if (!isOccupied) {
+          return [c, r];
+        }
+      }
+    }
+    return [0, 0];
+  }
+
+  void moveItemToPage(String id, int targetPage) {
+    final index = desktopItems.indexWhere((i) => i.id == id);
+    if (index != -1) {
+      final item = desktopItems[index];
+      final slot = _findFirstAvailableSlot(targetPage, item.spanX, item.spanY);
+      item.page = targetPage;
+      item.col = slot[0];
+      item.row = slot[1];
+      _saveDesktopItems();
+      notifyListeners();
+    }
+  }
+
+  void copyItemToPage(String originalId, int targetPage) {
+    final original = desktopItems.firstWhere((i) => i.id == originalId, orElse: () => DesktopItemModel(id: '', type: '', label: '', page: 0, col: 0, row: 0));
+    if (original.id.isNotEmpty) {
+      final slot = _findFirstAvailableSlot(targetPage, original.spanX, original.spanY);
+      desktopItems.add(DesktopItemModel(
+        id: '${original.id}_copy_${DateTime.now().millisecondsSinceEpoch}', 
+        type: original.type, 
+        label: '${original.label} - Copy', 
+        package: original.package, 
+        path: original.path, 
+        widgetType: original.widgetType, 
+        appWidgetId: original.appWidgetId, 
+        spanX: original.spanX, 
+        spanY: original.spanY, 
+        page: targetPage, 
+        col: slot[0], 
+        row: slot[1]
+      ));
+      _saveDesktopItems();
+      notifyListeners();
+    }
+  }
+
   Future<void> addNativeWidget(int page, int col, int row) async {
     try {
-      final result = await const MethodChannel('win_launcher/native').invokeMethod('pickWidget');
-      if (result != null) {
-        final Map<String, dynamic> data = Map<String, dynamic>.from(result);
+      final data = await NativeBridge.instance.pickWidget();
+      if (data != null) {
         final int appWidgetId = data['appWidgetId'];
         final String label = data['label'];
         final int minWidth = data['minWidth'];
@@ -205,6 +427,13 @@ class LauncherState extends ChangeNotifier {
         
         int spanX = (minWidth / 80).ceil().clamp(1, 4);
         int spanY = (minHeight / 80).ceil().clamp(1, 4);
+        
+        bool occupied = desktopItems.any((i) => i.page == page && i.col == col && i.row == row);
+        if (occupied) {
+          final slot = _findFirstAvailableSlot(page, spanX, spanY);
+          col = slot[0];
+          row = slot[1];
+        }
 
         desktopItems.add(DesktopItemModel(
           id: 'native_widget_$appWidgetId',
@@ -225,7 +454,6 @@ class LauncherState extends ChangeNotifier {
     }
   }
 
-  // NEW: Executes real-time widget resizing by updating the grid state and firing the MethodChannel
   void resizeDesktopItem(String id, int spanX, int spanY, double cellWidth, double cellHeight) {
     final index = desktopItems.indexWhere((i) => i.id == id);
     if (index != -1) {
@@ -235,11 +463,11 @@ class LauncherState extends ChangeNotifier {
       notifyListeners();
       
       if (desktopItems[index].type == 'native_widget' && desktopItems[index].appWidgetId != null) {
-        const MethodChannel('win_launcher/native').invokeMethod('updateWidgetSize', {
-           'appWidgetId': desktopItems[index].appWidgetId,
-           'width': (spanX * cellWidth).toInt(),
-           'height': (spanY * cellHeight).toInt(),
-        });
+        NativeBridge.instance.updateWidgetSize(
+           desktopItems[index].appWidgetId!,
+           (spanX * cellWidth).toInt(),
+           (spanY * cellHeight).toInt(),
+        );
       }
     }
   }
@@ -293,6 +521,13 @@ class LauncherState extends ChangeNotifier {
 
   void addDesktopApp(AppInfo app, int page, int col, int row) {
     if (!desktopItems.any((i) => i.id == app.packageName)) {
+      bool occupied = desktopItems.any((i) => i.page == page && i.col == col && i.row == row);
+      if (occupied) {
+        final slot = _findFirstAvailableSlot(page, 1, 1);
+        col = slot[0];
+        row = slot[1];
+      }
+      
       desktopItems.add(DesktopItemModel(
         id: app.packageName ?? DateTime.now().toString(),
         type: 'app',
@@ -362,8 +597,9 @@ class LauncherState extends ChangeNotifier {
   }
 
   void nextWallpaper() {
-    int currentIndex = win11Themes.indexWhere((t) => t.wallpaperUrl == actualWallpaperUrl);
+    int currentIndex = win11Themes.indexWhere((t) => t.name == currentThemeName);
     if (currentIndex == -1) currentIndex = 0;
+    
     int nextIndex = (currentIndex + 1) % win11Themes.length;
     applyPresetTheme(win11Themes[nextIndex]);
   }
@@ -375,19 +611,11 @@ class LauncherState extends ChangeNotifier {
     }
   }
 
-  void pinToStart(String name) async {
-    if (!pinnedStart.contains(name)) {
-      pinnedStart.add(name);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList('pinnedStart', pinnedStart);
-      notifyListeners();
-    }
-  }
-
   void togglePinToStart(String name) async {
     if (pinnedStart.contains(name)) {
       pinnedStart.remove(name);
     } else {
+      if (pinnedStart.length >= 8) return; 
       pinnedStart.add(name);
     }
     final prefs = await SharedPreferences.getInstance();
@@ -413,20 +641,50 @@ class LauncherState extends ChangeNotifier {
     userName = prefs.getString('userName') ?? 'Windows User';
     userEmail = prefs.getString('userEmail') ?? 'Local Account';
     
-    String? base64Image = prefs.getString('userImage');
-    if (base64Image != null) userImageBytes = base64Decode(base64Image);
+    String? imagePath = prefs.getString('userImagePath');
+    if (imagePath != null) {
+      final file = File(imagePath);
+      if (file.existsSync()) {
+        userImageBytes = await file.readAsBytes();
+      }
+    } else {
+      String? base64Image = prefs.getString('userImage');
+      if (base64Image != null) userImageBytes = base64Decode(base64Image);
+    }
+
+    final customColorInt = prefs.getInt('customAccentColor');
+    if (customColorInt != null) {
+      customAccentColor = Color(customColorInt);
+    }
 
     actualWallpaperUrl = prefs.getString('wallpaper') ?? actualWallpaperUrl;
+    
+    if (actualWallpaperUrl.contains('theme_default.jpg') || actualWallpaperUrl.isEmpty) {
+      actualWallpaperUrl = 'assets/wallpapers/theme_sunrise.jpg';
+      await prefs.setString('wallpaper', actualWallpaperUrl);
+    }
+
     isDarkMode = prefs.getBool('isDarkMode') ?? isDarkMode;
-    currentThemeName = prefs.getString('currentThemeName') ?? currentThemeName;
+    currentThemeName = prefs.getString('currentThemeName') ?? 'Windows Classic';
+    
+    if (!win11Themes.any((t) => t.name == currentThemeName)) {
+      currentThemeName = 'Windows Classic';
+      await prefs.setString('currentThemeName', currentThemeName);
+    }
+
+    slideshowEnabled = prefs.getBool('slideshowEnabled') ?? false;
+    slideshowIntervalMinutes = prefs.getInt('slideshowIntervalMinutes') ?? 15;
+    _startSlideshowTimer();
+
     taskbarAlignment = prefs.getString('taskbarAlignment') ?? 'left';
-    slideshowFolderPath = prefs.getString('slideshowFolderPath');
 
     showRecentlyAdded = prefs.getBool('showRecentlyAdded') ?? true;
     showMostUsed = prefs.getBool('showMostUsed') ?? true;
     showRecommended = prefs.getBool('showRecommended') ?? true;
 
     iconSize = prefs.getString('iconSize') ?? 'Small';
+    pageTransition = prefs.getString('pageTransition') ?? 'Classical';
+    
     portraitGridX = prefs.getInt('portraitGridX') ?? 5;
     portraitGridY = prefs.getInt('portraitGridY') ?? 8;
     landscapeGridX = prefs.getInt('landscapeGridX') ?? 8;
@@ -468,9 +726,21 @@ class LauncherState extends ChangeNotifier {
 
     visibleQuickSettings = prefs.getStringList('visibleQuickSettings') ?? visibleQuickSettings;
     hiddenQuickSettings = prefs.getStringList('hiddenQuickSettings') ?? hiddenQuickSettings;
+    
+    // Load Notifications State
+    notifClearOnOpen = prefs.getBool('notifClearOnOpen') ?? true;
+    notifClosePanelOnOpen = prefs.getBool('notifClosePanelOnOpen') ?? true;
+    notifShowOnLockScreen = prefs.getBool('notifShowOnLockScreen') ?? true;
+    notifPlaySound = prefs.getBool('notifPlaySound') ?? false;
+    excludedNotificationPkgs = prefs.getStringList('excludedNotificationPkgs') ?? [];
 
     recentApps = prefs.getStringList('recentApps') ?? [];
+    
     pinnedStart = prefs.getStringList('pinnedStart') ?? [];
+    if (pinnedStart.length > 8) {
+      pinnedStart = pinnedStart.sublist(0, 8);
+    }
+    
     desktopPages = prefs.getInt('desktopPages') ?? 1;
 
     final String? itemsJson = prefs.getString('desktopItems');
@@ -520,7 +790,12 @@ class LauncherState extends ChangeNotifier {
     userImageBytes = bytes;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('userName', name);
-    if (bytes != null) await prefs.setString('userImage', base64Encode(bytes));
+    if (bytes != null) {
+      final directory = await getApplicationDocumentsDirectory();
+      final imagePath = '${directory.path}/profile_pic.jpg';
+      await File(imagePath).writeAsBytes(bytes);
+      await prefs.setString('userImagePath', imagePath);
+    }
     notifyListeners();
   }
 
@@ -541,27 +816,55 @@ class LauncherState extends ChangeNotifier {
   Future<void> changeWallpaper(String url) async {
     actualWallpaperUrl = url;
     final prefs = await SharedPreferences.getInstance();
+    
+    if (!url.startsWith('assets/')) {
+      slideshowEnabled = false;
+      _slideshowTimer?.cancel();
+      await prefs.setBool('slideshowEnabled', false);
+
+      try {
+        final colorScheme = await ColorScheme.fromImageProvider(provider: FileImage(File(url)));
+        Color extracted = colorScheme.primary;
+        
+        HSVColor hsv = HSVColor.fromColor(extracted);
+        
+        if (hsv.saturation < 0.15) {
+           customAccentColor = isDarkMode ? const Color(0xFF7A7A7A) : const Color(0xFF5A5A5A);
+        } else {
+           if (hsv.saturation > 0.5) extracted = hsv.withSaturation(0.5).toColor();
+           if (hsv.value > 0.8) extracted = hsv.withValue(0.8).toColor();
+           customAccentColor = extracted;
+        }
+        
+        await prefs.setInt('customAccentColor', customAccentColor!.value);
+      } catch (_) {}
+    } else {
+      customAccentColor = null;
+      await prefs.remove('customAccentColor');
+    }
+
     await prefs.setString('wallpaper', url);
     notifyListeners();
   }
 
   Future<void> setDarkMode(bool dark) async {
     isDarkMode = dark;
-    currentThemeName = dark ? 'Dark Mountains' : 'Sunrise Horizon';
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isDarkMode', dark);
-    await prefs.setString('currentThemeName', currentThemeName);
     notifyListeners();
   }
 
   Future<void> applyPresetTheme(WinTheme theme) async {
     currentThemeName = theme.name;
     isDarkMode = theme.isDark;
+    customAccentColor = null; 
     actualWallpaperUrl = theme.wallpaperUrl;
+    
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('currentThemeName', theme.name);
     await prefs.setBool('isDarkMode', theme.isDark);
     await prefs.setString('wallpaper', theme.wallpaperUrl);
+    await prefs.remove('customAccentColor');
     notifyListeners();
   }
 
@@ -599,6 +902,7 @@ class LauncherState extends ChangeNotifier {
   Future<void> updateDesktopSetting(String key, dynamic value) async {
     final prefs = await SharedPreferences.getInstance();
     if (key == 'iconSize') { iconSize = value; await prefs.setString(key, value); }
+    if (key == 'pageTransition') { pageTransition = value; await prefs.setString(key, value); }
     if (key == 'portraitGridX') { portraitGridX = value; await prefs.setInt(key, value); }
     if (key == 'portraitGridY') { portraitGridY = value; await prefs.setInt(key, value); }
     if (key == 'landscapeGridX') { landscapeGridX = value; await prefs.setInt(key, value); }
@@ -637,11 +941,12 @@ class LauncherState extends ChangeNotifier {
       apps.removeWhere((app) => app.name == 'Windows 11 Launcher' || (app.packageName != null && app.packageName!.contains('Windows 11 Luncher')));
       apps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
       installedApps = apps;
+      await _updateCategorizedApps();
 
       final prefs = await SharedPreferences.getInstance();
       bool hasInitializedPins = prefs.getBool('hasInitializedPins') ?? false;
       if (!hasInitializedPins && installedApps.isNotEmpty) {
-        pinnedStart = installedApps.take(16).map((e) => e.packageName!).toList();
+        pinnedStart = installedApps.take(8).map((e) => e.packageName!).toList();
         await prefs.setStringList('pinnedStart', pinnedStart);
         await prefs.setBool('hasInitializedPins', true);
       }

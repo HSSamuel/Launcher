@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:app_settings/app_settings.dart';
 
-import 'launcher_state.dart';
+import '../../launcher_state.dart';
 import 'settings_widgets.dart';
 import 'settings_system_screens.dart';
 import 'settings_bluetooth_view.dart';

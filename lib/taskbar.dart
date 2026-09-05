@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:installed_apps/app_info.dart';
@@ -11,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
 import 'launcher_state.dart';
+import 'services/native_bridge.dart';
 
 class Win11Taskbar extends StatefulWidget {
   final bool isStartMenuOpen;
@@ -39,47 +39,7 @@ class Win11Taskbar extends StatefulWidget {
   State<Win11Taskbar> createState() => _Win11TaskbarState();
 }
 
-class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver {
-  Timer? _timer;
-  late DateTime _now;
-  static const platform = MethodChannel('win_launcher/native');
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _now = DateTime.now();
-    _startTimer();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _stopTimer();
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (mounted) setState(() => _now = DateTime.now());
-      _startTimer();
-    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
-      _stopTimer();
-    }
-  }
-
-  void _startTimer() {
-    _stopTimer();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
-  }
-
-  void _stopTimer() {
-    _timer?.cancel();
-    _timer = null;
-  }
+class _Win11TaskbarState extends State<Win11Taskbar> {
 
   String _formatTime(DateTime time) {
     int h = time.hour; int m = time.minute;
@@ -138,7 +98,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              platform.invokeMethod('openSettings', {'type': 'accessibility'});
+              NativeBridge.instance.openSettings('accessibility');
             },
             child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
           ),
@@ -147,72 +107,89 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     );
   }
 
-  Widget _getAppIcon(String windowId, bool isActive, LauncherState state) {
-    if (windowId.contains('.')) {
-      final matchedApps = state.installedApps.where((a) => a.packageName == windowId);
-      final Uint8List? iconBytes = matchedApps.isNotEmpty ? matchedApps.first.icon : null;
-      
-      return Container(
-        width: 38, height: 38,
-        margin: const EdgeInsets.symmetric(horizontal: 0),
-        decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
+  Widget _buildTaskbarButton({
+    required bool isActive,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+    required Widget child,
+    bool indicator = false,
+    bool isApp = false,
+    bool isActiveApp = false,
+  }) {
+    final state = context.watch<LauncherState>();
+    final iconColor = state.isDarkMode ? Colors.white : Colors.black87;
+
+    return InkWell(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        width: 34, height: 34,
+        margin: EdgeInsets.zero,
+        decoration: BoxDecoration(
+          color: isActive ? iconColor.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+        ),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            iconBytes != null && iconBytes.isNotEmpty ? Image.memory(iconBytes, width: 22, height: 22) : const Icon(Icons.android, size: 22, color: Colors.green),
-            if (isActive) Positioned(bottom: 2, child: Container(width: 12, height: 3, decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(2))))
+            child,
+            if (indicator)
+              Positioned(
+                bottom: 0, 
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOut,
+                  width: isApp ? (isActiveApp ? 14 : 6) : 10,
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: isApp
+                        ? (isActiveApp ? Colors.blue.shade400 : (state.isDarkMode ? Colors.white54 : Colors.black45))
+                        : Colors.blue.shade400,
+                    borderRadius: BorderRadius.circular(1.5),
+                  ),
+                ),
+              ),
           ],
         ),
-      );
-    }
-
-    Widget iconWidget;
-    switch (windowId) {
-      case 'browser': iconWidget = Image.asset('assets/icons/edge.png', width: 22, height: 22); break;
-      case 'explorer': iconWidget = Image.asset('assets/icons/folder.png', width: 22, height: 22); break;
-      case 'calculator': iconWidget = Image.asset('assets/icons/calculator.png', width: 22, height: 22); break;
-      case 'settings': iconWidget = Image.asset('assets/icons/settings.png', width: 22, height: 22); break;
-      default: iconWidget = Icon(Icons.apps, size: 22, color: state.isDarkMode ? Colors.white : Colors.black87);
-    }
-
-    return Container(
-      width: 38, height: 38,
-      margin: const EdgeInsets.symmetric(horizontal: 0),
-      decoration: BoxDecoration(color: isActive ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          iconWidget,
-          if (isActive) Positioned(bottom: 2, child: Container(width: 12, height: 3, decoration: BoxDecoration(color: Colors.blue.shade400, borderRadius: BorderRadius.circular(2))))
-        ],
       ),
     );
   }
 
+  Widget _getRawAppIcon(String windowId, LauncherState state) {
+    if (windowId.contains('.')) {
+      final matchedApps = state.installedApps.where((a) => a.packageName == windowId);
+      final Uint8List? iconBytes = matchedApps.isNotEmpty ? matchedApps.first.icon : null;
+      return iconBytes != null && iconBytes.isNotEmpty ? Image.memory(iconBytes, width: 20, height: 20) : const Icon(Icons.android, size: 20, color: Colors.green);
+    }
+    switch (windowId) {
+      case 'browser': return Image.asset('assets/icons/edge.png', width: 20, height: 20);
+      case 'explorer': return Image.asset('assets/icons/folder.png', width: 20, height: 20);
+      case 'calculator': return Image.asset('assets/icons/calculator.png', width: 20, height: 20);
+      case 'settings': return Image.asset('assets/icons/settings.png', width: 20, height: 20);
+      default: return Icon(Icons.apps, size: 20, color: state.isDarkMode ? Colors.white : Colors.black87);
+    }
+  }
+
   Widget _buildBatteryGauge(int level, bool isCharging, Color color) {
-    double fillWidth = 14 * (level / 100).clamp(0.0, 1.0);
+    double fillWidth = 12 * (level / 100).clamp(0.0, 1.0);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (isCharging) Padding(padding: const EdgeInsets.only(right: 2), child: Icon(Icons.bolt, size: 14, color: Colors.green.shade500)),
+        if (isCharging) Padding(padding: const EdgeInsets.only(right: 2), child: Icon(Icons.bolt, size: 12, color: Colors.green.shade500)),
         Container(
-          width: 18, height: 10,
-          decoration: BoxDecoration(border: Border.all(color: color, width: 1.5), borderRadius: BorderRadius.circular(2)),
+          width: 16, height: 9,
+          decoration: BoxDecoration(border: Border.all(color: color, width: 1.2), borderRadius: BorderRadius.circular(2)),
           padding: const EdgeInsets.all(1),
           alignment: Alignment.centerLeft,
           child: Container(width: fillWidth, color: isCharging ? Colors.green.shade500 : color),
         ),
-        Container(
-          width: 1.5, height: 4,
-          decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.horizontal(right: Radius.circular(2))),
-        ),
+        Container(width: 1.5, height: 3, decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.horizontal(right: Radius.circular(2)))),
       ],
     );
   }
 
-  Widget _buildSystemTray(LauncherState state) {
-    final bool isDark = state.isDarkMode;
-    final Color iconColor = isDark ? Colors.white : Colors.black87;
+  Widget _buildSystemTray(LauncherState state, Color iconColor, bool isDark) {
     final bool isCharging = widget.batteryState == BatteryState.charging || widget.batteryState == BatteryState.full;
 
     return Row(
@@ -222,16 +199,27 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
           onTap: widget.onQuickSettingsToggled,
           borderRadius: BorderRadius.circular(4),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0),
-            child: Icon(Icons.keyboard_arrow_up, size: 18, color: iconColor),
+            padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 8.0), 
+            child: Transform.scale(
+              scaleX: 1.3,
+              scaleY: 0.9,
+              child: Icon(
+                Icons.keyboard_arrow_up, 
+                size: 18, 
+                color: iconColor,
+                shadows: [Shadow(color: iconColor, blurRadius: 0.5, offset: const Offset(0.2, 0.2))],
+              )
+            )
           ),
         ),
+        
+        const SizedBox(width: 14),
         
         Tooltip(
           message: '${widget.batteryLevel}% ${isCharging ? '(Charging)' : ''}',
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4.0),
-            child: _buildBatteryGauge(widget.batteryLevel, isCharging, iconColor),
+            padding: const EdgeInsets.only(left: 0.0, right: 4.0), 
+            child: _buildBatteryGauge(widget.batteryLevel, isCharging, iconColor)
           ),
         ),
 
@@ -239,15 +227,32 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
           onTap: widget.onNotificationCenterToggled,
           borderRadius: BorderRadius.circular(4),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(_formatTime(_now), style: TextStyle(fontSize: 12, color: iconColor, fontWeight: FontWeight.w500)),
-                Text(_formatDate(_now), style: TextStyle(fontSize: 11, color: iconColor)),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: StreamBuilder<DateTime>(
+              stream: TimeService.clockStream,
+              builder: (context, snapshot) {
+                final now = snapshot.data ?? DateTime.now();
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(_formatTime(now), style: TextStyle(fontSize: 11, color: iconColor, fontWeight: FontWeight.w500)),
+                    Text(_formatDate(now), style: TextStyle(fontSize: 10, color: iconColor)),
+                  ],
+                );
+              }
             ),
+          ),
+        ),
+        
+        InkWell(
+          onTap: () {
+             for (var app in state.windowStack) { state.minimizeApp(app); }
+             widget.onOverlaysClosed();
+          },
+          child: Container(
+            width: 6, height: double.infinity, margin: const EdgeInsets.only(left: 2),
+            decoration: BoxDecoration(border: Border(left: BorderSide(color: isDark ? Colors.white24 : Colors.black26, width: 1))),
           ),
         ),
       ],
@@ -260,91 +265,84 @@ class _Win11TaskbarState extends State<Win11Taskbar> with WidgetsBindingObserver
     final isDark = state.isDarkMode;
     final theme = state.win11Themes.firstWhere((t) => t.name == state.currentThemeName, orElse: () => state.win11Themes.first);
     
-    final baseColor = isDark ? const Color(0xFF1C1C1C) : const Color(0xFFF3F3F3);
-    final taskbarColor = Color.alphaBlend(theme.accentColor.withOpacity(0.08), baseColor).withOpacity(0.95);
+    final baseColor = isDark ? const Color(0xFF141414) : const Color(0xFFF3F3F3);
+    final taskbarColor = Color.alphaBlend(theme.accentColor.withOpacity(0.05), baseColor).withOpacity(0.96);
     final iconColor = isDark ? Colors.white : Colors.black87;
 
-    // CRITICAL FIX: Removed nested 'Positioned' parent wrapper to prevent ParentDataWidget exception.
     return Container(
       height: 48,
-      color: taskbarColor,
+      decoration: BoxDecoration(
+        color: taskbarColor,
+        border: Border(top: BorderSide(color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08), width: 1)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 4, offset: const Offset(0, -1))],
+      ),
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(width: 6),
-                  
-                  InkWell(
-                    onTap: widget.onStartToggled,
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      width: 38, height: 38,
-                      margin: const EdgeInsets.symmetric(horizontal: 0),
-                      decoration: BoxDecoration(color: widget.isStartMenuOpen ? Colors.white.withOpacity(0.15) : Colors.transparent, borderRadius: BorderRadius.circular(4)),
-                      child: Center(child: Image.asset('assets/icons/start.png', width: 22, height: 22, errorBuilder: (context, error, stackTrace) => const Icon(Icons.window, color: Colors.blue, size: 24))),
+            child: Row(
+              mainAxisAlignment: state.taskbarAlignment == 'center' ? MainAxisAlignment.center : MainAxisAlignment.start,
+              children: [
+                const SizedBox(width: 4),
+                
+                _buildTaskbarButton(
+                  isActive: widget.isStartMenuOpen,
+                  onTap: widget.onStartToggled,
+                  child: Image.asset('assets/icons/start.png', width: 20, height: 20, errorBuilder: (c, e, s) => const Icon(Icons.window, color: Colors.blue, size: 20)),
+                  indicator: widget.isStartMenuOpen,
+                ),
+                
+                _buildTaskbarButton(
+                  isActive: false,
+                  onTap: () { widget.onOverlaysClosed(); _openSearchOverlay(context, state); },
+                  child: Image.asset(
+                    'assets/icons/search.png', 
+                    width: 18, height: 18, color: iconColor, 
+                    errorBuilder: (c, e, s) => Icon(Icons.search, size: 18, color: iconColor)
+                  ),
+                ),
+                
+                _buildTaskbarButton(
+                  isActive: false,
+                  onTap: () async {
+                    widget.onOverlaysClosed();
+                    final success = await NativeBridge.instance.toggleRecents(); 
+                    if (!success) _showAccessibilityPrompt(isDark);
+                  },
+                  child: Image.asset(
+                    'assets/icons/task_view.png', 
+                    width: 18, height: 18, color: iconColor, 
+                    errorBuilder: (c, e, s) => Icon(Icons.filter_none, size: 16, color: iconColor)
+                  ),
+                ),
+                
+                Flexible(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: state.windowStack.map((appId) {
+                        bool isActive = state.windowStack.last == appId && !state.minimizedApps.contains(appId);
+                        return _buildTaskbarButton(
+                          isActive: isActive,
+                          onTap: () { if (appId.contains('.')) NativeBridge.instance.launchApp(appId); else state.openApp(appId); },
+                          onLongPress: () => state.closeApp(appId), 
+                          child: _getRawAppIcon(appId, state),
+                          indicator: true,
+                          isApp: true,
+                          isActiveApp: isActive,
+                        );
+                      }).toList(),
                     ),
                   ),
-                  
-                  InkWell(
-                    onTap: () {
-                      widget.onOverlaysClosed(); 
-                      _openSearchOverlay(context, state);
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(margin: const EdgeInsets.symmetric(horizontal: 0), width: 38, height: 38, child: Icon(Icons.search, size: 22, color: iconColor)),
-                  ),
-                  
-                  InkWell(
-                    onTap: () async {
-                      widget.onOverlaysClosed();
-                      final success = await platform.invokeMethod('toggleRecents'); 
-                      if (success != true) {
-                        _showAccessibilityPrompt(isDark);
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(4),
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 0),
-                      width: 38, height: 38, 
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Icon(Icons.filter_none, size: 20, color: iconColor.withOpacity(0.6)),
-                          Positioned(top: 10, left: 10, child: Icon(Icons.crop_square, size: 18, color: iconColor)),
-                        ],
-                      )
-                    ),
-                  ),
-                  
-                  const SizedBox(width: 4), 
-                  
-                  ...state.windowStack.map((appId) {
-                    bool isActive = state.windowStack.last == appId && !state.minimizedApps.contains(appId);
-                    return InkWell(
-                      onTap: () {
-                        if (appId.contains('.')) {
-                          platform.invokeMethod('launchApp', {'package': appId});
-                        } else {
-                          state.openApp(appId);
-                        }
-                      },
-                      onLongPress: () => state.closeApp(appId), 
-                      child: _getAppIcon(appId, isActive, state),
-                    );
-                  }).toList(),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
 
           Padding(
-            padding: const EdgeInsets.only(right: 2.0),
-            child: _buildSystemTray(state),
+            padding: const EdgeInsets.only(right: 0),
+            child: _buildSystemTray(state, iconColor, isDark),
           ),
         ],
       ),
@@ -365,11 +363,8 @@ class _AppSearchOverlay extends StatefulWidget {
 
 class _AppSearchOverlayState extends State<_AppSearchOverlay> {
   final TextEditingController _searchController = TextEditingController();
-  static const platform = MethodChannel('win_launcher/native');
   
-  // CRITICAL FIX: Debounce timer to prevent sequential MediaStore query lockups
   Timer? _debounce;
-  
   List<AppInfo> _filteredApps = [];
   Map<String, dynamic> _mediaResults = {};
   
@@ -396,7 +391,6 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     super.dispose();
   }
 
-  // CRITICAL FIX: Rate limits search calls
   void _onSearchChanged() {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
@@ -454,8 +448,8 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     Map<String, dynamic> media = {};
     if (_hasStoragePermission) {
       try {
-        final result = await platform.invokeMethod('searchMedia', {'query': query});
-        if (result != null) media = Map<String, dynamic>.from(result);
+        final result = await NativeBridge.instance.searchMedia(query);
+        if (result != null) media = result;
       } catch (e) {
         debugPrint("Native Media Search Error: $e");
       }
@@ -473,12 +467,12 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
   }
 
   void _launchFile(String path) {
-    platform.invokeMethod('openFile', {'path': path});
+    NativeBridge.instance.openFile(path);
     Navigator.of(context).pop();
   }
 
   void _launchWebSearch(String query) {
-    platform.invokeMethod('openWebSearch', {'query': query});
+    NativeBridge.instance.openWebSearch(query);
     Navigator.of(context).pop();
   }
 
@@ -489,53 +483,19 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     
     showMenu<String>(
       context: context,
-      // CRITICAL FIX: Safe global positioning that prevents rendering distortion and crashes
-      position: RelativeRect.fromRect(
-        Rect.fromLTWH(position.dx, position.dy, 0, 0),
-        Offset.zero & MediaQuery.of(context).size,
-      ),
-      color: bgColor,
-      elevation: 8,
+      position: RelativeRect.fromRect(Rect.fromLTWH(position.dx, position.dy, 0, 0), Offset.zero & MediaQuery.of(context).size),
+      color: bgColor, elevation: 8,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: widget.isDark ? Colors.white24 : Colors.grey.shade300)),
       items: <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(
-          value: 'open',
-          onTap: () => _launchFile(path),
-          child: Row(children: [Icon(Icons.open_in_new, size: 18, color: textColor), const SizedBox(width: 12), Text('Open', style: TextStyle(color: textColor, fontSize: 13))]),
-        ),
-        PopupMenuItem<String>(
-          value: 'location',
-          onTap: () {
-            int lastSlash = path.lastIndexOf('/');
-            if (lastSlash != -1) {
-              String dirPath = path.substring(0, lastSlash);
-              state.currentExplorerPath = dirPath;
-              state.openApp('explorer');
-              Navigator.of(context).pop(); 
-            }
-          },
-          child: Row(children: [Icon(Icons.folder_open, size: 18, color: textColor), const SizedBox(width: 12), Text('Open file location', style: TextStyle(color: textColor, fontSize: 13))]),
-        ),
-        PopupMenuItem<String>(
-          value: 'share',
-          onTap: () => platform.invokeMethod('shareFile', {'path': path}),
-          child: Row(children: [Icon(Icons.share, size: 18, color: textColor), const SizedBox(width: 12), Text('Share', style: TextStyle(color: textColor, fontSize: 13))]),
-        ),
+        PopupMenuItem<String>(value: 'open', onTap: () => _launchFile(path), child: Row(children: [Icon(Icons.open_in_new, size: 18, color: textColor), const SizedBox(width: 12), Text('Open', style: TextStyle(color: textColor, fontSize: 13))])),
+        PopupMenuItem<String>(value: 'location', onTap: () { int lastSlash = path.lastIndexOf('/'); if (lastSlash != -1) { String dirPath = path.substring(0, lastSlash); state.currentExplorerPath = dirPath; state.openApp('explorer'); Navigator.of(context).pop(); } }, child: Row(children: [Icon(Icons.folder_open, size: 18, color: textColor), const SizedBox(width: 12), Text('Open file location', style: TextStyle(color: textColor, fontSize: 13))])),
+        PopupMenuItem<String>(value: 'share', onTap: () => NativeBridge.instance.shareFile(path), child: Row(children: [Icon(Icons.share, size: 18, color: textColor), const SizedBox(width: 12), Text('Share', style: TextStyle(color: textColor, fontSize: 13))])),
         const PopupMenuDivider(),
-        PopupMenuItem<String>(
-          value: 'properties',
-          onTap: () {
-            Future.delayed(const Duration(milliseconds: 100), () {
-              _showPropertiesDialog(item, textColor, bgColor);
-            });
-          },
-          child: Row(children: [Icon(Icons.info_outline, size: 18, color: textColor), const SizedBox(width: 12), Text('Properties', style: TextStyle(color: textColor, fontSize: 13))]),
-        ),
+        PopupMenuItem<String>(value: 'properties', onTap: () { Future.delayed(const Duration(milliseconds: 100), () { _showPropertiesDialog(item, textColor, bgColor); }); }, child: Row(children: [Icon(Icons.info_outline, size: 18, color: textColor), const SizedBox(width: 12), Text('Properties', style: TextStyle(color: textColor, fontSize: 13))])),
       ]
     );
   }
 
-  // CRITICAL FIX: Converted to async to prevent synchronous disk I/O UI freezing
   void _showPropertiesDialog(Map<String, String> item, Color textColor, Color bgColor) async {
     File file = File(item['path'] ?? '');
     String sizeStr = "Unknown Size";
@@ -554,13 +514,10 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
         backgroundColor: bgColor,
         title: Text('Properties', style: TextStyle(color: textColor, fontSize: 15, fontWeight: FontWeight.bold)),
         content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Name: ${item['name']}', style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.8))),
-            const SizedBox(height: 8),
-            Text('Location: ${item['path']}', style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.8))),
-            const SizedBox(height: 8),
+            Text('Name: ${item['name']}', style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.8))), const SizedBox(height: 8),
+            Text('Location: ${item['path']}', style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.8))), const SizedBox(height: 8),
             Text('Size: $sizeStr', style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.8))),
           ],
         ),
@@ -595,8 +552,7 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                   child: Row(
                     children: [
-                      Icon(fallbackIcon, color: textColor.withOpacity(0.8), size: 24),
-                      const SizedBox(width: 16),
+                      Icon(fallbackIcon, color: textColor.withOpacity(0.8), size: 24), const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -622,20 +578,12 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     List<Widget> children = [];
     
     if (!_isCheckingPermissions && !_hasStoragePermission) {
-      children.add(
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Text("Storage permission required to search files.", style: TextStyle(color: Colors.red.shade400, fontSize: 12), textAlign: TextAlign.center),
-        )
-      );
+      children.add(Padding(padding: const EdgeInsets.all(16.0), child: Text("Storage permission required to search files.", style: TextStyle(color: Colors.red.shade400, fontSize: 12), textAlign: TextAlign.center)));
     }
 
     if (_activeTab == 'All' || _activeTab == 'Apps') {
       if (_filteredApps.isNotEmpty) {
-        children.add(Padding(
-          padding: const EdgeInsets.only(left: 16, top: 8, bottom: 4),
-          child: Text('Apps', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6))),
-        ));
+        children.add(Padding(padding: const EdgeInsets.only(left: 16, top: 8, bottom: 4), child: Text('Apps', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6)))));
         children.addAll(_filteredApps.map((app) => Material(
           type: MaterialType.transparency,
           child: ListTile(
@@ -647,18 +595,10 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
       }
     }
 
-    if (_activeTab == 'All' || _activeTab == 'Documents') {
-      children.add(_buildCategory('Documents', _mediaResults['Documents'] ?? [], Icons.description, textColor, state));
-    }
-    if (_activeTab == 'All' || _activeTab == 'Photos') {
-      children.add(_buildCategory('Images', _mediaResults['Images'] ?? [], Icons.image, textColor, state));
-    }
-    if (_activeTab == 'All' || _activeTab == 'Video') {
-      children.add(_buildCategory('Video', _mediaResults['Video'] ?? [], Icons.videocam, textColor, state));
-    }
-    if (_activeTab == 'All' || _activeTab == 'Audio') {
-      children.add(_buildCategory('Audio', _mediaResults['Audio'] ?? [], Icons.music_note, textColor, state));
-    }
+    if (_activeTab == 'All' || _activeTab == 'Documents') children.add(_buildCategory('Documents', _mediaResults['Documents'] ?? [], Icons.description, textColor, state));
+    if (_activeTab == 'All' || _activeTab == 'Photos') children.add(_buildCategory('Images', _mediaResults['Images'] ?? [], Icons.image, textColor, state));
+    if (_activeTab == 'All' || _activeTab == 'Video') children.add(_buildCategory('Video', _mediaResults['Video'] ?? [], Icons.videocam, textColor, state));
+    if (_activeTab == 'All' || _activeTab == 'Audio') children.add(_buildCategory('Audio', _mediaResults['Audio'] ?? [], Icons.music_note, textColor, state));
     
     if (_activeTab == 'All' || _activeTab == 'Web') {
       if (_searchController.text.isNotEmpty) {
@@ -676,10 +616,7 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
     }
 
     if (children.isEmpty && !_isSearching && _searchController.text.isNotEmpty && !_isCheckingPermissions) {
-      children.add(Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Center(child: Text("No results found in $_activeTab", style: TextStyle(color: textColor.withOpacity(0.5)))),
-      ));
+      children.add(Padding(padding: const EdgeInsets.all(32.0), child: Center(child: Text("No results found in $_activeTab", style: TextStyle(color: textColor.withOpacity(0.5))))));
     }
 
     return children;
@@ -704,9 +641,7 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
         width: 315, 
         height: 520,
         decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: borderColor),
+          color: bgColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: borderColor),
           boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 15, offset: Offset(0, 10))],
         ),
         child: Column(
@@ -721,13 +656,8 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
                   autofocus: true,
                   style: TextStyle(color: textColor, fontSize: 13),
                   decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Type here to search...',
-                    hintStyle: TextStyle(color: textColor.withOpacity(0.5), fontSize: 13),
-                    prefixIcon: const Icon(Icons.search, color: Colors.blue, size: 18),
-                    filled: true,
-                    fillColor: searchBgColor,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                    isDense: true, hintText: 'Type here to search...', hintStyle: TextStyle(color: textColor.withOpacity(0.5), fontSize: 13), prefixIcon: const Icon(Icons.search, color: Colors.blue, size: 18),
+                    filled: true, fillColor: searchBgColor, contentPadding: const EdgeInsets.symmetric(vertical: 0),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
@@ -743,8 +673,7 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
                   Padding(padding: const EdgeInsets.only(left: 12, right: 4), child: Icon(Icons.arrow_back, size: 16, color: textColor.withOpacity(0.7))),
                   Expanded(
                     child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
+                      scrollDirection: Axis.horizontal, physics: const BouncingScrollPhysics(),
                       itemCount: _tabs.length,
                       itemBuilder: (context, index) {
                         final tab = _tabs[index];
@@ -752,16 +681,9 @@ class _AppSearchOverlayState extends State<_AppSearchOverlay> {
                         return GestureDetector(
                           onTap: () => setState(() => _activeTab = tab),
                           child: Container(
-                            margin: const EdgeInsets.only(right: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            decoration: BoxDecoration(
-                              color: isActive ? Colors.blue.shade600 : chipInactiveBg,
-                              borderRadius: BorderRadius.circular(16),
-                              border: isActive ? null : Border.all(color: borderColor),
-                            ),
-                            child: Center(
-                              child: Text(tab, style: TextStyle(fontSize: 12, color: isActive ? Colors.white : textColor, fontWeight: isActive ? FontWeight.bold : FontWeight.w500)),
-                            ),
+                            margin: const EdgeInsets.only(right: 6), padding: const EdgeInsets.symmetric(horizontal: 14),
+                            decoration: BoxDecoration(color: isActive ? Colors.blue.shade600 : chipInactiveBg, borderRadius: BorderRadius.circular(16), border: isActive ? null : Border.all(color: borderColor)),
+                            child: Center(child: Text(tab, style: TextStyle(fontSize: 12, color: isActive ? Colors.white : textColor, fontWeight: isActive ? FontWeight.bold : FontWeight.w500))),
                           ),
                         );
                       },
