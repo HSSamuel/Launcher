@@ -11,6 +11,8 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+node_modules
+.env
 
 # IntelliJ related
 *.iml
@@ -58,6 +60,7 @@ app.*.map.json
 .pub/
 /build/
 lib/generated_plugin_registrant.dart
+tool/keygen.dart
 
 # ---------------------------------------------------
 # Android related (CRITICAL FOR SECURITY)
