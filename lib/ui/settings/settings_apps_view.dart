@@ -1,22 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:app_settings/app_settings.dart';
 import 'package:provider/provider.dart';
 
-import '../../launcher_state.dart';
+import '../../states/desktop_state.dart';
 import 'settings_widgets.dart';
 import '../../services/native_bridge.dart';
 
 class SettingsAppsView extends StatelessWidget {
   const SettingsAppsView({Key? key}) : super(key: key);
-
-  void _openNativeSettings(String type) async {
-    try {
-      await NativeBridge.instance.openSettings(type);
-    } catch (e) {
-      debugPrint("Native routing failed, falling back to AppSettings: $e");
-      AppSettings.openAppSettings(type: AppSettingsType.settings);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,13 +16,14 @@ class SettingsAppsView extends StatelessWidget {
           title: 'Apps & features',
           subtitle: 'Installed apps, system apps',
           icon: Icons.format_list_bulleted,
-          onTap: () => _openNativeSettings('manage_apps'),
+          // CRITICAL FIX: Try/Catch removal allows NativeBridge to safely handle fallback routing
+          onTap: () => NativeBridge.instance.openSettings('manage_apps'),
         ),
         SettingsCard(
           title: 'Default apps',
           subtitle: 'Defaults for file and link types, other defaults',
           icon: Icons.app_shortcut,
-          onTap: () => _openNativeSettings('default_apps'),
+          onTap: () => NativeBridge.instance.openSettings('default_apps'),
         ),
         SettingsCard(
           title: 'Optional features',
@@ -50,7 +41,7 @@ class OptionalFeaturesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<LauncherState>();
+    final desktopState = context.watch<DesktopState>();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final headerColor = isDark ? Colors.white : Colors.black87;
 
@@ -67,32 +58,44 @@ class OptionalFeaturesScreen extends StatelessWidget {
           ),
           SettingsCard(
             title: 'Developer Mode',
-            subtitle: 'Enable advanced testing and debugging features',
+            subtitle: desktopState.devMode ? 'Developer mode is ON. Package names visible.' : 'Enable advanced testing and debugging features',
             icon: Icons.code,
             trailing: Switch(
-              value: state.devMode, 
+              value: desktopState.devMode, 
               activeColor: Colors.blueAccent, 
-              onChanged: (v) => state.updateDesktopSetting('devMode', v)
+              onChanged: (v) {
+                 desktopState.updateDesktopSetting('devMode', v);
+                 if (v) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Developer Mode Enabled. Package names now visible in Start Menu.')));
+                    NativeBridge.instance.openSettings('settings');
+                 }
+              }
             ),
           ),
           SettingsCard(
             title: 'Windows Subsystem for Android™',
-            subtitle: 'Run native Android apps seamlessly alongside Windows apps',
+            subtitle: desktopState.windowsSubsystem ? 'WSA is running. Android apps are active.' : 'WSA is suspended. Android apps are hidden.',
             icon: Icons.android,
             trailing: Switch(
-              value: state.windowsSubsystem, 
+              value: desktopState.windowsSubsystem, 
               activeColor: Colors.blueAccent, 
-              onChanged: (v) => state.updateDesktopSetting('windowsSubsystem', v)
+              onChanged: (v) {
+                 desktopState.updateDesktopSetting('windowsSubsystem', v);
+                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(v ? 'WSA Started. Android apps restored to Start Menu.' : 'WSA Suspended. Android apps are now hidden.')));
+              }
             ),
           ),
           SettingsCard(
             title: 'Experimental Web Engine',
-            subtitle: 'Use the latest WebView rendering engine for Edge',
+            subtitle: desktopState.experimentalEngine ? 'Desktop User-Agent active for Edge' : 'Use the latest WebView rendering engine for Edge',
             icon: Icons.public,
             trailing: Switch(
-              value: state.experimentalEngine, 
+              value: desktopState.experimentalEngine, 
               activeColor: Colors.blueAccent, 
-              onChanged: (v) => state.updateDesktopSetting('experimentalEngine', v)
+              onChanged: (v) {
+                 desktopState.updateDesktopSetting('experimentalEngine', v);
+                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(v ? 'Edge will now render sites in Desktop Mode.' : 'Edge restored to Mobile rendering.')));
+              }
             ),
           ),
           const SizedBox(height: 16),
@@ -104,13 +107,19 @@ class OptionalFeaturesScreen extends StatelessWidget {
             title: 'Unknown app sources',
             subtitle: 'Allow installation of apps from unverified sources',
             icon: Icons.security,
-            onTap: () => AppSettings.openAppSettings(type: AppSettingsType.security),
+            onTap: () {
+               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigate to "Install Unknown Apps" in the Security menu.')));
+               NativeBridge.instance.openSettings('security');
+            }
           ),
           SettingsCard(
             title: 'Device admin apps',
             subtitle: 'Manage applications with administrative privileges',
             icon: Icons.admin_panel_settings_outlined,
-            onTap: () => AppSettings.openAppSettings(type: AppSettingsType.security),
+            onTap: () {
+               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Navigate to "Device Admin Apps" in the Security menu.')));
+               NativeBridge.instance.openSettings('security');
+            }
           ),
         ],
       ),

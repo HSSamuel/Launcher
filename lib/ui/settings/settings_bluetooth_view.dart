@@ -8,14 +8,6 @@ import '../../services/native_bridge.dart';
 class SettingsBluetoothView extends StatelessWidget {
   const SettingsBluetoothView({Key? key}) : super(key: key);
 
-  void _openPrintingSettings() async {
-    try {
-      await NativeBridge.instance.openSettings('print_settings');
-    } catch (e) {
-      debugPrint("Failed to open print settings: $e");
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -32,7 +24,8 @@ class SettingsBluetoothView extends StatelessWidget {
           subtitle: 'Preferences, troubleshoot',
           icon: Icons.print_outlined,
           trailing: const SizedBox.shrink(),
-          onTap: _openPrintingSettings,
+          // CRITICAL FIX: Safe delegation to NativeBridge routing to eliminate uncaught method exceptions
+          onTap: () => NativeBridge.instance.openSettings('print_settings'),
         ),
         SettingsCard(
           title: 'USB',

@@ -33,30 +33,33 @@ subprojects {
         proj.tasks.withType<JavaCompile>().configureEach {
             sourceCompatibility = JavaVersion.VERSION_17.toString()
             targetCompatibility = JavaVersion.VERSION_17.toString()
+            
+            // SILENCE WARNINGS: Suppress all deprecation and unchecked warnings from third-party Java plugins
+            options.isWarnings = false
+            options.compilerArgs.addAll(listOf("-Xlint:none", "-nowarn"))
         }
         proj.tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_17)
             }
         }
-        
-        // CHANGED: Intercept 3rd-party plugins and force them to SDK 36
-        val androidExt = proj.extensions.findByName("android")
-        if (androidExt != null) {
-            try {
-                androidExt.javaClass.getMethod("setCompileSdkVersion", Int::class.java).invoke(androidExt, 36) // UPGRADED TO 36
-            } catch (e: Exception) { }
-            try {
-                androidExt.javaClass.getMethod("setCompileSdk", Int::class.java).invoke(androidExt, 36) // UPGRADED TO 36
-            } catch (e: Exception) { }
+    }
+
+    fun configureAndroidSdk(proj: Project) {
+        proj.plugins.withId("com.android.library") {
+            proj.extensions.configure<com.android.build.gradle.LibraryExtension>("android") {
+                compileSdk = 36
+            }
         }
     }
 
     if (state.executed) {
         configureJvmTarget(this)
+        configureAndroidSdk(this)
     } else {
         afterEvaluate {
             configureJvmTarget(this)
+            configureAndroidSdk(this)
         }
     }
 }

@@ -1,6 +1,12 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+
 import '../../models/file_item.dart';
+import '../../states/apps_state.dart';
+import '../../states/desktop_state.dart';
+import '../../services/native_bridge.dart';
 
 class ExplorerContentView extends StatefulWidget {
   final bool isDark;
@@ -11,8 +17,8 @@ class ExplorerContentView extends StatefulWidget {
   final double totalGB;
   final double freeGB;
   final Set<String> selectedPaths;
-  final bool isGridView;
   final bool isMultiSelectMode;
+  final List<Map<String, dynamic>> disks;
   
   final Function(String) onNavigate;
   final Function(String) onOpenFile;
@@ -23,8 +29,9 @@ class ExplorerContentView extends StatefulWidget {
   const ExplorerContentView({
     Key? key, required this.isDark, required this.isMobile, required this.isAtHome, required this.rootPath,
     required this.files, required this.totalGB, required this.freeGB, required this.selectedPaths,
-    required this.isGridView, required this.isMultiSelectMode, required this.onNavigate, 
-    required this.onOpenFile, required this.onSelectionChanged, required this.onMultiSelectToggled, required this.onContextMenu,
+    required this.isMultiSelectMode, required this.onNavigate, 
+    required this.onOpenFile, required this.onSelectionChanged, required this.onMultiSelectToggled, 
+    required this.onContextMenu, this.disks = const [],
   }) : super(key: key);
 
   @override
@@ -54,16 +61,14 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
     }
   }
 
-  Widget _buildYellowFolder({double size = 48}) {
-    return Container(
-      width: size, height: size * 0.82,
-      decoration: BoxDecoration(color: const Color(0xFFFFC83B), borderRadius: BorderRadius.circular(3), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 1, offset: Offset(0, 1))]),
-      child: Stack(
-        children: [
-          Positioned(top: 0, left: 0, child: Container(width: size * 0.42, height: size * 0.22, decoration: const BoxDecoration(color: Color(0xFFE5A91E), borderRadius: BorderRadius.only(topLeft: Radius.circular(3), topRight: Radius.circular(3))))),
-          Positioned(top: size * 0.18, left: 0, right: 0, bottom: 0, child: Container(decoration: BoxDecoration(gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFFFD452), Color(0xFFFFBF24)]), borderRadius: BorderRadius.circular(3)))),
-        ],
-      ),
+  Widget _buildFolderIcon({required double size}) {
+    final double reducedSize = size * 0.85; 
+    return Image.asset(
+      'assets/icons/custom_folder.png', 
+      width: reducedSize, 
+      height: reducedSize, 
+      fit: BoxFit.contain, 
+      errorBuilder: (_, __, ___) => Icon(Icons.folder, color: Colors.amber, size: reducedSize)
     );
   }
 
@@ -76,9 +81,10 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
     );
   }
 
-  Widget _buildFileIcon(BuildContext context, String path, {double size = 38}) {
+  Widget _buildFileIcon(BuildContext context, String path, bool previewFilesEnabled, {double size = 38}) {
     final ext = path.toLowerCase();
-    if (ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.webp') || ext.endsWith('.gif')) {
+    
+    if (ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.webp') || ext.endsWith('.gif') || ext.endsWith('.heic') || ext.endsWith('.bmp')) {
       return Container(
         width: size, height: size,
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.grey.shade300, width: 0.5)),
@@ -88,13 +94,14 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
             File(path), 
             width: size, 
             height: size, 
-            cacheWidth: (size * MediaQuery.of(context).devicePixelRatio).round(),
+            cacheWidth: 200, 
             fit: BoxFit.cover, 
             errorBuilder: (_, __, ___) => Icon(Icons.image, color: Colors.blueAccent, size: size)
           )
         ),
       );
     }
+    
     if (ext.endsWith('.pdf')) return _buildPdfIcon(size: size);
     if (ext.endsWith('.zip') || ext.endsWith('.7z') || ext.endsWith('.rar')) return Icon(Icons.folder_zip, color: Colors.orangeAccent, size: size);
     if (ext.endsWith('.mp3') || ext.endsWith('.wav') || ext.endsWith('.m4a') || ext.endsWith('.aac') || ext.endsWith('.ogg')) return Icon(Icons.audio_file, color: Colors.amber, size: size);
@@ -116,7 +123,10 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => widget.onNavigate(path),
+        onTap: () {
+          if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+          widget.onNavigate(path);
+        },
         borderRadius: BorderRadius.circular(4),
         child: Row(
           children: [
@@ -129,11 +139,10 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
   }
 
   Widget _buildThisPCHome() {
-    double usedGB = widget.totalGB - widget.freeGB;
-    double usagePercent = widget.totalGB > 0 ? usedGB / widget.totalGB : 0;
     final textColor = widget.isDark ? Colors.white : Colors.black87;
     final subTextColor = widget.isDark ? Colors.white70 : Colors.grey.shade700;
     final dividerColor = widget.isDark ? Colors.white12 : Colors.grey.shade200;
+    final totalDrivesCount = widget.disks.isNotEmpty ? widget.disks.length : 1;
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), physics: const BouncingScrollPhysics(),
@@ -150,9 +159,12 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
           GridView.count(
             shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: widget.isMobile ? 2 : 3, childAspectRatio: 2.8, mainAxisSpacing: 8, crossAxisSpacing: 8,
             children: [
-              _buildFolderGridCard('Desktop', widget.rootPath), _buildFolderGridCard('Documents', '${widget.rootPath}/Documents'),
-              _buildFolderGridCard('Downloads', '${widget.rootPath}/Download'), _buildFolderGridCard('Music', '${widget.rootPath}/Music'),
-              _buildFolderGridCard('Pictures', '${widget.rootPath}/Pictures'), _buildFolderGridCard('Videos', '${widget.rootPath}/Movies'),
+              _buildFolderGridCard('Desktop', '${widget.rootPath}/Desktop'), 
+              _buildFolderGridCard('Documents', 'Library:Documents'),
+              _buildFolderGridCard('Downloads', '${widget.rootPath}/Download'), 
+              _buildFolderGridCard('Music', 'Library:Music'),
+              _buildFolderGridCard('Pictures', 'Library:Pictures'), 
+              _buildFolderGridCard('Videos', 'Library:Videos'),
             ],
           ),
         ],
@@ -160,47 +172,118 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
         Row(
           children: [
             InkWell(onTap: () => setState(() => _isDevicesExpanded = !_isDevicesExpanded), child: Icon(_isDevicesExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right, size: 16, color: textColor)), 
-            const SizedBox(width: 4), Text('Devices and drives (1)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: subTextColor)), const SizedBox(width: 12), 
+            const SizedBox(width: 4), Text('Devices and drives ($totalDrivesCount)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: subTextColor)), const SizedBox(width: 12), 
             Expanded(child: Container(height: 1, color: dividerColor))
           ]
         ),
         if (_isDevicesExpanded) ...[
           const SizedBox(height: 12),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => widget.onNavigate(widget.rootPath),
-              child: SizedBox(
-                width: 280,
-                child: Padding(
-                  padding: const EdgeInsets.all(4.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Image.asset('assets/icons/drive.png', width: 42, height: 42, errorBuilder: (_, __, ___) => const Icon(Icons.storage, size: 42, color: Colors.grey)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
+          if (widget.disks.isNotEmpty)
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: widget.disks.map((disk) {
+                final double totalGB = (disk['total'] as num).toDouble() / (1024 * 1024 * 1024);
+                final double freeGB = (disk['free'] as num).toDouble() / (1024 * 1024 * 1024);
+                final double usedGB = totalGB - freeGB;
+                final double percent = totalGB > 0 ? (usedGB / totalGB).clamp(0.0, 1.0) : 0.0;
+                final bool isRemovable = disk['isRemovable'] == true;
+                final String label = disk['label'] ?? 'Disk';
+                final String path = disk['path'] ?? widget.rootPath;
+
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+                      widget.onNavigate(path);
+                    },
+                    child: SizedBox(
+                      width: 280,
+                      child: Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Local Disk (C:)', style: TextStyle(fontSize: 13, color: widget.isDark ? Colors.white : const Color(0xFF333333))), const SizedBox(height: 4),
-                            ClipRRect(borderRadius: BorderRadius.zero, child: LinearProgressIndicator(value: usagePercent, backgroundColor: const Color(0xFFC4C4C4), color: const Color(0xFF0078D4), minHeight: 14)), const SizedBox(height: 4),
-                            Text('${widget.freeGB.toStringAsFixed(2)} GB free of ${widget.totalGB.toStringAsFixed(2)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF666666))),
+                            Image.asset(
+                              isRemovable ? 'assets/icons/sd_card.png' : 'assets/icons/drive.png',
+                              width: 42, height: 42,
+                              errorBuilder: (_, __, ___) => Icon(
+                                isRemovable ? Icons.sd_storage : Icons.storage,
+                                size: 42,
+                                color: isRemovable ? Colors.teal : Colors.grey,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(label, style: TextStyle(fontSize: 13, color: widget.isDark ? Colors.white : const Color(0xFF333333))),
+                                  const SizedBox(height: 4),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.zero,
+                                    child: LinearProgressIndicator(
+                                      value: percent,
+                                      backgroundColor: const Color(0xFFC4C4C4),
+                                      color: const Color(0xFF0078D4),
+                                      minHeight: 14,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text('${freeGB.toStringAsFixed(2)} GB free of ${totalGB.toStringAsFixed(2)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF666666))),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            )
+          else
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+                  widget.onNavigate(widget.rootPath);
+                },
+                child: SizedBox(
+                  width: 280,
+                  child: Padding(
+                    padding: const EdgeInsets.all(4.0),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Image.asset('assets/icons/drive.png', width: 42, height: 42, errorBuilder: (_, __, ___) => const Icon(Icons.storage, size: 42, color: Colors.grey)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Local Disk (C:)', style: TextStyle(fontSize: 13, color: widget.isDark ? Colors.white : const Color(0xFF333333))), const SizedBox(height: 4),
+                              ClipRRect(borderRadius: BorderRadius.zero, child: LinearProgressIndicator(value: widget.totalGB > 0 ? ((widget.totalGB - widget.freeGB) / widget.totalGB).clamp(0.0, 1.0) : 0, backgroundColor: const Color(0xFFC4C4C4), color: const Color(0xFF0078D4), minHeight: 14)), const SizedBox(height: 4),
+                              Text('${widget.freeGB.toStringAsFixed(2)} GB free of ${widget.totalGB.toStringAsFixed(2)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF666666))),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ],
     );
   }
 
   void _handleItemTap(FileItem item, bool isSelected) {
+    if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+    
     if (widget.isMultiSelectMode) {
       final newSelection = Set<String>.from(widget.selectedPaths);
       if (isSelected) {
@@ -212,25 +295,74 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
         widget.onSelectionChanged(newSelection);
       }
     } else {
-      if (isSelected && widget.selectedPaths.length == 1) { 
-        if (item.isDir) {
-          widget.onNavigate(item.path); 
-        } else {
-          widget.onOpenFile(item.path);
-        }
-      } else { 
-        widget.onSelectionChanged({item.path});
-      }
+      item.isDir ? widget.onNavigate(item.path) : widget.onOpenFile(item.path);
     }
   }
 
-  Widget _buildRealFileList() {
-    if (widget.files.isEmpty) return const Center(child: Text("Empty Folder", style: TextStyle(color: Colors.grey)));
+  double _getIconSize(String viewType) {
+    if (viewType == 'Extra Large Icons') return 72;
+    if (viewType == 'Large Icons') return 56;
+    if (viewType == 'Medium Icons') return 40;
+    if (viewType == 'Small Icons') return 28;
+    return 40; 
+  }
+
+  double _getCrossAxisExtent(String viewType) {
+    if (viewType == 'Extra Large Icons') return 120;
+    if (viewType == 'Large Icons') return 95;
+    if (viewType == 'Medium Icons') return 80;
+    if (viewType == 'Small Icons') return 65;
+    return 80;
+  }
+
+  double _getMainAxisExtent(String viewType) {
+    if (viewType == 'Extra Large Icons') return 130;
+    if (viewType == 'Large Icons') return 115;
+    if (viewType == 'Medium Icons') return 95;
+    if (viewType == 'Small Icons') return 80;
+    return 95;
+  }
+
+  Widget _buildRealFileList(AppsState appsState, DesktopState desktopState) {
+    final showHidden = desktopState.showHiddenFiles;
+    final List<FileItem> visibleFiles = widget.files.where((f) {
+      final name = f.path.split('/').last;
+      if (!showHidden && name.startsWith('.')) return false;
+      return true;
+    }).toList();
+
+    if (visibleFiles.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_off_outlined, size: 48, color: widget.isDark ? Colors.white24 : Colors.black26),
+            const SizedBox(height: 16),
+            Text("Folder is empty or files are hidden by Android.", style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54)),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent, 
+                foregroundColor: Colors.white, 
+                elevation: 0
+              ),
+              onPressed: () => NativeBridge.instance.openSystemDocumentPicker(),
+              icon: const Icon(Icons.folder_open, size: 18),
+              label: const Text("Browse System Files"),
+            )
+          ],
+        )
+      );
+    }
 
     final textColor = widget.isDark ? Colors.white : Colors.black87;
     final subTextColor = widget.isDark ? Colors.white70 : Colors.grey.shade600;
     final hoverColor = widget.isDark ? Colors.white10 : const Color(0xFFE5E5E5);
     final borderColor = widget.isDark ? Colors.white30 : Colors.blueAccent.withOpacity(0.5);
+
+    double iconSize = _getIconSize(appsState.explorerViewType);
+    bool isGrid = appsState.explorerViewType != 'List';
+    final previewFiles = desktopState.previewFiles;
 
     return GestureDetector(
       onTap: () { 
@@ -239,27 +371,39 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
       },
       onSecondaryTapDown: (details) => widget.onContextMenu(details.globalPosition, 'folder', '', null), 
       onLongPressStart: (details) => widget.onContextMenu(details.globalPosition, 'folder', '', null),
-      child: widget.isGridView 
+      child: isGrid 
         ? GridView.builder(
             physics: const BouncingScrollPhysics(), padding: const EdgeInsets.all(12),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 110, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 0.85),
-            itemCount: widget.files.length,
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: _getCrossAxisExtent(appsState.explorerViewType), 
+              mainAxisExtent: _getMainAxisExtent(appsState.explorerViewType),
+              mainAxisSpacing: 12, 
+              crossAxisSpacing: 12, 
+            ),
+            itemCount: visibleFiles.length,
             itemBuilder: (context, index) {
-              final item = widget.files[index];
+              final item = visibleFiles[index];
               final name = item.path.split('/').last;
               final isSelected = widget.selectedPaths.contains(item.path);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, 'folder', name, null); }, 
-                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, 'folder', name, null); },
+                onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); }, 
+                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); },
                 onTap: () => _handleItemTap(item, isSelected),
                 child: Container(
                   decoration: BoxDecoration(color: isSelected ? hoverColor : Colors.transparent, borderRadius: BorderRadius.circular(4), border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 1.0)),
+                  padding: const EdgeInsets.only(top: 8.0),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      item.isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(context, item.path, size: 46), const SizedBox(height: 8),
-                      Padding(padding: const EdgeInsets.symmetric(horizontal: 4.0), child: Text(name, style: TextStyle(fontSize: 11, color: textColor), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis)),
+                      item.isDir ? _buildFolderIcon(size: iconSize) : _buildFileIcon(context, item.path, previewFiles, size: iconSize), 
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0), 
+                          child: Text(name, style: TextStyle(fontSize: 11, color: textColor, height: 1.2), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis)
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -267,9 +411,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
             },
           )
         : ListView.builder(
-            physics: const BouncingScrollPhysics(), itemCount: widget.files.length, padding: const EdgeInsets.only(top: 8, bottom: 40, left: 8, right: 8),
+            physics: const BouncingScrollPhysics(), itemCount: visibleFiles.length, padding: const EdgeInsets.only(top: 8, bottom: 40, left: 8, right: 8),
             itemBuilder: (context, index) {
-              final item = widget.files[index];
+              final item = visibleFiles[index];
               final name = item.path.split('/').last;
               final isSelected = widget.selectedPaths.contains(item.path);
               
@@ -277,15 +421,15 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
               final sizeStr = _getSizeOrCount(item);
 
               return GestureDetector(
-                onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, 'folder', name, null); }, 
-                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, 'folder', name, null); },
+                onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); }, 
+                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); },
                 onTap: () => _handleItemTap(item, isSelected),
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 2), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                   decoration: BoxDecoration(color: isSelected ? hoverColor : Colors.transparent, borderRadius: BorderRadius.circular(4), border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 1.0)),
                   child: Row(
                     children: [
-                      item.isDir ? _buildYellowFolder(size: 46) : _buildFileIcon(context, item.path), const SizedBox(width: 14),
+                      item.isDir ? _buildFolderIcon(size: iconSize) : _buildFileIcon(context, item.path, previewFiles, size: iconSize), const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,6 +450,8 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
 
   @override
   Widget build(BuildContext context) {
-    return widget.isAtHome ? _buildThisPCHome() : _buildRealFileList();
+    final appsState = context.watch<AppsState>();
+    final desktopState = context.watch<DesktopState>();
+    return widget.isAtHome ? _buildThisPCHome() : _buildRealFileList(appsState, desktopState);
   }
 }

@@ -1,38 +1,64 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:installed_apps/installed_apps.dart';
+import 'package:flutter/foundation.dart';
+import 'package:archive/archive_io.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../models/desktop_item_model.dart';
 import '../../services/native_bridge.dart';
-import '../../launcher_state.dart';
+import '../../services/pro_gatekeeper.dart';
+import '../../states/theme_state.dart';
+import '../../states/desktop_state.dart';
+import '../../states/apps_state.dart';
+import '../../main.dart'; 
 
 class DesktopContextMenu extends StatefulWidget {
   final bool isOpen;
   final Offset position;
   final String menuType;
+  final String targetId;
   final String targetName;
   final VoidCallback? openAction;
   final VoidCallback onClose;
   final int currentDesktopPage;
   final PageController pageController;
   final Function(String) onEnterResizeMode;
+  final Function(String) onEnterMoveMode;
 
   const DesktopContextMenu({
     Key? key,
     required this.isOpen,
     required this.position,
     required this.menuType,
+    required this.targetId,
     required this.targetName,
     this.openAction,
     required this.onClose,
     required this.currentDesktopPage,
     required this.pageController,
     required this.onEnterResizeMode,
+    required this.onEnterMoveMode,
   }) : super(key: key);
 
   @override
   State<DesktopContextMenu> createState() => _DesktopContextMenuState();
+}
+
+Future<void> _isolateZipCreation(Map<String, String> args) async {
+  final source = args['source']!;
+  final dest = args['dest']!;
+  var encoder = ZipFileEncoder();
+  encoder.create(dest);
+  if (Directory(source).existsSync()) {
+    encoder.addDirectory(Directory(source));
+  } else {
+    encoder.addFile(File(source));
+  }
+  encoder.close();
 }
 
 class _DesktopContextMenuState extends State<DesktopContextMenu> {
@@ -44,28 +70,34 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     super.didUpdateWidget(oldWidget);
     if (!oldWidget.isOpen && widget.isOpen) {
       setState(() => _activeSubMenu = null);
-    } else if (oldWidget.targetName != widget.targetName || oldWidget.menuType != widget.menuType) {
+    } else if (oldWidget.targetId != widget.targetId || oldWidget.menuType != widget.menuType) {
       setState(() => _activeSubMenu = null);
     }
   }
 
-  void _showToast(String message) {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
+  void _showToastSafe(String message) {
+    final safeContext = navigatorKey.currentContext;
+    if (safeContext == null) return;
+    ScaffoldMessenger.of(safeContext).clearSnackBars();
+    ScaffoldMessenger.of(safeContext).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 13)),
-        duration: const Duration(seconds: 1),
+        duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
       ),
     );
   }
 
-  void _showRenameDialog(DesktopItemModel item, LauncherState state) {
+  void _showRenameDialog(DesktopItemModel item, ThemeState themeState, DesktopState desktopState) {
+    final safeContext = navigatorKey.currentContext;
+    if (safeContext == null) return;
+    
     final controller = TextEditingController(text: item.label);
-    final isDark = state.isDarkMode;
+    final isDark = themeState.isDarkMode;
+    
     showDialog(
-      context: context,
+      context: safeContext,
       builder: (ctx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -73,9 +105,9 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
         content: TextField(
           controller: controller,
           style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             isDense: true,
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: themeState.foregroundAccentColor)),
           ),
         ),
         actions: [
@@ -85,13 +117,11 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
               final newName = controller.text.trim();
               Navigator.pop(ctx);
               if (newName.isNotEmpty && newName != item.label) {
-                Future.delayed(const Duration(milliseconds: 150), () {
-                  state.renameDesktopItem(item.id, newName);
-                  _showToast('Renamed successfully');
-                });
+                desktopState.renameDesktopItem(item.id, newName);
+                _showToastSafe('Renamed successfully');
               }
             },
-            child: const Text('Save', style: TextStyle(color: Colors.blueAccent)),
+            child: Text('Save', style: TextStyle(color: themeState.foregroundAccentColor)),
           ),
         ],
       ),
@@ -100,49 +130,132 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     });
   }
 
-  void _mockZipCreation(String extension) {
+  Future<void> _createZipArchive(String extension) async {
+    final safeContext = navigatorKey.currentContext;
+    if (safeContext == null) return;
+
+    final desktopState = context.read<DesktopState>();
+    final matches = desktopState.desktopItems.where((i) => i.id == widget.targetId);
+    if (matches.isEmpty || matches.first.path == null) {
+      _showToastSafe('Invalid target for compression.');
+      return;
+    }
+
+    final isDark = context.read<ThemeState>().isDarkMode;
+    
+    showDialog(
+      context: safeContext,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+        content: Row(
+          children: [
+            const CircularProgressIndicator(color: Colors.blueAccent),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Text(
+                'Compressing ${widget.targetName}...\nThis might take a while depending on size.', 
+                style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13)
+              )
+            ),
+          ],
+        ),
+      ),
+    );
+    
     try {
-      final downloadDir = Directory('/storage/emulated/0/Download');
-      if (!downloadDir.existsSync()) {
-        downloadDir.createSync(recursive: true);
+      final sourcePath = matches.first.path!;
+      
+      String rootPath = '/storage/emulated/0';
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) rootPath = extDir.path.split('/Android')[0];
+      } catch (_) {}
+
+      final downloadDir = Directory('$rootPath/Download');
+      if (!downloadDir.existsSync()) downloadDir.createSync(recursive: true);
+      
+      String safeName = widget.targetName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+      if (safeName.isEmpty) safeName = 'Archive';
+      
+      String newZipPath = '${downloadDir.path}/$safeName$extension';
+      int counter = 1;
+      while (File(newZipPath).existsSync()) {
+        newZipPath = '${downloadDir.path}/$safeName ($counter)$extension';
+        counter++;
       }
-      final newZipPath = '${downloadDir.path}/${widget.targetName}$extension';
-      File(newZipPath).createSync();
-      _showToast('Successfully compressed to Download/${widget.targetName}$extension');
-    } catch (_) {
-      _showToast('Storage permission required to compress.');
+      
+      await compute(_isolateZipCreation, {
+        'source': sourcePath, 
+        'dest': newZipPath
+      });
+
+      Navigator.pop(safeContext); 
+      _showToastSafe('Successfully compressed to Download/${newZipPath.split('/').last}');
+    } catch (e) {
+      Navigator.pop(safeContext); 
+      _showToastSafe('Compression failed. Ensure storage permissions are granted.');
     }
   }
 
-  void _showPropertiesDialog(LauncherState state) {
-    final isDark = state.isDarkMode;
+  void _showPropertiesDialog(ThemeState themeState) async {
+    final safeContext = navigatorKey.currentContext;
+    if (safeContext == null) return;
+
+    final isDark = themeState.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subTextColor = isDark ? Colors.white70 : Colors.grey.shade800;
 
+    final desktopState = context.read<DesktopState>();
+    final matches = desktopState.desktopItems.where((i) => i.id == widget.targetId);
+    if (matches.isEmpty) return;
+    final item = matches.first;
+
+    int sizeBytes = 0;
+    String location = 'Desktop > ${widget.targetName}';
+    String typeLabel = item.type.toUpperCase();
+
+    if (item.type == 'file' && item.path != null) {
+       try {
+         final stat = await File(item.path!).stat();
+         sizeBytes = stat.size;
+         location = item.path!;
+       } catch (_) {}
+    } else if (item.type == 'app') {
+       typeLabel = 'Android Application';
+    }
+
+    final sizeStr = sizeBytes > 0 
+        ? '${(sizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB' 
+        : 'Unknown / System Managed';
+
     showDialog(
-      context: context,
+      context: safeContext,
       builder: (context) => AlertDialog(
         backgroundColor: bgColor,
-        title: Text('${widget.targetName} Properties', style: TextStyle(fontSize: 15, color: textColor)),
+        title: Text('${widget.targetName} Properties', style: TextStyle(fontSize: 15, color: textColor, fontWeight: FontWeight.bold)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Type: Shortcut / Widget', style: TextStyle(fontSize: 13, color: subTextColor)),
+            Text('Type: $typeLabel', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
-            Text('Location: Desktop > ${widget.targetName}', style: TextStyle(fontSize: 13, color: subTextColor)),
+            Text('Location: $location', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
-            Text('Size: ${(12 + widget.targetName.length * 0.5).toStringAsFixed(2)} MB', style: TextStyle(fontSize: 13, color: subTextColor)),
+            Text('Size: $sizeStr', style: TextStyle(fontSize: 13, color: subTextColor)),
           ],
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK', style: TextStyle(color: Colors.blueAccent)))],
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('OK', style: TextStyle(color: themeState.foregroundAccentColor, fontWeight: FontWeight.bold)))],
       ),
     );
   }
 
-  void _showAddWidgetDialog(LauncherState state) {
-    final isDark = state.isDarkMode;
+  void _showAddWidgetDialog(ThemeState themeState, DesktopState desktopState) {
+    final safeContext = navigatorKey.currentContext;
+    if (safeContext == null) return;
+
+    final isDark = themeState.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subColor = isDark ? Colors.white70 : Colors.black54;
@@ -156,7 +269,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     ];
 
     showDialog(
-      context: context,
+      context: safeContext,
       builder: (ctx) => AlertDialog(
         backgroundColor: bgColor,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -174,8 +287,8 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 leading: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                  child: Icon(w['icon'] as IconData, color: Colors.blueAccent, size: 22),
+                  decoration: BoxDecoration(color: themeState.foregroundAccentColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  child: Icon(w['icon'] as IconData, color: themeState.foregroundAccentColor, size: 22),
                 ),
                 title: Text(w['name'] as String, style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w600)),
                 subtitle: Text(w['desc'] as String, style: TextStyle(color: subColor, fontSize: 11)),
@@ -183,16 +296,16 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
                   Navigator.pop(ctx);
                   int targetCol = 0;
                   int targetRow = 1;
-                  while (state.desktopItems.any((i) => i.page == widget.currentDesktopPage && i.col == targetCol && i.row == targetRow)) {
+                  while (desktopState.desktopItems.any((i) => i.page == widget.currentDesktopPage && i.col == targetCol && i.row == targetRow)) {
                     targetRow++;
-                    if (targetRow >= state.portraitGridY - 1) {
+                    if (targetRow >= desktopState.portraitGridY - 1) {
                       targetRow = 0;
-                      targetCol = (targetCol + 2) % state.portraitGridX;
+                      targetCol = (targetCol + 2) % desktopState.portraitGridX;
                     }
                   }
 
-                  state.addDesktopWidget(w['type'] as String, w['name'] as String, widget.currentDesktopPage, targetCol, targetRow, spanX: 2, spanY: 1);
-                  _showToast('Added ${w['name']} to Desktop');
+                  desktopState.addDesktopWidget(w['type'] as String, w['name'] as String, widget.currentDesktopPage, targetCol, targetRow, spanX: 2, spanY: 1);
+                  _showToastSafe('Added ${w['name']} to Desktop');
                 },
               );
             },
@@ -203,8 +316,8 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     );
   }
 
-  Widget _buildContextMenuItem(String title, IconData? icon, LauncherState state, {Color? iconColor, String? shortcut, bool hasSubMenu = false, String? subMenuKey, double subMenuY = 0, VoidCallback? onTap}) {
-    final isDark = state.isDarkMode;
+  Widget _buildContextMenuItem(String title, IconData? icon, ThemeState themeState, {Color? iconColor, String? shortcut, bool hasSubMenu = false, String? subMenuKey, double subMenuY = 0, VoidCallback? onTap}) {
+    final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final defaultIconColor = isDark ? Colors.white : Colors.black87;
 
@@ -214,195 +327,243 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
           setState(() { _activeSubMenu = subMenuKey; _subMenuYOffset = subMenuY; });
         } else {
           widget.onClose();
-          if (onTap != null) Future.delayed(const Duration(milliseconds: 150), onTap);
+          if (onTap != null) onTap();
         }
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        // CRITICAL FIX: Reduced vertical padding from 8 to 4 to tighten line spacing
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(
           children: [
-            if (icon != null) Icon(icon, size: 16, color: iconColor ?? defaultIconColor),
-            if (icon != null) const SizedBox(width: 12),
-            Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: textColor, fontWeight: FontWeight.w400))),
+            if (icon != null) Icon(icon, size: 18, color: iconColor ?? defaultIconColor),
+            if (icon != null) const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                title, 
+                style: TextStyle(fontSize: 14, color: textColor, fontWeight: FontWeight.w600, letterSpacing: 0.3)
+              )
+            ),
             if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey.shade600)),
-            if (hasSubMenu) Icon(Icons.chevron_right, size: 16, color: isDark ? Colors.white54 : Colors.grey.shade600),
+            if (hasSubMenu) Icon(Icons.chevron_right, size: 18, color: isDark ? Colors.white54 : Colors.grey.shade600),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSubMenuItem(String title, IconData? icon, LauncherState state, {bool isActive = false, bool isChecked = false, bool isDot = false, VoidCallback? onTap}) {
-    final isDark = state.isDarkMode;
+  Widget _buildSubMenuItem(String title, IconData? icon, ThemeState themeState, {bool isActive = false, bool isChecked = false, bool isDot = false, VoidCallback? onTap}) {
+    final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
 
     return InkWell(
       onTap: () {
         widget.onClose();
-        if (onTap != null) Future.delayed(const Duration(milliseconds: 150), onTap);
+        if (onTap != null) onTap();
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        // CRITICAL FIX: Reduced vertical padding from 8 to 4 inside submenus as well
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(
           children: [
             if (icon != null || isActive || isDot || isChecked) ...[
-              SizedBox(width: 16, child: isActive || isDot ? Icon(Icons.circle, size: 6, color: textColor) : (isChecked ? Icon(Icons.check, size: 14, color: textColor) : null)),
+              SizedBox(width: 18, child: isActive || isDot ? Icon(Icons.circle, size: 6, color: textColor) : (isChecked ? Icon(Icons.check, size: 16, color: textColor) : null)),
               const SizedBox(width: 8),
-              if (icon != null) Icon(icon, size: 16, color: textColor),
-              if (icon != null) const SizedBox(width: 12),
+              if (icon != null) Icon(icon, size: 18, color: textColor),
+              if (icon != null) const SizedBox(width: 14),
             ],
-            Expanded(child: Text(title, style: TextStyle(fontSize: 13, color: textColor))),
+            Expanded(
+              child: Text(
+                title, 
+                style: TextStyle(fontSize: 14, color: textColor, fontWeight: FontWeight.w600, letterSpacing: 0.3)
+              )
+            ),
           ],
         ),
       ),
     );
   }
 
-  // CRITICAL FIX: Reduced divider margin to keep the menu extremely compact
-  Widget _buildContextDivider(LauncherState state) => Container(height: 1, color: state.isDarkMode ? Colors.white24 : Colors.grey.shade300, margin: const EdgeInsets.symmetric(vertical: 2));
+  Widget _buildContextDivider(ThemeState themeState) => Container(height: 1, color: themeState.isDarkMode ? Colors.white24 : Colors.grey.shade300, margin: const EdgeInsets.symmetric(vertical: 2));
 
-  Widget _buildBottomContextAction(IconData icon, String label, DesktopItemModel item, LauncherState state) {
-    final isDark = state.isDarkMode;
+  Widget _buildBottomContextAction(IconData icon, String label, DesktopItemModel item, ThemeState themeState, AppsState appsState, DesktopState desktopState) {
+    final isDark = themeState.isDarkMode;
     return InkWell(
       onTap: () {
         widget.onClose();
-        Future.delayed(const Duration(milliseconds: 150), () {
-          if (label == 'Cut') { state.setClipboard(item.id, true); _showToast('Cut to clipboard'); } 
-          else if (label == 'Copy') { state.setClipboard(item.id, false); _showToast('Copied to clipboard'); } 
-          else if (label == 'Rename') _showRenameDialog(item, state);
-          else if (label == 'Delete') { state.removeDesktopItem(item.id); _showToast('Deleted item'); }
-        });
+        if (label == 'Cut') { appsState.setClipboard(item.id, true); _showToastSafe('Cut to clipboard'); } 
+        else if (label == 'Copy') { appsState.setClipboard(item.id, false); _showToastSafe('Copied to clipboard'); } 
+        else if (label == 'Rename') _showRenameDialog(item, themeState, desktopState);
+        else if (label == 'Delete') { desktopState.removeDesktopItem(item.id); _showToastSafe('Deleted item'); }
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(6),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 18, color: const Color(0xFF0078D4)), const SizedBox(height: 4),
-            Text(label, style: TextStyle(fontSize: 11, color: isDark ? Colors.white : Colors.black87)),
+            Icon(icon, size: 20, color: const Color(0xFF0078D4)), 
+            const SizedBox(height: 6),
+            Text(
+              label, 
+              style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, letterSpacing: 0.2)
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDynamicContextMenu(LauncherState state) {
+  Widget _buildDynamicContextMenu(ThemeState themeState, DesktopState desktopState, AppsState appsState) {
     if (widget.menuType == 'desktop') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // CRITICAL FIX: Recalibrated subMenuY Offsets due to the thinner menu items
-          _buildContextMenuItem('View', Icons.grid_view, state, hasSubMenu: true, subMenuKey: 'view', subMenuY: 0),
-          _buildContextMenuItem('Sort by', Icons.swap_vert, state, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 28),
-          _buildContextMenuItem('Page Transition', Icons.animation, state, hasSubMenu: true, subMenuKey: 'transition', subMenuY: 56),
-          _buildContextMenuItem('Refresh', Icons.refresh, state, onTap: () => _showToast('Desktop refreshed')),
-          if (state.clipboardPath != null) ...[
-            _buildContextDivider(state),
-            _buildContextMenuItem('Paste', Icons.assignment_outlined, state, iconColor: Colors.blueAccent, onTap: () {
-              final original = state.desktopItems.firstWhere((i) => i.id == state.clipboardPath, orElse: () => DesktopItemModel(id: '', type: '', label: '', page: 0, col: 0, row: 0));
+          _buildContextMenuItem('View', Icons.grid_view, themeState, hasSubMenu: true, subMenuKey: 'view', subMenuY: 0),
+          _buildContextMenuItem('Sort by', Icons.swap_vert, themeState, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 46),
+          _buildContextMenuItem('Page Transition', Icons.animation, themeState, hasSubMenu: true, subMenuKey: 'transition', subMenuY: 92),
+          _buildContextMenuItem('Refresh', Icons.refresh, themeState, onTap: () => _showToastSafe('Desktop refreshed')),
+          if (appsState.clipboardPath != null) ...[
+            _buildContextDivider(themeState),
+            _buildContextMenuItem('Paste', Icons.assignment_outlined, themeState, iconColor: Colors.blueAccent, onTap: () {
+              final original = desktopState.desktopItems.firstWhere((i) => i.id == appsState.clipboardPath, orElse: () => DesktopItemModel(id: '', type: '', label: '', page: 0, col: 0, row: 0));
               if (original.id.isNotEmpty) {
-                 if (state.isCut) { 
-                    state.moveItemToPage(original.id, widget.currentDesktopPage); 
-                    state.clearClipboard(); 
+                 if (appsState.isCut) { 
+                    desktopState.moveItemToPage(original.id, widget.currentDesktopPage); 
+                    appsState.clearClipboard(); 
                  } 
                  else {
-                    state.copyItemToPage(original.id, widget.currentDesktopPage);
+                    desktopState.copyItemToPage(original.id, widget.currentDesktopPage);
                  }
-                 _showToast('Pasted to Desktop');
+                 _showToastSafe('Pasted to Desktop');
               }
             }),
           ],
-          _buildContextDivider(state),
-          _buildContextMenuItem('Add Built-in Widget', Icons.widgets_outlined, state, iconColor: Colors.blueAccent, onTap: () => _showAddWidgetDialog(state)),
-          _buildContextMenuItem('Add Android Widget', Icons.android, state, iconColor: Colors.green, onTap: () => state.addNativeWidget(widget.currentDesktopPage, 0, 0)),
-          _buildContextDivider(state),
-          _buildContextMenuItem('New Desktop Page', Icons.add_to_photos_outlined, state, onTap: () { state.addDesktopPage(); widget.pageController.animateToPage(state.desktopPages - 1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut); _showToast('New workspace created'); }),
-          _buildContextMenuItem('Delete Desktop Page', Icons.remove_circle_outline, state, onTap: () { if (state.desktopPages > 1) { state.removeDesktopPage(); _showToast('Workspace deleted'); } else { _showToast('Cannot delete the last workspace'); } }),
-          _buildContextMenuItem(state.dragIcons ? 'Lock Desktop Icons' : 'Unlock Desktop Icons', state.dragIcons ? Icons.lock_outline : Icons.lock_open_outlined, state, onTap: () { state.updateDesktopSetting('dragIcons', !state.dragIcons); _showToast(!state.dragIcons ? 'Desktop icons locked' : 'Desktop icons unlocked'); }),
-          _buildContextDivider(state),
-          _buildContextMenuItem('Next desktop background', Icons.wallpaper, state, onTap: () => state.nextWallpaper()),
-          _buildContextMenuItem('Personalize', Icons.brush_outlined, state, iconColor: const Color(0xFF0078D4), onTap: () => state.openApp('settings')),
+          _buildContextDivider(themeState),
+          _buildContextMenuItem('Add Built-in Widget', Icons.widgets_outlined, themeState, iconColor: Colors.blueAccent, onTap: () => _showAddWidgetDialog(themeState, desktopState)),
+          _buildContextMenuItem('Add Android Widget', Icons.android, themeState, iconColor: Colors.green, onTap: () {
+            if (!ProGatekeeper.checkAccess(context, featureName: 'Android Widgets')) return;
+            desktopState.addNativeWidget(widget.currentDesktopPage, 0, 0);
+          }),
+          _buildContextDivider(themeState),
+          _buildContextMenuItem('New Desktop Page', Icons.add_to_photos_outlined, themeState, onTap: () { desktopState.addDesktopPage(); widget.pageController.animateToPage(desktopState.desktopPages - 1, duration: const Duration(milliseconds: 10), curve: Curves.easeOut); _showToastSafe('New workspace created'); }),
+          _buildContextMenuItem('Delete Desktop Page', Icons.remove_circle_outline, themeState, onTap: () { if (desktopState.desktopPages > 1) { desktopState.removeDesktopPage(); _showToastSafe('Workspace deleted'); } else { _showToastSafe('Cannot delete the last workspace'); } }),
+          _buildContextMenuItem(desktopState.dragIcons ? 'Lock Desktop Icons' : 'Unlock Desktop Icons', desktopState.dragIcons ? Icons.lock_outline : Icons.lock_open_outlined, themeState, onTap: () { desktopState.updateDesktopSetting('dragIcons', !desktopState.dragIcons); _showToastSafe(!desktopState.dragIcons ? 'Desktop icons locked' : 'Desktop icons unlocked'); }),
+          _buildContextDivider(themeState),
+          _buildContextMenuItem('Next desktop background', Icons.wallpaper, themeState, onTap: () {
+  // PRO GATE: Prevent background cycling if free
+  if (!ProGatekeeper.checkAccess(context, featureName: 'Desktop Background Switcher')) return;
+
+  themeState.nextWallpaper();
+  _showToastSafe(themeState.infiniteWebWallpapers 
+      ? 'Fetching new online wallpaper...' 
+      : 'Switched wallpaper');
+}),
+          _buildContextMenuItem('Personalize', Icons.brush_outlined, themeState, iconColor: const Color(0xFF0078D4), onTap: () => appsState.openApp('settings')),
         ],
       );
     }
 
-    final matches = state.desktopItems.where((i) => i.label == widget.targetName);
+    final matches = desktopState.desktopItems.where((i) => i.id == widget.targetId);
     if (matches.isEmpty) return const SizedBox.shrink();
     final item = matches.first;
     
     List<Widget> menuItems = [];
 
     if (item.type == 'app') {
-      final isPinnedToStart = state.pinnedStart.contains(item.package);
+      final isPinnedToStart = appsState.pinnedStart.contains(item.package);
+      final hasCustomIcon = themeState.customAppIcons.containsKey(item.package);
+
       menuItems.addAll([
-        _buildContextMenuItem('Open', Icons.open_in_new, state, onTap: widget.openAction),
-        _buildContextMenuItem('App info', Icons.info_outline, state, onTap: () { if (item.package != null) InstalledApps.openSettings(item.package!); }),
-        _buildContextMenuItem(isPinnedToStart ? 'Unpin from Start' : 'Pin to Start', isPinnedToStart ? Icons.push_pin_outlined : Icons.push_pin, state, onTap: () { if (item.package != null) { state.togglePinToStart(item.package!); _showToast(isPinnedToStart ? 'Unpinned from Start' : 'Pinned to Start'); } }),
+        _buildContextMenuItem('Open', Icons.open_in_new, themeState, onTap: widget.openAction),
+        _buildContextMenuItem('App info', Icons.info_outline, themeState, onTap: () { if (item.package != null) InstalledApps.openSettings(item.package!); }),
+        _buildContextMenuItem(isPinnedToStart ? 'Unpin from Start' : 'Pin to Start', isPinnedToStart ? Icons.push_pin_outlined : Icons.push_pin, themeState, onTap: () { if (item.package != null) { appsState.togglePinToStart(item.package!); _showToastSafe(isPinnedToStart ? 'Unpinned from Start' : 'Pinned to Start'); } }),
+        _buildContextDivider(themeState),
+        _buildContextMenuItem('Edit Icon', Icons.image_outlined, themeState, onTap: () async {
+          final picker = ImagePicker();
+          final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+          if (image != null && item.package != null) {
+            final dir = await getApplicationDocumentsDirectory();
+            final File newIcon = File('${dir.path}/custom_icon_${item.package}_${DateTime.now().millisecondsSinceEpoch}.png');
+            await File(image.path).copy(newIcon.path);
+            themeState.setCustomAppIcon(item.package!, newIcon.path);
+            _showToastSafe('Custom icon applied');
+          }
+        }),
+        if (hasCustomIcon)
+          _buildContextMenuItem('Reset Default Icon', Icons.restore, themeState, onTap: () {
+            themeState.removeCustomAppIcon(item.package!);
+            _showToastSafe('Icon restored to default');
+          }),
       ]);
     } else if (item.type == 'system') {
       menuItems.addAll([
-        _buildContextMenuItem('Open', Icons.folder, state, iconColor: Colors.amber.shade400, onTap: widget.openAction),
-        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, state, onTap: () => _showToast('Recycle Bin emptied')),
+        _buildContextMenuItem('Open', Icons.folder, themeState, iconColor: Colors.amber.shade400, onTap: widget.openAction),
+        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, themeState, onTap: () => _showToastSafe('Recycle Bin emptied')),
       ]);
     } else if (item.type == 'widget' || item.type == 'native_widget') {
       menuItems.addAll([
-        _buildContextMenuItem('Resize Widget', Icons.aspect_ratio, state, onTap: () => widget.onEnterResizeMode(item.id)),
+        _buildContextMenuItem('Move Widget', Icons.open_with, themeState, onTap: () => widget.onEnterMoveMode(item.id)),
+        _buildContextMenuItem('Resize Widget', Icons.aspect_ratio, themeState, onTap: () => widget.onEnterResizeMode(item.id)),
+      ]);
+    } else if (item.type == 'desktop_folder') {
+      menuItems.addAll([
+        _buildContextMenuItem('Open Folder', Icons.folder_open, themeState, onTap: widget.openAction),
+        _buildContextMenuItem('Rename Folder', Icons.edit, themeState, onTap: () => _showRenameDialog(item, themeState, desktopState)),
       ]);
     } else if (item.type == 'file') {
       menuItems.addAll([
-        _buildContextMenuItem('Open', Icons.open_in_new, state, onTap: widget.openAction),
-        // Recalibrated offset
-        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, state, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 28),
-        _buildContextMenuItem('Properties', Icons.build_circle_outlined, state, onTap: () => _showPropertiesDialog(state)),
+        _buildContextMenuItem('Open', Icons.open_in_new, themeState, onTap: widget.openAction),
+        _buildContextMenuItem('Share', Icons.share_outlined, themeState, onTap: () {
+          if (item.path != null) NativeBridge.instance.shareFile(item.path!);
+        }),
+        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, themeState, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 46),
+        _buildContextMenuItem('Properties', Icons.build_circle_outlined, themeState, onTap: () => _showPropertiesDialog(themeState)),
       ]);
     }
 
     menuItems.addAll([
-      _buildContextDivider(state),
-      _buildContextMenuItem('Move to next page', Icons.arrow_forward, state, onTap: () {
+      _buildContextDivider(themeState),
+      _buildContextMenuItem('Move to next page', Icons.arrow_forward, themeState, onTap: () {
         int newPage = item.page + 1;
-        if (newPage >= state.desktopPages) {
-          state.addDesktopPage();
-          widget.pageController.animateToPage(newPage, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+        if (newPage >= desktopState.desktopPages) {
+          desktopState.addDesktopPage();
+          widget.pageController.animateToPage(newPage, duration: const Duration(milliseconds: 10), curve: Curves.easeOut);
+        } else {
+          widget.pageController.animateToPage(newPage, duration: const Duration(milliseconds: 10), curve: Curves.easeOut);
         }
-        state.moveItemToPage(item.id, newPage); 
-        _showToast('Moved to next page');
+        desktopState.moveItemToPage(item.id, newPage); 
+        _showToastSafe('Moved to next page');
       }),
       if (item.page > 0)
-        _buildContextMenuItem('Move to previous page', Icons.arrow_back, state, onTap: () {
-          state.moveItemToPage(item.id, item.page - 1);
-          widget.pageController.animateToPage(item.page - 1, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-          _showToast('Moved to previous page');
+        _buildContextMenuItem('Move to previous page', Icons.arrow_back, themeState, onTap: () {
+          desktopState.moveItemToPage(item.id, item.page - 1);
+          widget.pageController.animateToPage(item.page - 1, duration: const Duration(milliseconds: 10), curve: Curves.easeOut);
+          _showToastSafe('Moved to previous page');
         }),
-      _buildContextMenuItem('Remove from Desktop', Icons.delete_sweep, state, onTap: () { 
-        state.removeDesktopItem(item.id); 
+      _buildContextMenuItem('Remove from Desktop', Icons.delete_sweep, themeState, onTap: () { 
+        desktopState.removeDesktopItem(item.id); 
         if (item.type == 'native_widget' && item.appWidgetId != null) { NativeBridge.instance.removeWidget(item.appWidgetId!); } 
-        _showToast('Removed from Desktop'); 
+        _showToastSafe('Removed from Desktop'); 
       }),
     ]);
     
     if (item.type == 'app') {
-       menuItems.add(_buildContextMenuItem('Uninstall', Icons.delete_outline, state, iconColor: Colors.redAccent, onTap: () { Future.delayed(const Duration(milliseconds: 100), () { widget.onClose(); NativeBridge.instance.uninstallApp(item.package!); }); }));
+       menuItems.add(_buildContextMenuItem('Uninstall', Icons.delete_outline, themeState, iconColor: Colors.redAccent, onTap: () { NativeBridge.instance.uninstallApp(item.package!); }));
     }
 
     if (item.type == 'file') {
        menuItems.addAll([
-          _buildContextDivider(state),
+          _buildContextDivider(themeState),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildBottomContextAction(Icons.content_cut, 'Cut', item, state),
-                _buildBottomContextAction(Icons.content_copy, 'Copy', item, state),
-                _buildBottomContextAction(Icons.drive_file_rename_outline, 'Rename', item, state),
-                _buildBottomContextAction(Icons.delete_outline, 'Delete', item, state),
+                _buildBottomContextAction(Icons.content_cut, 'Cut', item, themeState, appsState, desktopState),
+                _buildBottomContextAction(Icons.content_copy, 'Copy', item, themeState, appsState, desktopState),
+                _buildBottomContextAction(Icons.drive_file_rename_outline, 'Rename', item, themeState, appsState, desktopState),
+                _buildBottomContextAction(Icons.delete_outline, 'Delete', item, themeState, appsState, desktopState),
               ],
             ),
           ),
@@ -412,43 +573,45 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     return Column(mainAxisSize: MainAxisSize.min, children: menuItems);
   }
 
-  Widget _buildSubMenuContent(LauncherState state) {
+  Widget _buildSubMenuContent(ThemeState themeState, DesktopState desktopState) {
     if (_activeSubMenu == 'view') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Large icons', null, state, isActive: state.iconSize == 'Large', onTap: () => state.updateDesktopSetting('iconSize', 'Large')),
-          _buildSubMenuItem('Medium icons', null, state, isActive: state.iconSize == 'Medium', onTap: () => state.updateDesktopSetting('iconSize', 'Medium')),
-          _buildSubMenuItem('Small icons', null, state, isActive: state.iconSize == 'Small', onTap: () => state.updateDesktopSetting('iconSize', 'Small')),
+          _buildSubMenuItem('Large icons', null, themeState, isActive: desktopState.desktopIconScale == 1.25, onTap: () => desktopState.updateDesktopSetting('desktopIconScale', 1.25)),
+          _buildSubMenuItem('Medium icons', null, themeState, isActive: desktopState.desktopIconScale == 1.0, onTap: () => desktopState.updateDesktopSetting('desktopIconScale', 1.0)),
+          _buildSubMenuItem('Small icons', null, themeState, isActive: desktopState.desktopIconScale == 0.75, onTap: () => desktopState.updateDesktopSetting('desktopIconScale', 0.75)),
         ],
       );
     } else if (_activeSubMenu == 'sort') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Name', null, state, isDot: true, onTap: () => _showToast('Sorted by Name')),
-          _buildSubMenuItem('Size', null, state, onTap: () => _showToast('Sorted by Size')),
-          _buildSubMenuItem('Item type', null, state, onTap: () => _showToast('Sorted by Type')),
-          _buildSubMenuItem('Date modified', null, state, onTap: () => _showToast('Sorted by Date')),
+          _buildSubMenuItem('Name', null, themeState, isDot: true, onTap: () => _showToastSafe('Sorted by Name')),
+          _buildSubMenuItem('Size', null, themeState, onTap: () => _showToastSafe('Sorted by Size')),
+          _buildSubMenuItem('Item type', null, themeState, onTap: () => _showToastSafe('Sorted by Type')),
+          _buildSubMenuItem('Date modified', null, themeState, onTap: () => _showToastSafe('Sorted by Date')),
         ],
       );
     } else if (_activeSubMenu == 'transition') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSubMenuItem('Classical', null, state, isActive: state.pageTransition == 'Classical', onTap: () => state.updateDesktopSetting('pageTransition', 'Classical')),
-          _buildSubMenuItem('Cube', null, state, isActive: state.pageTransition == 'Cube', onTap: () => state.updateDesktopSetting('pageTransition', 'Cube')),
-          _buildSubMenuItem('Windmill', null, state, isActive: state.pageTransition == 'Windmill', onTap: () => state.updateDesktopSetting('pageTransition', 'Windmill')),
-          _buildSubMenuItem('Zoom', null, state, isActive: state.pageTransition == 'Zoom', onTap: () => state.updateDesktopSetting('pageTransition', 'Zoom')),
-          _buildSubMenuItem('Crossfade', null, state, isActive: state.pageTransition == 'Crossfade', onTap: () => state.updateDesktopSetting('pageTransition', 'Crossfade')),
+          _buildSubMenuItem('Classical', null, themeState, isActive: desktopState.pageTransition == 'Classical', onTap: () => desktopState.updateDesktopSetting('pageTransition', 'Classical')),
+          _buildSubMenuItem('3D Cube', null, themeState, isActive: desktopState.pageTransition == '3D Cube', onTap: () => desktopState.updateDesktopSetting('pageTransition', '3D Cube')),
+          _buildSubMenuItem('3D Page Flip', null, themeState, isActive: desktopState.pageTransition == '3D Page Flip', onTap: () => desktopState.updateDesktopSetting('pageTransition', '3D Page Flip')),
+          _buildSubMenuItem('3D Card', null, themeState, isActive: desktopState.pageTransition == '3D Card', onTap: () => desktopState.updateDesktopSetting('pageTransition', '3D Card')),
+          _buildSubMenuItem('Cube Carousel', null, themeState, isActive: desktopState.pageTransition == 'Cube Carousel', onTap: () => desktopState.updateDesktopSetting('pageTransition', 'Cube Carousel')),
+          _buildSubMenuItem('3D Swipe', null, themeState, isActive: desktopState.pageTransition == '3D Swipe', onTap: () => desktopState.updateDesktopSetting('pageTransition', '3D Swipe')),
+          _buildSubMenuItem('Random', null, themeState, isActive: desktopState.pageTransition == 'Random', onTap: () => desktopState.updateDesktopSetting('pageTransition', 'Random')),
         ],
       );
     } else if (_activeSubMenu == 'compress') {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildContextMenuItem('ZIP File', null, state, onTap: () => _mockZipCreation('.zip')),
-          _buildContextMenuItem('7z File', null, state, onTap: () => _mockZipCreation('.7z')),
+          _buildContextMenuItem('ZIP File', null, themeState, onTap: () => _createZipArchive('.zip')),
+          _buildContextMenuItem('7z File', null, themeState, onTap: () => _createZipArchive('.7z')),
         ],
       );
     }
@@ -459,13 +622,17 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
   Widget build(BuildContext context) {
     if (!widget.isOpen) return const SizedBox.shrink();
 
-    final state = context.watch<LauncherState>();
-    final isDark = state.isDarkMode;
+    final themeState = context.watch<ThemeState>();
+    final desktopState = context.watch<DesktopState>();
+    final appsState = context.watch<AppsState>();
+    
+    final isDark = themeState.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
-    double menuWidth = 240;
-    double menuHeight = widget.menuType == 'folder' ? 360 : 420; 
+    double menuWidth = 260; 
+    
+    double menuHeight = widget.menuType == 'folder' || widget.menuType == 'file' ? 450 : 580; 
     double dx = widget.position.dx;
     double dy = widget.position.dy;
     final screenSize = MediaQuery.of(context).size;
@@ -484,17 +651,18 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
         boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
       ),
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: _buildDynamicContextMenu(state),
+      child: _buildDynamicContextMenu(themeState, desktopState, appsState),
     );
 
     Widget? subMenu;
     if (_activeSubMenu != null) {
-      double subMenuWidth = 190;
+      double subMenuWidth = 220; 
       double subMenuX = dx + menuWidth - 4;
       if (subMenuX + subMenuWidth > screenSize.width) subMenuX = dx - subMenuWidth + 4;
       if (subMenuX < 8) subMenuX = 8;
       double subMenuY = dy + _subMenuYOffset;
-      if (subMenuY + 220 > screenSize.height) subMenuY = screenSize.height - 230;
+      
+      if (subMenuY + 280 > screenSize.height) subMenuY = math.max(8.0, screenSize.height - 290);
       if (subMenuY < 8) subMenuY = 8;
 
       subMenu = Positioned(
@@ -506,7 +674,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
             boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4))],
           ),
           padding: const EdgeInsets.symmetric(vertical: 4),
-          child: _buildSubMenuContent(state),
+          child: _buildSubMenuContent(themeState, desktopState),
         ),
       );
     }

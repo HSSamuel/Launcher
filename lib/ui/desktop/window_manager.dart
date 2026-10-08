@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../launcher_state.dart';
+import '../../states/apps_state.dart';
 import '../shared/app_window.dart';
 import '../shared/calculator_app.dart';
 import '../shared/browser_app.dart';
@@ -11,48 +11,80 @@ import '../explorer/file_explorer_app.dart';
 
 class WindowManager extends StatelessWidget {
   final double taskbarHeight;
+  final double safeAreaBottom;
   final GlobalKey<FileExplorerAppState> explorerKey;
   final VoidCallback onCloseOverlays;
 
   const WindowManager({
     Key? key,
     required this.taskbarHeight,
+    required this.safeAreaBottom,
     required this.explorerKey,
     required this.onCloseOverlays,
   }) : super(key: key);
 
-  Size _getResponsiveWindowSize(BuildContext context, double targetWidth, double targetHeight) {
+  Size _getResponsiveWindowSize(BuildContext context, String windowId) {
     final screenSize = MediaQuery.of(context).size;
-    final isMobile = screenSize.width < 600;
-    if (isMobile) return Size(screenSize.width * 0.94, screenSize.height * 0.84);
-    final maxWidth = screenSize.width * 0.90;
-    final maxHeight = screenSize.height * 0.80;
-    return Size(targetWidth > maxWidth ? maxWidth : targetWidth, targetHeight > maxHeight ? maxHeight : targetHeight);
+    final isMobile = screenSize.width <= 600; 
+    
+    if (isMobile) return Size(screenSize.width * 0.85, screenSize.height * 0.70);
+    
+    if (windowId == 'calculator') {
+      return const Size(320, 480);
+    }
+    
+    final double targetWidth = math.min(900.0, screenSize.width * 0.75);
+    final double targetHeight = math.min(650.0, screenSize.height * 0.75);
+    
+    return Size(targetWidth, targetHeight);
+  }
+
+  Offset _calculateCenter(double screenWidth, double winWidth, double taskbarTopY, double winHeight, bool isCalculator) {
+    double centerX = (screenWidth - winWidth) / 2;
+    double centerY = (taskbarTopY - winHeight) / 2;
+    if (isCalculator) {
+      return Offset(centerX, math.max(0.0, taskbarTopY - winHeight - 8));
+    }
+    return Offset(math.max(0.0, centerX), math.max(0.0, centerY));
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<LauncherState>();
+    final appsState = context.watch<AppsState>();
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    final isMobile = screenWidth < 600;
+    final isMobile = screenWidth <= 600;
+    
+    final double taskbarTopY = screenHeight - taskbarHeight - safeAreaBottom;
 
     return Stack(
-      children: state.windowStack.where((id) => !id.contains('.')).map((windowId) {
-        final isMinimized = state.minimizedApps.contains(windowId);
-        final isMaximized = state.maximizedApps.contains(windowId) || (isMobile && windowId != 'calculator');
+      children: appsState.windowStack.where((id) => !id.contains('.')).map((windowId) {
+        final isMinimized = appsState.minimizedApps.contains(windowId);
+        
+        bool isMaximized;
+        if (windowId == 'calculator') {
+          isMaximized = false; 
+        } else if (isMobile) {
+          isMaximized = !appsState.maximizedApps.contains(windowId);
+        } else {
+          isMaximized = appsState.maximizedApps.contains(windowId);
+        }
 
-        final size = (isMobile && windowId == 'calculator') 
-            ? Size(screenWidth * 0.90, 480) 
-            : (isMobile 
-                ? Size(screenWidth, math.max(0, screenHeight - taskbarHeight))
-                : _getResponsiveWindowSize(context, windowId == 'explorer' ? 580 : (windowId == 'calculator' ? 320 : 600), windowId == 'calculator' ? 480 : 420));
+        final size = _getResponsiveWindowSize(context, windowId);
                 
-        final pos = (isMobile && windowId == 'calculator')
-            ? Offset((screenWidth - (screenWidth * 0.90)) / 2, math.max(0, screenHeight - 480 - taskbarHeight - 16))
-            : (isMobile 
-                ? Offset.zero
-                : (windowId == 'explorer' ? state.fileExplorerPos : (windowId == 'calculator' ? state.calculatorPos : (windowId == 'browser' ? state.browserPos : state.settingsPos))));
+        Offset pos;
+        if (windowId == 'explorer') pos = appsState.fileExplorerPos ?? _calculateCenter(screenWidth, size.width, taskbarTopY, size.height, false);
+        else if (windowId == 'browser') pos = appsState.browserPos ?? _calculateCenter(screenWidth, size.width, taskbarTopY, size.height, false);
+        else if (windowId == 'calculator') pos = appsState.calculatorPos ?? _calculateCenter(screenWidth, size.width, taskbarTopY, size.height, true);
+        else pos = appsState.settingsPos ?? _calculateCenter(screenWidth, size.width, taskbarTopY, size.height, false);
+
+        double maxDy = taskbarTopY - size.height;
+        if (pos.dy > maxDy) {
+          pos = Offset(pos.dx, math.max(0.0, maxDy));
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            appsState.updateWindowPos(windowId, pos, isAbsolute: true);
+          });
+        }
 
         Widget content = const SizedBox.shrink();
         String title = "";
@@ -64,18 +96,27 @@ class WindowManager extends StatelessWidget {
         if (windowId == 'settings') { content = const SettingsApp(); title = 'Settings'; icon = Icons.settings; }
 
         return AppWindow(
+          key: ValueKey('window_$windowId'),
           title: title,
           icon: icon,
           position: pos,
           size: size,
           isMinimized: isMinimized,
           isMaximized: isMaximized,
+          isFocused: appsState.windowStack.last == windowId,
           useSafeArea: windowId != 'settings' && windowId != 'browser',
-          onClose: () => state.closeApp(windowId),
-          onMinimize: () => state.minimizeApp(windowId),
-          onMaximize: () => state.toggleMaximizeApp(windowId),
-          onDrag: (delta) { if (!isMobile) state.updateWindowPos(windowId, delta); },
-          onFocus: () { onCloseOverlays(); state.focusWindow(windowId); },
+          taskbarHeight: taskbarHeight,
+          safeAreaBottom: safeAreaBottom,
+          onClose: () => appsState.closeApp(windowId),
+          onMinimize: () => appsState.minimizeApp(windowId),
+          onMaximize: () => appsState.toggleMaximizeApp(windowId),
+          onPositionChanged: (newPos) {
+            appsState.updateWindowPos(windowId, newPos, isAbsolute: true);
+          },
+          onFocus: () { 
+            onCloseOverlays(); 
+            appsState.focusWindow(windowId); 
+          },
           content: content,
         );
       }).toList(),

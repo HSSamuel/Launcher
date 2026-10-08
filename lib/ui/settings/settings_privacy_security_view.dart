@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../states/apps_state.dart';
+import '../../states/system_state.dart';
+import '../../states/theme_state.dart';
 import '../../services/native_bridge.dart';
+import '../../services/pro_gatekeeper.dart';
+import 'settings_widgets.dart';
 
 class SettingsPrivacySecurityView extends StatefulWidget {
   const SettingsPrivacySecurityView({Key? key}) : super(key: key);
@@ -11,9 +18,9 @@ class SettingsPrivacySecurityView extends StatefulWidget {
 class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityView> with WidgetsBindingObserver {
   bool _storageGranted = false;
   bool _notificationGranted = false;
-  bool _accessibilityGranted = false;
   bool _adminGranted = false;
   bool _writeSettingsGranted = false;
+  bool _isSyncing = false;
 
   @override
   void initState() {
@@ -36,28 +43,129 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
   }
 
   Future<void> _syncNativePermissions() async {
+    if (_isSyncing) return;
+    _isSyncing = true;
     try {
       final result = await NativeBridge.instance.getPermissionStatuses();
       if (mounted) {
         setState(() {
           _storageGranted = result['storage'] ?? false;
           _notificationGranted = result['notification'] ?? false;
-          _accessibilityGranted = result['accessibility'] ?? false;
           _adminGranted = result['admin'] ?? false;
           _writeSettingsGranted = result['write_settings'] ?? false;
         });
       }
     } catch (e) {
       debugPrint("Error syncing native permissions: $e");
+    } finally {
+      _isSyncing = false;
     }
   }
 
-  void _openNativeSetting(String type) async {
-    try {
-      await NativeBridge.instance.openSettings(type);
-    } catch (e) {
-      debugPrint("Failed to open setting: $e");
-    }
+  void _openWithDisclosure(String type, String title, String disclosure) async {
+    final themeState = context.read<ThemeState>();
+    final isDark = themeState.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+        title: Text(title, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: Text(disclosure, style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              NativeBridge.instance.openSettings(type);
+            },
+            child: const Text('Agree & Continue', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold))
+          )
+        ]
+      )
+    );
+  }
+
+  void _showAppSelectionDialog(BuildContext context, String title, AppsState appsState, ThemeState themeState, {required bool isLock}) {
+    final isDark = themeState.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    
+    final Set<String> localSelectedCache = isLock ? appsState.lockedApps.toSet() : appsState.hiddenApps.toSet();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            title: Text(title, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 320,
+              height: 400,
+              child: ListView.builder(
+                physics: const BouncingScrollPhysics(),
+                itemCount: appsState.installedApps.length,
+                itemBuilder: (context, index) {
+                  final app = appsState.installedApps[index];
+                  if (app.packageName == null) return const SizedBox.shrink();
+                  
+                  final isChecked = localSelectedCache.contains(app.packageName);
+                  return CheckboxListTile(
+                    dense: true,
+                    secondary: app.icon != null 
+                        ? Image.memory(
+                            app.icon!, 
+                            width: 24, 
+                            height: 24, 
+                            cacheWidth: 72, 
+                            cacheHeight: 72, 
+                            gaplessPlayback: true
+                          ) 
+                        : const Icon(Icons.android),
+                    title: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 13), overflow: TextOverflow.ellipsis),
+                    value: isChecked,
+                    activeColor: themeState.currentAccentColor,
+                    onChanged: (val) {
+                      setDialogState(() {
+                        if (val == true) {
+                          localSelectedCache.add(app.packageName!);
+                        } else {
+                          localSelectedCache.remove(app.packageName!);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  final originalSet = isLock ? appsState.lockedApps.toSet() : appsState.hiddenApps.toSet();
+                  
+                  final itemsToAdd = localSelectedCache.difference(originalSet);
+                  final itemsToRemove = originalSet.difference(localSelectedCache);
+                  
+                  if (isLock) {
+                    appsState.batchUpdateAppVisibility(toLock: itemsToAdd, toUnlock: itemsToRemove, toHide: {}, toUnhide: {});
+                  } else {
+                    appsState.batchUpdateAppVisibility(toLock: {}, toUnlock: {}, toHide: itemsToAdd, toUnhide: itemsToRemove);
+                  }
+                  
+                  Navigator.pop(ctx);
+                }, 
+                child: Text('Done', style: TextStyle(color: themeState.currentAccentColor, fontWeight: FontWeight.bold))
+              ),
+            ],
+          );
+        }
+      ),
+    );
   }
 
   Widget _buildPermissionCard({
@@ -91,16 +199,11 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                   children: [
                     Icon(baseIcon, size: 26, color: iconColor),
                     Positioned(
-                      bottom: -2,
-                      right: -2,
+                      bottom: -2, right: -2,
                       child: Container(
                         decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
                         padding: const EdgeInsets.all(1.5),
-                        child: Icon(
-                          isGranted ? Icons.check_circle : Icons.cancel,
-                          size: 13,
-                          color: isGranted ? Colors.green : Colors.redAccent,
-                        ),
+                        child: Icon(isGranted ? Icons.check_circle : Icons.cancel, size: 13, color: isGranted ? Colors.green : Colors.redAccent),
                       ),
                     ),
                   ],
@@ -114,14 +217,7 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                       const SizedBox(height: 2),
                       Text(subtitle, style: TextStyle(fontSize: 11, color: subTextColor)),
                       const SizedBox(height: 4),
-                      Text(
-                        isGranted ? 'Permission enabled' : 'Permission disabled',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: isGranted ? Colors.green : Colors.redAccent.shade200,
-                        ),
-                      ),
+                      Text(isGranted ? 'Permission enabled' : 'Permission disabled', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: isGranted ? Colors.green : Colors.redAccent.shade200)),
                     ],
                   ),
                 ),
@@ -135,42 +231,89 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
 
   @override
   Widget build(BuildContext context) {
+    final systemState = context.watch<SystemState>();
+    final appsState = context.watch<AppsState>();
+    final themeState = context.watch<ThemeState>();
+    final isDark = themeState.isDarkMode;
+
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildPermissionCard(
-          title: 'Storage',
-          subtitle: 'Storage permission is required to process wallpapers,\nmanage files in file manager.',
-          baseIcon: Icons.storage_outlined,
-          isGranted: _storageGranted,
-          onTap: () => _openNativeSetting('storage'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          child: Text('App Security & Vault', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDark ? Colors.white : Colors.black87)),
+        ),
+        SettingsCard(
+          title: 'App Lock',
+          subtitle: '${appsState.lockedApps.length} apps locked behind PIN authentication',
+          icon: Icons.lock_person_outlined,
+          onTap: () async {
+             if (!ProGatekeeper.checkAccess(context, featureName: 'App Lock')) return;
+             
+             if (systemState.isPinSet) {
+                bool auth = await systemState.authenticateUser('Enter PIN to manage App Lock');
+                if (auth && context.mounted) _showAppSelectionDialog(context, 'App Lock', appsState, themeState, isLock: true);
+             } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set a PIN on the Lock Screen first.')));
+             }
+          }
+        ),
+        SettingsCard(
+          title: 'Hidden Apps Vault',
+          subtitle: '${appsState.hiddenApps.length} apps hidden from Start Menu and Search',
+          icon: Icons.visibility_off_outlined,
+          onTap: () async {
+             if (!ProGatekeeper.checkAccess(context, featureName: 'Hidden Apps Vault')) return;
+             
+             if (systemState.isPinSet) {
+                bool auth = await systemState.authenticateUser('Enter PIN to open Vault');
+                if (auth && context.mounted) _showAppSelectionDialog(context, 'Hidden Vault', appsState, themeState, isLock: false);
+             } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set a PIN on the Lock Screen first.')));
+             }
+          }
+        ),
+
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          child: Text('Permissions', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDark ? Colors.white : Colors.black87)),
         ),
         _buildPermissionCard(
-          title: 'Accessibility',
-          subtitle: 'Accessibility permission is required to toggle desktop\nfunctionality',
-          baseIcon: Icons.accessibility_new,
-          isGranted: _accessibilityGranted,
-          onTap: () => _openNativeSetting('accessibility'),
+          title: 'Storage',
+          subtitle: 'Required to process wallpapers, manage files in file manager.',
+          baseIcon: Icons.storage_outlined,
+          isGranted: _storageGranted,
+          onTap: () => NativeBridge.instance.openSettings('storage'),
         ),
         _buildPermissionCard(
           title: 'Admin',
-          subtitle: 'Admin permission is required to enable lock, double tap to\nlock functionalities',
+          subtitle: 'Required to enable double tap to lock functionalities.',
           baseIcon: Icons.manage_accounts_outlined,
           isGranted: _adminGranted,
-          onTap: () => _openNativeSetting('admin'),
+          onTap: () => _openWithDisclosure(
+            'admin', 
+            'Device Administration Required', 
+            'Win11 PC Launcher needs Device Administration access to securely turn off the screen and lock your device when you trigger sleep gestures. This permission is used strictly for locking the screen.'
+          ),
         ),
         _buildPermissionCard(
           title: 'Notification access',
-          subtitle: 'Notification access is required to get the notifications and\ndisplay it in side panel.',
+          subtitle: 'Required to sync system tray notifications.',
           baseIcon: Icons.notifications_active_outlined,
           isGranted: _notificationGranted,
-          onTap: () => _openNativeSetting('notification_access'),
+          onTap: () => _openWithDisclosure(
+            'notification_access',
+            'Notification Access Required',
+            'To display incoming messages and alerts seamlessly in the desktop taskbar, the launcher requires permission to read your active notifications. This data remains entirely on your device.'
+          ),
         ),
         _buildPermissionCard(
           title: 'Write Settings',
-          subtitle: 'Write Settings is required for toggling shortcut tiles,\nchange system settings.',
+          subtitle: 'Required for toggling quick settings tiles.',
           baseIcon: Icons.build_outlined,
           isGranted: _writeSettingsGranted,
-          onTap: () => _openNativeSetting('write_settings'),
+          onTap: () => NativeBridge.instance.openSettings('write_settings'),
         ),
       ],
     );

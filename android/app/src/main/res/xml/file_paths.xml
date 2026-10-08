@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <external-path name="external_files" path="." />
+    <external-path name="external_root" path="." />
+    
+    <external-path name="external_downloads" path="Download/" />
+    <external-path name="external_documents" path="Documents/" />
+    <external-path name="external_pictures" path="Pictures/" />
+    <external-path name="external_music" path="Music/" />
+    <external-path name="external_movies" path="Movies/" />
+    <external-path name="external_dcim" path="DCIM/" />
+    <external-path name="external_telegram" path="Telegram/" />
+    <external-path name="external_whatsapp" path="Android/media/com.whatsapp/" />
+
+    <cache-path name="cache_files" path="." />
+    <files-path name="internal_files" path="." />
+    <external-cache-path name="external_cache" path="." />
 </paths>

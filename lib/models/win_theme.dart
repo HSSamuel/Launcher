@@ -12,4 +12,13 @@ class WinTheme {
     required this.isDark,
     required this.accentColor,
   });
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is WinTheme && other.name == name;
+  }
+
+  @override
+  int get hashCode => name.hashCode;
 }

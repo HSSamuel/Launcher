@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Win11 PC Launcher</string>
+    
+    <string name="device_admin_description">Required to enable the double-tap to lock screen and sleep functions.</string>
+    
+    <string name="accessibility_description">Required to expand the system notifications panel, open the power dialog, and view recent tasks using launcher gestures without root access.</string>
+</resources>

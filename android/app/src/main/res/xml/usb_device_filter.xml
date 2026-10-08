@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 08h corresponds to Mass Storage devices (Flash drives, external hard drives) -->
+    <usb-device class="08h" />
+    <!-- 00h catches interfaces that define their own specific protocols (many modern USB-C drives) -->
+    <usb-device class="00h" />
+</resources>
