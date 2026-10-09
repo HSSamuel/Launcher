@@ -1,4 +1,3 @@
-// desktop_workspace.dart
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:convert';
@@ -340,73 +339,75 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
   }
 
   Widget _getDesktopIconWidget(DesktopItemModel item, AppsState appsState, ThemeState themeState, double iconScale) {
-    Widget? iconChild;
-    bool isSystem = item.type == 'system';
-    bool leaveUncircled = false;
+Widget? iconChild;
+bool isSystem = item.type == 'system';
+bool leaveUncircled = false;
 
-    if (item.type == 'folder') {
-      iconChild = _buildDesktopFolderIcon(item, appsState, themeState);
-      leaveUncircled = true;
-    } else if (isSystem) {
-      String asset = 'folder';
-      if (item.id == 'browser') { asset = 'edge'; leaveUncircled = true; }
-      else if (item.id == 'calculator') { asset = 'calculator'; leaveUncircled = true; }
-      else if (item.id == 'settings') { asset = 'settings'; leaveUncircled = true; }
-      else if (item.id == 'recycle_bin') { asset = 'recycle'; leaveUncircled = true; }
-      else if (item.id == 'my_files') { asset = 'folder'; leaveUncircled = true; }
-      iconChild = Image.asset('assets/icons/$asset.png', fit: BoxFit.contain);
-    } else if (item.type == 'app' && item.package != null) {
-      if (themeState.customAppIcons.containsKey(item.package)) {
-        iconChild = Image.file(
-          File(themeState.customAppIcons[item.package]!),
-          fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => const Icon(Icons.android, color: Colors.green),
-        );
-      } else if (themeState.cachedIconsPath != null) {
-        iconChild = Image.file(
-          File('${themeState.cachedIconsPath}/${item.package}.png'),
-          fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => const Icon(Icons.android, color: Colors.green),
-        );
-      } else {
-        iconChild = LazyAppIcon(
-          packageName: item.package!,
-          size: 32.0 * iconScale,
-        );
-      }
-    } else if (item.type == 'file') {
-      final pathStr = item.path ?? '';
-      final name = pathStr.split('/').last;
-      final hasExtension = name.contains('.');
-      final ext = hasExtension ? name.split('.').last.toLowerCase() : '';
-      
-      if (!hasExtension) {
-         iconChild = Image.asset('assets/icons/custom_folder.png', errorBuilder: (_, __, ___) => const Icon(Icons.folder, color: Colors.amber));
-      } else {
-         if (['png', 'jpg', 'jpeg', 'webp'].contains(ext)) {
-            iconChild = ClipRRect(
-               borderRadius: BorderRadius.circular(4),
-               child: Image.file(File(pathStr), fit: BoxFit.cover, cacheWidth: 128)
-            );
-         } else if (ext == 'pdf') {
-            iconChild = const Icon(Icons.picture_as_pdf, color: Colors.redAccent);
-         } else if (['mp4', 'mkv'].contains(ext)) {
-            iconChild = const Icon(Icons.video_file, color: Colors.purpleAccent);
-         } else if (['mp3', 'wav'].contains(ext)) {
-            iconChild = const Icon(Icons.audio_file, color: Colors.amber);
-         } else if (['zip', 'rar', '7z'].contains(ext)) {
-            iconChild = const Icon(Icons.folder_zip, color: Colors.orangeAccent);
-         } else {
-            iconChild = const Icon(Icons.insert_drive_file, color: Colors.blueGrey);
-         }
-      }
-      isSystem = true;
-    }
-
-    iconChild ??= const Icon(Icons.apps, color: Colors.blueAccent);
-    if (leaveUncircled) return iconChild;
-    return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
+if (item.type == 'folder') {
+  iconChild = _buildDesktopFolderIcon(item, appsState, themeState);
+  leaveUncircled = true;
+} else if (isSystem) {
+  String asset = 'folder';
+  if (item.id == 'browser') { asset = 'edge'; leaveUncircled = true; }
+  else if (item.id == 'calculator') { asset = 'calculator'; leaveUncircled = true; }
+  else if (item.id == 'settings') { asset = 'settings'; leaveUncircled = true; }
+  else if (item.id == 'recycle_bin') { asset = 'recycle'; leaveUncircled = true; }
+  else if (item.id == 'this_pc' || item.id == 'my_files') { asset = 'folder'; leaveUncircled = true; }
+  iconChild = Image.asset('assets/icons/$asset.png', fit: BoxFit.contain);
+} else if (item.type == 'app' && item.package != null) {
+  if (themeState.customAppIcons.containsKey(item.package)) {
+    iconChild = Image.file(
+      File(themeState.customAppIcons[item.package]!),
+      fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+      // FIX: Replaced green Android with LazyAppIcon memory cache lookup
+      errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
+    );
+  } else if (themeState.cachedIconsPath != null) {
+    iconChild = Image.file(
+      File('${themeState.cachedIconsPath}/${item.package}.png'),
+      fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+      // FIX: Replaced green Android with LazyAppIcon memory cache lookup
+      errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
+    );
+  } else {
+    iconChild = LazyAppIcon(
+      packageName: item.package!,
+      size: 32.0 * iconScale,
+    );
   }
+} else if (item.type == 'file') {
+  final pathStr = item.path ?? '';
+  final name = pathStr.split('/').last;
+  final hasExtension = name.contains('.');
+  final ext = hasExtension ? name.split('.').last.toLowerCase() : '';
+  
+  if (!hasExtension) {
+     iconChild = Image.asset('assets/icons/custom_folder.png', errorBuilder: (_, __, ___) => const Icon(Icons.folder, color: Colors.amber));
+  } else {
+     if (['png', 'jpg', 'jpeg', 'webp'].contains(ext)) {
+        iconChild = ClipRRect(
+           borderRadius: BorderRadius.circular(4),
+           child: Image.file(File(pathStr), fit: BoxFit.cover, cacheWidth: 128)
+        );
+     } else if (ext == 'pdf') {
+        iconChild = const Icon(Icons.picture_as_pdf, color: Colors.redAccent);
+     } else if (['mp4', 'mkv'].contains(ext)) {
+        iconChild = const Icon(Icons.video_file, color: Colors.purpleAccent);
+     } else if (['mp3', 'wav'].contains(ext)) {
+        iconChild = const Icon(Icons.audio_file, color: Colors.amber);
+     } else if (['zip', 'rar', '7z'].contains(ext)) {
+        iconChild = const Icon(Icons.folder_zip, color: Colors.orangeAccent);
+     } else {
+        iconChild = const Icon(Icons.insert_drive_file, color: Colors.blueGrey);
+     }
+  }
+  isSystem = true;
+}
+
+iconChild ??= const Icon(Icons.apps, color: Colors.blueAccent);
+if (leaveUncircled) return iconChild;
+return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
+}
 
   Widget _buildDesktopWidgetCard(DesktopItemModel item, ThemeState themeState, AppsState appsState) {
     final isDark = themeState.isDarkMode;
@@ -560,7 +561,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                     onLongPressStart: (details) {
                       HapticFeedback.lightImpact();
                       widget.onContextMenu(
-                        Offset((item.col * cellWidth) + 40, (item.row * cellHeight) + widget.safeAreaTop + 40),
+                        details.globalPosition,
                         'widget', item.id, item.label, null,
                       );
                     },
@@ -623,7 +624,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                       HapticFeedback.lightImpact();
                     }
                     widget.onContextMenu(
-                      Offset((item.col * cellWidth) + 40, (item.row * cellHeight) + widget.safeAreaTop + 40),
+                      details.globalPosition,
                       'widget', item.id, item.label, null,
                     );
                   },
@@ -641,8 +642,13 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                       _showDesktopFolderDialog(context, item, appsState, desktopState, themeState);
                     } else if (item.type == 'system') {
                       if (item.id == 'recycle_bin') {
-                        final extDir = await getExternalStorageDirectory();
-                        final binPath = extDir != null ? '${extDir.path}/.Win11RecycleBin' : '/storage/emulated/0/.Win11RecycleBin';
+                        String rootPath = '/storage/emulated/0';
+                        try {
+                          final extDir = await getExternalStorageDirectory();
+                          if (extDir != null) rootPath = extDir.path.split('/Android')[0];
+                        } catch (_) {}
+                        
+                        final binPath = '$rootPath/.Win11RecycleBin';
                         final rb = Directory(binPath);
                         if (!rb.existsSync()) {
                           try { 
@@ -653,7 +659,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                         appsState.currentExplorerPath = rb.path;
                         appsState.openApp('explorer');
                         widget.explorerKey?.currentState?.navigateTo(rb.path);
-                      } else if (item.id == 'my_files') {
+                      } else if (item.id == 'this_pc' || item.id == 'my_files') {
                         appsState.currentExplorerPath = '/storage/emulated/0';
                         appsState.openApp('explorer');
                         widget.explorerKey?.currentState?.navigateTo('/storage/emulated/0');
@@ -673,12 +679,12 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                       }
                     }
                   },
-                  onSecondaryTap: () {
+                  onSecondaryTap: (globalPos) {
                     String cType = item.type;
                     if (item.type == 'folder') cType = 'desktop_folder';
 
                     widget.onContextMenu(
-                      Offset((item.col * cellWidth) + 40, (item.row * cellHeight) + widget.safeAreaTop + 40),
+                      globalPos,
                       cType, item.id, item.label,
                       () async {
                         if (item.type == 'app' && item.package != null) appsState.launchNativeApp(item.package!, systemState: systemState);
@@ -693,12 +699,12 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                       },
                     );
                   },
-                  onLongPress: () {
+                  onLongPress: (globalPos) {
                     String cType = item.type;
                     if (item.type == 'folder') cType = 'desktop_folder';
 
                     widget.onContextMenu(
-                      Offset((item.col * cellWidth) + 40, (item.row * cellHeight) + widget.safeAreaTop + 40),
+                      globalPos,
                       cType, item.id, item.label,
                       () async {
                         if (item.type == 'app' && item.package != null) appsState.launchNativeApp(item.package!, systemState: systemState);

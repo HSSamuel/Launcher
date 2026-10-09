@@ -17,8 +17,8 @@ class DesktopIcon extends StatefulWidget {
   final Color iconColor;
   final double cellWidth;
   final VoidCallback onTap;
-  final VoidCallback onSecondaryTap;
-  final VoidCallback onLongPress;
+  final Function(Offset globalPosition) onSecondaryTap;
+  final Function(Offset globalPosition) onLongPress;
 
   const DesktopIcon({
     Key? key,
@@ -39,6 +39,7 @@ class DesktopIcon extends StatefulWidget {
 
 class _DesktopIconState extends State<DesktopIcon> {
   bool _isPressed = false;
+  Offset _lastTapPosition = Offset.zero; // 1. Add this variable to track the pointer
 
   Widget _buildContent(int notifCount, double iconScale, double fontSize, bool hapticsEnabled, Widget? resolvedIcon) {
     final double coreSize = 32.0 * iconScale; 
@@ -49,7 +50,8 @@ class _DesktopIconState extends State<DesktopIcon> {
         width: widget.cellWidth, 
         child: InkWell(
           onTap: widget.onTap,
-          onTapDown: (_) {
+          onTapDown: (details) {
+            _lastTapPosition = details.globalPosition; // 2. Capture the exact tap location here
             setState(() => _isPressed = true);
             if (hapticsEnabled) {
               HapticFeedback.lightImpact();
@@ -57,8 +59,11 @@ class _DesktopIconState extends State<DesktopIcon> {
           },
           onTapUp: (_) => setState(() => _isPressed = false),
           onTapCancel: () => setState(() => _isPressed = false),
-          onSecondaryTapDown: (_) => widget.onSecondaryTap(),
-          onLongPress: widget.onLongPress,
+          onSecondaryTapDown: (details) => widget.onSecondaryTap(details.globalPosition),
+          
+          // 3. Revert to the standard onLongPress, passing the captured position
+          onLongPress: () => widget.onLongPress(_lastTapPosition),
+          
           borderRadius: BorderRadius.circular(4),
           child: AnimatedScale(
             scale: _isPressed ? 0.92 : 1.0,
@@ -147,7 +152,6 @@ class _DesktopIconState extends State<DesktopIcon> {
       if (themeState.cachedIconsPath != null) {
         final cacheFile = File('${themeState.cachedIconsPath}/${widget.itemData.package}.png');
         
-        // CRITICAL FIX: Removed existsSync() frame-drop and added hardware memory caching limits
         finalIcon = Image.file(
           cacheFile, 
           fit: BoxFit.contain, 

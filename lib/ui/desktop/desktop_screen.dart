@@ -441,45 +441,39 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       if (event is Map) {
          final type = event['type'];
          if (type == 'APP_INSTALLED') {
-            installedPkg = event['package'];
-            installedLabel = event['label'];
-            final bool isUpdate = event['isUpdate'] == true;
+        installedPkg = event['package'];
+        installedLabel = event['label'];
+        final bool isUpdate = event['isUpdate'] == true;
+        
+        if (installedPkg != null) {
+           appsState.addRecentlyAddedApp(installedPkg, isUpdate: isUpdate);
+           
+           appsState.injectAndSyncApp(installedPkg, installedLabel ?? 'App').then((_) {
+             if (!mounted) return;
+             // DO NOT call LazyAppIcon.invalidateCache here, as we just pre-populated it!
+             if (desktopState.createShortcut && !isUpdate) {
+               desktopState.addDesktopApp(installedPkg!, installedLabel ?? 'App', _currentDesktopPage, 0, 0); 
+             }
+           });
+        }
+        
+        setState(() {
+            final installToast = {
+              'key': 'install_$installedPkg',
+              'package': installedPkg,
+              'title': isUpdate ? 'App Updated' : 'New App Installed',
+              'text': '${installedLabel ?? 'App'} is ready to use.',
+              'postTime': DateTime.now().millisecondsSinceEpoch,
+              'actions': [{'title': 'Open', 'index': 1}, {'title': 'Pin to Start', 'index': 2}],
+              '_isAppInstall': true,
+              '_installPkg': installedPkg,
+              '_toastId': 'install_${DateTime.now().microsecondsSinceEpoch}',
+            };
             
-            if (installedPkg != null) {
-   appsState.addRecentlyAddedApp(installedPkg);
-   
-   // CRITICAL FIX: Await the app indexing delay before attempting to render the icon
-   appsState.injectAndSyncApp(installedPkg, installedLabel ?? 'App').then((_) {
-     if (!mounted) return;
-     
-     // Invalidate the cache AFTER the indexing delay so LazyAppIcon doesn't hit a false-negative
-     LazyAppIcon.invalidateCache(installedPkg!);
-     
-     // Prevent creating duplicate desktop icons when an app is just updating
-     if (desktopState.createShortcut && !isUpdate) {
-       desktopState.addDesktopApp(installedPkg!, installedLabel ?? 'App', _currentDesktopPage, 0, 0); 
-     }
-   });
-}
-            
-            setState(() {
-                final installToast = {
-                  'key': 'install_$installedPkg',
-                  'package': installedPkg,
-                  'title': isUpdate ? 'App Updated' : 'New App Installed',
-                  'text': '${installedLabel ?? 'App'} is ready to use.',
-                  'postTime': DateTime.now().millisecondsSinceEpoch,
-                  'actions': [{'title': 'Open', 'index': 1}, {'title': 'Pin to Start', 'index': 2}],
-                  '_isAppInstall': true,
-                  '_installPkg': installedPkg,
-                  '_toastId': 'install_${DateTime.now().microsecondsSinceEpoch}',
-                };
-                
-                _activeToasts.removeWhere((toast) => toast['_isAppInstall'] == true && toast['_installPkg'] == installedPkg);
-
-                _activeToasts.add(installToast);
-            });
-         } else if (type == 'APP_REMOVED') {
+            _activeToasts.removeWhere((toast) => toast['_isAppInstall'] == true && toast['_installPkg'] == installedPkg);
+            _activeToasts.add(installToast);
+        });
+     } else if (type == 'APP_REMOVED') {
             appsState.refreshApps(desktopState).then((_) {
                if (!mounted) return;
                final validPackages = appsState.appMap.keys.toSet();

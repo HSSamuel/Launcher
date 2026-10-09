@@ -298,35 +298,45 @@ class ExplorerAddressBar extends StatelessWidget {
     ];
 
     if (!isAtHome) {
-      Map<String, dynamic>? activeDisk;
-      for (var d in disks) {
-        final dPath = d['path'] as String? ?? '';
-        if (dPath.isNotEmpty && currentPath.startsWith(dPath)) {
-          if (activeDisk == null || dPath.length > (activeDisk['path'] as String).length) {
-            activeDisk = d;
-          }
-        }
-      }
-
-      final basePath = activeDisk != null ? (activeDisk['path'] as String) : rootPath;
-      final diskLabel = activeDisk != null ? (activeDisk['label'] as String) : 'Local Disk (C:)';
-
-      breadcrumbs.add(const SizedBox(width: 2));
-      breadcrumbs.add(InkWell(onTap: () => onNavigate(basePath), child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
-      breadcrumbs.add(const SizedBox(width: 2));
-      breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
-
-      final relativeSubPath = currentPath.replaceFirst(basePath, '');
-      final folders = relativeSubPath.split('/').where((e) => e.isNotEmpty).toList();
-      String cumulativePath = basePath;
-
-      for (var folder in folders) {
-        cumulativePath += '/$folder';
-        final targetPath = cumulativePath;
+      if (currentPath.contains('.Win11RecycleBin')) {
         breadcrumbs.add(const SizedBox(width: 2));
-        breadcrumbs.add(InkWell(onTap: () => onNavigate(targetPath), child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+        breadcrumbs.add(InkWell(
+          onTap: () => onNavigate(currentPath), 
+          child: Text('Recycle Bin', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
+        ));
         breadcrumbs.add(const SizedBox(width: 2));
         breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+      } else {
+        Map<String, dynamic>? activeDisk;
+        for (var d in disks) {
+          final dPath = d['path'] as String? ?? '';
+          if (dPath.isNotEmpty && currentPath.startsWith(dPath)) {
+            if (activeDisk == null || dPath.length > (activeDisk['path'] as String).length) {
+              activeDisk = d;
+            }
+          }
+        }
+
+        final basePath = activeDisk != null ? (activeDisk['path'] as String) : rootPath;
+        final diskLabel = activeDisk != null ? (activeDisk['label'] as String) : 'Local Disk (C:)';
+
+        breadcrumbs.add(const SizedBox(width: 2));
+        breadcrumbs.add(InkWell(onTap: () => onNavigate(basePath), child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+        breadcrumbs.add(const SizedBox(width: 2));
+        breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+
+        final relativeSubPath = currentPath.replaceFirst(basePath, '');
+        final folders = relativeSubPath.split('/').where((e) => e.isNotEmpty).toList();
+        String cumulativePath = basePath;
+
+        for (var folder in folders) {
+          cumulativePath += '/$folder';
+          final targetPath = cumulativePath;
+          breadcrumbs.add(const SizedBox(width: 2));
+          breadcrumbs.add(InkWell(onTap: () => onNavigate(targetPath), child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+          breadcrumbs.add(const SizedBox(width: 2));
+          breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+        }
       }
     }
 

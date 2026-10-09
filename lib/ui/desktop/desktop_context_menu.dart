@@ -446,19 +446,33 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
             desktopState.addNativeWidget(widget.currentDesktopPage, 0, 0);
           }),
           _buildContextDivider(themeState),
-          _buildContextMenuItem('New Desktop Page', Icons.add_to_photos_outlined, themeState, onTap: () { desktopState.addDesktopPage(); widget.pageController.animateToPage(desktopState.desktopPages - 1, duration: const Duration(milliseconds: 10), curve: Curves.easeOut); _showToastSafe('New workspace created'); }),
-          _buildContextMenuItem('Delete Desktop Page', Icons.remove_circle_outline, themeState, onTap: () { if (desktopState.desktopPages > 1) { desktopState.removeDesktopPage(); _showToastSafe('Workspace deleted'); } else { _showToastSafe('Cannot delete the last workspace'); } }),
-          _buildContextMenuItem(desktopState.dragIcons ? 'Lock Desktop Icons' : 'Unlock Desktop Icons', desktopState.dragIcons ? Icons.lock_outline : Icons.lock_open_outlined, themeState, onTap: () { desktopState.updateDesktopSetting('dragIcons', !desktopState.dragIcons); _showToastSafe(!desktopState.dragIcons ? 'Desktop icons locked' : 'Desktop icons unlocked'); }),
+          _buildContextMenuItem('New Desktop Page', Icons.add_to_photos_outlined, themeState, onTap: () {
+            if (!ProGatekeeper.checkAccess(context, featureName: 'Multiple Workspaces')) return;
+            desktopState.addDesktopPage();
+            widget.pageController.animateToPage(desktopState.desktopPages - 1, duration: const Duration(milliseconds: 10), curve: Curves.easeOut);
+            _showToastSafe('New workspace created');
+          }),
+          _buildContextMenuItem('Delete Desktop Page', Icons.remove_circle_outline, themeState, onTap: () {
+            if (desktopState.desktopPages > 1) {
+              desktopState.removeDesktopPage();
+              _showToastSafe('Workspace deleted');
+            } else {
+              _showToastSafe('Cannot delete the last workspace');
+            }
+          }),
+          _buildContextMenuItem(desktopState.dragIcons ? 'Lock Desktop Icons' : 'Unlock Desktop Icons', desktopState.dragIcons ? Icons.lock_outline : Icons.lock_open_outlined, themeState, onTap: () {
+            desktopState.updateDesktopSetting('dragIcons', !desktopState.dragIcons);
+            _showToastSafe(!desktopState.dragIcons ? 'Desktop icons locked' : 'Desktop icons unlocked');
+          }),
           _buildContextDivider(themeState),
           _buildContextMenuItem('Next desktop background', Icons.wallpaper, themeState, onTap: () {
-  // PRO GATE: Prevent background cycling if free
-  if (!ProGatekeeper.checkAccess(context, featureName: 'Desktop Background Switcher')) return;
+            if (!ProGatekeeper.checkAccess(context, featureName: 'Desktop Background Switcher')) return;
 
-  themeState.nextWallpaper();
-  _showToastSafe(themeState.infiniteWebWallpapers 
-      ? 'Fetching new online wallpaper...' 
-      : 'Switched wallpaper');
-}),
+            themeState.nextWallpaper();
+            _showToastSafe(themeState.infiniteWebWallpapers 
+                ? 'Fetching new online wallpaper...' 
+                : 'Switched wallpaper');
+          }),
           _buildContextMenuItem('Personalize', Icons.brush_outlined, themeState, iconColor: const Color(0xFF0078D4), onTap: () => appsState.openApp('settings')),
         ],
       );

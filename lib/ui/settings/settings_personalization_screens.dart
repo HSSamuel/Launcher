@@ -67,9 +67,17 @@ class Win11SettingsTile extends StatelessWidget {
   final Widget trailing;
   final VoidCallback? onTap;
   final bool isDark;
+  final bool isProLocked;
 
   const Win11SettingsTile({
-    Key? key, required this.title, this.subtitle, required this.icon, required this.trailing, this.onTap, required this.isDark
+    Key? key, 
+    required this.title, 
+    this.subtitle, 
+    required this.icon, 
+    required this.trailing, 
+    this.onTap, 
+    required this.isDark,
+    this.isProLocked = false,
   }) : super(key: key);
 
   @override
@@ -90,7 +98,22 @@ class Win11SettingsTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title, 
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isProLocked) ...[
+                          const SizedBox(width: 6),
+                          const Icon(Icons.lock_outline, size: 14, color: Colors.amber),
+                        ]
+                      ],
+                    ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 1),
                       Text(subtitle!, style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey.shade600), maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -313,6 +336,7 @@ class ThemesScreen extends StatelessWidget {
               ),
               Win11SettingsTile(
                 title: 'Material You (Dynamic Color)', 
+                isProLocked: true,
                 subtitle: themeState.syncAccentWithOS 
                     ? 'Active: Synchronized with Wallpaper palette' 
                     : 'Sync launcher accents with device wallpaper', 
@@ -323,7 +347,12 @@ class ThemesScreen extends StatelessWidget {
                   child: Switch(
                     value: themeState.syncAccentWithOS,
                     activeColor: themeState.currentAccentColor,
-                    onChanged: (val) => themeState.setSyncAccentWithOS(val),
+                    onChanged: (val) {
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Material You (Dynamic Color)')) {
+                        return;
+                      }
+                      themeState.setSyncAccentWithOS(val);
+                    },
                   ),
                 ),
               ),
@@ -601,8 +630,6 @@ class BackgroundScreen extends StatelessWidget {
                 title: 'Custom Wallpaper', subtitle: 'Pick a personal image from your gallery', icon: Icons.image_outlined, isDark: isDark,
                 trailing: Icon(Icons.photo_library, size: 20, color: textColor),
                 onTap: () async {
-                  if (!ProGatekeeper.checkAccess(context, featureName: 'Custom Wallpapers')) return;
-                  
                   final picker = ImagePicker();
                   final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 2560, maxHeight: 1440);
                   if (image != null) {
@@ -616,6 +643,7 @@ class BackgroundScreen extends StatelessWidget {
               ),
               Win11SettingsTile(
                 title: 'Windows Spotlight (Infinite)', 
+                isProLocked: true,
                 subtitle: 'Fetch an endless supply of stunning 4K web wallpapers', 
                 icon: Icons.public, 
                 isDark: isDark,
@@ -632,10 +660,23 @@ class BackgroundScreen extends StatelessWidget {
                 ),
               ),
               Win11SettingsTile(
-                title: 'Wallpaper Slideshow', subtitle: 'Automatically cycle through your active theme set', icon: Icons.slideshow, isDark: isDark,
+                title: 'Wallpaper Slideshow', 
+                isProLocked: true,
+                subtitle: 'Automatically cycle through your active theme set', 
+                icon: Icons.slideshow, 
+                isDark: isDark,
                 trailing: Transform.scale(
                   scale: 0.85, 
-                  child: Switch(value: themeState.slideshowEnabled, activeColor: themeState.currentAccentColor, onChanged: (val) => themeState.updateSlideshowSettings(enabled: val))
+                  child: Switch(
+                    value: themeState.slideshowEnabled, 
+                    activeColor: themeState.currentAccentColor, 
+                    onChanged: (val) {
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Wallpaper Slideshow')) {
+                        return;
+                      }
+                      themeState.updateSlideshowSettings(enabled: val);
+                    }
+                  )
                 ),
               ),
               if (themeState.slideshowEnabled)
@@ -991,21 +1032,32 @@ class DesktopSettingsScreen extends StatelessWidget {
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: bgColor,
+          contentPadding: const EdgeInsets.symmetric(vertical: 8),
           title: Text('Page Transition', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: options.map((opt) => ListTile(
-              title: Text(opt, style: TextStyle(color: textColor, fontSize: 13)),
-              trailing: desktopState.pageTransition == opt ? Icon(Icons.check, color: accent) : null,
-              onTap: () {
-                if (opt != 'Classical' && !ProGatekeeper.checkAccess(context, featureName: '3D Page Transitions')) {
+          content: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: options.map((opt) => InkWell(
+                onTap: () {
+                  if (opt != 'Classical' && !ProGatekeeper.checkAccess(context, featureName: '3D Page Transitions')) {
+                    Navigator.pop(ctx);
+                    return;
+                  }
+                  desktopState.updateDesktopSetting('pageTransition', opt);
                   Navigator.pop(ctx);
-                  return;
-                }
-                desktopState.updateDesktopSetting('pageTransition', opt);
-                Navigator.pop(ctx);
-              },
-            )).toList(),
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(opt, style: TextStyle(color: textColor, fontSize: 13))),
+                      if (desktopState.pageTransition == opt) Icon(Icons.check, color: accent, size: 18),
+                    ],
+                  ),
+                ),
+              )).toList(),
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)))
@@ -1149,7 +1201,6 @@ class DesktopSettingsScreen extends StatelessWidget {
     final themeState = context.watch<ThemeState>();
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
-    final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
     final accent = themeState.currentAccentColor;
 
     return Scaffold(
@@ -1180,12 +1231,12 @@ class DesktopSettingsScreen extends StatelessWidget {
               ),
               Win11SettingsTile(
                 title: 'Desktop Icon Size', subtitle: 'Manually adjust the scale of desktop apps', icon: Icons.photo_size_select_small, isDark: isDark,
-                trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)), child: Text('${desktopState.desktopIconScale.toStringAsFixed(2)}x', style: TextStyle(color: textColor, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)), 
+                trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300), borderRadius: BorderRadius.circular(6)), child: Text('${desktopState.desktopIconScale.toStringAsFixed(2)}x', style: TextStyle(color: textColor, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)), 
                 onTap: () => _showDoubleSliderDialog(context, 'Adjust Icon Size', 'desktopIconScale', 0.5, 2.0, 30, desktopState.desktopIconScale, desktopState, themeState)
               ),
               Win11SettingsTile(
                 title: 'Desktop Font Size', subtitle: 'Manually adjust text size on the desktop', icon: Icons.format_size, isDark: isDark,
-                trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)), child: Text('${desktopState.desktopFontSize.toInt()} pt', style: TextStyle(color: textColor, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)), 
+                trailing: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), decoration: BoxDecoration(border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade300), borderRadius: BorderRadius.circular(6)), child: Text('${desktopState.desktopFontSize.toInt()} pt', style: TextStyle(color: textColor, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)), 
                 onTap: () => _showDoubleSliderDialog(context, 'Adjust Font Size', 'desktopFontSize', 8.0, 18.0, 10, desktopState.desktopFontSize, desktopState, themeState)
               ),
               Win11SettingsTile(

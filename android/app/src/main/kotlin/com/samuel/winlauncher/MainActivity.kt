@@ -374,6 +374,29 @@ class MainActivity: FlutterFragmentActivity() {
                 "openWebSearch" -> mediaManager.openWebSearch(call, result)
                 "saveToDownloads" -> mediaManager.saveToDownloads(call, result)
                 "deleteFile" -> mediaManager.deleteFile(call, result)
+
+                "openSystemDocumentPicker" -> {
+                    try {
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        try {
+                            val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                type = "*/*"
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(fallback)
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            result.success(false)
+                        }
+                    }
+                }
                 
                 "pickWidget" -> widgetEngine.pickWidget(result)
                 "removeWidget" -> widgetEngine.removeWidget(call, result)

@@ -218,7 +218,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   void _initializeDefaultDesktop() {
     desktopItems = [
       DesktopItemModel(id: 'recycle_bin', type: 'system', label: 'Recycle Bin', page: 0, col: 0, row: 0),
-      DesktopItemModel(id: 'my_files', type: 'system', label: 'My Files', page: 0, col: 1, row: 0),
+      DesktopItemModel(id: 'this_pc', type: 'system', label: 'This PC', page: 0, col: 1, row: 0),
       DesktopItemModel(id: 'calculator', type: 'system', label: 'Calculator', page: 0, col: 2, row: 0),
       DesktopItemModel(id: 'browser', type: 'system', label: 'Edge', page: 0, col: 3, row: 0),
       DesktopItemModel(id: 'settings', type: 'system', label: 'Settings', page: 0, col: 4, row: 0),
@@ -731,6 +731,16 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     if (itemsJson != null && itemsJson.isNotEmpty) {
       try {
         desktopItems = (jsonDecode(itemsJson) as List).map((e) => DesktopItemModel.fromJson(e)).toList();
+        
+        bool needsSave = false;
+        for (int i = 0; i < desktopItems.length; i++) {
+           if (desktopItems[i].id == 'my_files') {
+              desktopItems[i] = desktopItems[i].copyWith(id: 'this_pc', label: 'This PC');
+              needsSave = true;
+           }
+        }
+        if (needsSave) _saveDesktopItems();
+
       } catch (_) { _initializeDefaultDesktop(); }
     } else {
       _initializeDefaultDesktop();

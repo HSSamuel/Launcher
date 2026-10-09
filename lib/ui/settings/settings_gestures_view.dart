@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../states/desktop_state.dart';
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
+import '../../services/pro_gatekeeper.dart';
 import 'settings_personalization_screens.dart';
 
 class SettingsGesturesView extends StatefulWidget {
@@ -187,6 +188,7 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
       subtitle: subtitle,
       icon: icon,
       isDark: isDark,
+      isProLocked: true,
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -202,7 +204,10 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
           Icon(Icons.chevron_right, size: 20, color: textColor),
         ]
       ),
-      onTap: () => _showGestureActionDialog(context, desktopState, themeState, appsState, type),
+      onTap: () {
+        if (!ProGatekeeper.checkAccess(context, featureName: 'Desktop Gestures')) return;
+        _showGestureActionDialog(context, desktopState, themeState, appsState, type);
+      },
     );
   }
 
@@ -213,7 +218,6 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
     final appsState = context.watch<AppsState>();
     final isDark = themeState.isDarkMode;
 
-    // CRITICAL FIX: Added SingleChildScrollView to prevent RenderFlex overflows
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Column(
@@ -228,12 +232,16 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
                 subtitle: 'Vibrate slightly when a gesture is triggered',
                 icon: Icons.vibration,
                 isDark: isDark,
+                isProLocked: true,
                 trailing: Transform.scale(
                   scale: 0.85,
                   child: Switch(
                     value: desktopState.gestureHapticFeedback,
                     activeColor: themeState.currentAccentColor,
-                    onChanged: (val) => desktopState.updateDesktopSetting('gestureHapticFeedback', val),
+                    onChanged: (val) {
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Desktop Gestures')) return;
+                      desktopState.updateDesktopSetting('gestureHapticFeedback', val);
+                    },
                   )
                 )
               )

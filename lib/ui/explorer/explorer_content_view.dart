@@ -6,12 +6,16 @@ import 'package:provider/provider.dart';
 import '../../models/file_item.dart';
 import '../../states/apps_state.dart';
 import '../../states/desktop_state.dart';
+import '../../states/system_state.dart';
+import '../../states/theme_state.dart';
 import '../../services/native_bridge.dart';
+import '../../services/lazy_app_icon.dart';
 
 class ExplorerContentView extends StatefulWidget {
   final bool isDark;
   final bool isMobile;
   final bool isAtHome;
+  final bool isRecycleBin;
   final String rootPath;
   final List<FileItem> files;
   final double totalGB;
@@ -27,7 +31,7 @@ class ExplorerContentView extends StatefulWidget {
   final Function(Offset, String, String, VoidCallback?) onContextMenu;
 
   const ExplorerContentView({
-    Key? key, required this.isDark, required this.isMobile, required this.isAtHome, required this.rootPath,
+    Key? key, required this.isDark, required this.isMobile, required this.isAtHome, this.isRecycleBin = false, required this.rootPath,
     required this.files, required this.totalGB, required this.freeGB, required this.selectedPaths,
     required this.isMultiSelectMode, required this.onNavigate, 
     required this.onOpenFile, required this.onSelectionChanged, required this.onMultiSelectToggled, 
@@ -82,6 +86,41 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
   }
 
   Widget _buildFileIcon(BuildContext context, String path, bool previewFilesEnabled, {double size = 38}) {
+    if (path.startsWith('virtual_app://')) {
+      final pkg = path.replaceFirst('virtual_app://', '').split('/').first;
+      final themeState = context.read<ThemeState>();
+      if (themeState.cachedIconsPath != null) {
+        final cacheFile = File('${themeState.cachedIconsPath}/$pkg.png');
+        if (cacheFile.existsSync()) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(4), 
+            child: Image.file(
+              cacheFile, 
+              width: size, 
+              height: size, 
+              errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size)
+            )
+          );
+        }
+      }
+      return LazyAppIcon(packageName: pkg, size: size);
+    }
+    
+    if (path.startsWith('virtual_system://')) {
+      final id = path.replaceFirst('virtual_system://', '').split('/').first;
+      String asset = 'folder';
+      if (id == 'browser') asset = 'edge';
+      else if (id == 'calculator') asset = 'calculator';
+      else if (id == 'settings') asset = 'settings';
+      else if (id == 'recycle_bin') asset = 'recycle';
+      else if (id == 'this_pc') asset = 'folder';
+      return Image.asset('assets/icons/$asset.png', width: size, height: size, errorBuilder: (_, __, ___) => Icon(Icons.apps, color: Colors.blueAccent, size: size));
+    }
+
+    if (path.startsWith('virtual_folder://')) {
+      return _buildFolderIcon(size: size);
+    }
+
     final ext = path.toLowerCase();
     
     if (ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.webp') || ext.endsWith('.gif') || ext.endsWith('.heic') || ext.endsWith('.bmp')) {
@@ -295,7 +334,17 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
         widget.onSelectionChanged(newSelection);
       }
     } else {
-      item.isDir ? widget.onNavigate(item.path) : widget.onOpenFile(item.path);
+      if (item.path.startsWith('virtual_app://')) {
+         final pkg = item.path.replaceFirst('virtual_app://', '').split('/').first;
+         context.read<AppsState>().launchNativeApp(pkg, systemState: context.read<SystemState>());
+      } else if (item.path.startsWith('virtual_system://')) {
+         final id = item.path.replaceFirst('virtual_system://', '').split('/').first;
+         context.read<AppsState>().openApp(id);
+      } else if (item.path.startsWith('virtual_folder://')) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Virtual Desktop Folders must be opened from the Desktop Grid.')));
+      } else {
+         item.isDir ? widget.onNavigate(item.path) : widget.onOpenFile(item.path);
+      }
     }
   }
 
@@ -332,6 +381,31 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
     }).toList();
 
     if (visibleFiles.isEmpty) {
+      if (widget.isRecycleBin) {
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                'assets/icons/recycle.png', 
+                width: 56, 
+                height: 56, 
+                errorBuilder: (_, __, ___) => Icon(Icons.delete_outline, size: 56, color: widget.isDark ? Colors.white24 : Colors.black26),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                "This folder is empty.", 
+                style: TextStyle(
+                  color: widget.isDark ? Colors.white54 : Colors.black54, 
+                  fontSize: 13, 
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,

@@ -368,47 +368,19 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                 decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(8), border: Border.all(color: borderColor)), clipBehavior: Clip.antiAlias,
                                 child: Stack(
                                   children: [
-                                    Positioned.fill(
-                                      child: (slide['logo1'] != null)
-                                        ? Row(
-                                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                            children: [
-                                              if (slide['logo1']!.isNotEmpty) 
-                                                Transform.scale(
-                                                  scale: 1.4, 
-                                                  child: Opacity(
-                                                    opacity: 0.25, 
-                                                    child: CachedNetworkImage(
-                                                      imageUrl: slide['logo1']!, 
-                                                      width: 60,
-                                                      memCacheWidth: 120,
-                                                      errorWidget: (context, url, error) => const SizedBox.shrink(),
-                                                    )
-                                                  )
-                                                ),
-                                              if (slide['logo2']!.isNotEmpty) 
-                                                Transform.scale(
-                                                  scale: 1.4, 
-                                                  child: Opacity(
-                                                    opacity: 0.25, 
-                                                    child: CachedNetworkImage(
-                                                      imageUrl: slide['logo2']!, 
-                                                      width: 60,
-                                                      memCacheWidth: 120,
-                                                      errorWidget: (context, url, error) => const SizedBox.shrink(),
-                                                    )
-                                                  )
-                                                ),
-                                            ],
-                                          )
-                                        : CachedNetworkImage(
-                                            imageUrl: slide['image'] ?? '', 
-                                            fit: BoxFit.cover,
-                                            memCacheWidth: 400,
-                                            memCacheHeight: 250,
-                                            errorWidget: (context, url, error) => const SizedBox.shrink(),
-                                          ),
-                                    ),
+                                    // 1. Base Image (for News articles)
+                                    if (slide['logo1'] == null)
+                                      Positioned.fill(
+                                        child: CachedNetworkImage(
+                                          imageUrl: slide['image'] ?? '', 
+                                          fit: BoxFit.cover,
+                                          memCacheWidth: 400,
+                                          memCacheHeight: 250,
+                                          errorWidget: (context, url, error) => const SizedBox.shrink(),
+                                        ),
+                                      ),
+
+                                    // 2. Dark Gradient Overlay (Ensures text remains readable)
                                     Positioned.fill(
                                       child: Container(
                                         decoration: const BoxDecoration(
@@ -421,6 +393,44 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                         ),
                                       ),
                                     ),
+
+                                    // 3. Sports Team Logos (Rendered above the gradient so they are bold and clear)
+                                    if (slide['logo1'] != null)
+                                      Positioned.fill(
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                          children: [
+                                            if (slide['logo1']!.isNotEmpty) 
+                                              Transform.scale(
+                                                scale: 1.8, 
+                                                child: Opacity(
+                                                  opacity: 0.40, 
+                                                  child: CachedNetworkImage(
+                                                    imageUrl: slide['logo1']!, 
+                                                    width: 80,
+                                                    memCacheWidth: 160,
+                                                    errorWidget: (context, url, error) => const SizedBox.shrink(),
+                                                  )
+                                                )
+                                              ),
+                                            if (slide['logo2']!.isNotEmpty) 
+                                              Transform.scale(
+                                                scale: 1.8, 
+                                                child: Opacity(
+                                                  opacity: 0.40, 
+                                                  child: CachedNetworkImage(
+                                                    imageUrl: slide['logo2']!, 
+                                                    width: 80,
+                                                    memCacheWidth: 160,
+                                                    errorWidget: (context, url, error) => const SizedBox.shrink(),
+                                                  )
+                                                )
+                                              ),
+                                          ],
+                                        )
+                                      ),
+
+                                    // 4. Foreground Text Content
                                     Padding(
                                       padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 20),
                                       child: Column(

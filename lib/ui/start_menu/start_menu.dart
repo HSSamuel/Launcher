@@ -161,7 +161,6 @@ class _StartMenuState extends State<StartMenu> {
     final double iconSize = 32.0 * scale; 
     final double fontSize = desktopState.desktopFontSize;
 
-    // RepaintBoundary isolates individual tile rasterization during scrolling
     return RepaintBoundary(
       child: Builder(
         builder: (ctx) => InkWell(
@@ -233,7 +232,6 @@ class _StartMenuState extends State<StartMenu> {
     final double itemHeight = math.max(48.0, 52.0 * scale);
     final double fontSize = desktopState.desktopFontSize;
 
-    // RepaintBoundary isolates individual list tile rasterization during scrolling
     return RepaintBoundary(
       child: SizedBox(
         height: itemHeight, 
@@ -376,48 +374,24 @@ class _StartMenuState extends State<StartMenu> {
     );
   }
 
-  void _showCreateCategoryDialog(BuildContext context, ThemeState themeState, AppsState appsState) {
+  void _showCreateCategoryDialog(BuildContext context, ThemeState themeState, AppsState appsState) async {
     final isDark = themeState.isDarkMode;
-    final controller = TextEditingController();
+    final accent = themeState.foregroundAccentColor;
 
-    showDialog(
+    final String? folderName = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        title: Text('New Folder', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: SizedBox(
-          width: 260,
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: 'Enter category name (e.g. Work, Games)',
-              hintStyle: TextStyle(color: isDark ? Colors.white54 : Colors.black54, fontSize: 12),
-              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: themeState.foregroundAccentColor, width: 1.5)),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
-          ),
-          TextButton(
-            onPressed: () {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                appsState.createCustomCategory(text);
-                Navigator.pop(ctx);
-                _showToast("Created '$text' folder");
-              }
-            },
-            child: Text('Create', style: TextStyle(color: themeState.foregroundAccentColor, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (ctx) => _NewCategoryDialog(
+        isDark: isDark,
+        accentColor: accent,
       ),
     );
+
+    if (folderName != null && folderName.trim().isNotEmpty) {
+      appsState.createCustomCategory(folderName.trim());
+      if (mounted) {
+        _showToast("Created '${folderName.trim()}' folder");
+      }
+    }
   }
 
   void _showManageAppsInFolderDialog(BuildContext context, String categoryName, ThemeState themeState, AppsState appsState, DesktopState desktopState) {
@@ -743,6 +717,15 @@ class _StartMenuState extends State<StartMenu> {
         recentAddedApps.add(appsState.appMap[pkg]!);
       }
     }
+    
+    final List<AppInfo> recentUpdatedApps = [];
+    for (final entry in appsState.recentlyUpdatedApps) {
+      if (recentUpdatedApps.length >= 6) break;
+      final pkg = entry.split('|')[0];
+      if (!appsState.hiddenApps.contains(pkg) && appsState.appMap.containsKey(pkg)) {
+        recentUpdatedApps.add(appsState.appMap[pkg]!);
+      }
+    }
 
     final sortedKeys = appsState.precomputedAlphabetKeys;
     final groupedApps = appsState.precomputedAlphabetGroups;
@@ -751,19 +734,28 @@ class _StartMenuState extends State<StartMenu> {
     final double itemHeight = math.max(48.0, 52.0 * scale); 
     final double fontSize = desktopState.desktopFontSize;
 
-    // Cache the flattened list calculation so it only runs if app count changes
     if ((_viewMode == 'List' || _showAlphabetGrid) && (_lastAppCount != appsState.installedApps.length || _cachedFlattenedList.isEmpty)) {
       _lastAppCount = appsState.installedApps.length;
       _cachedFlattenedList = [];
       _cachedLetterOffsets = {};
       double currentOffset = 0.0;
 
-      if (desktopState.showRecentlyAdded && recentAddedApps.isNotEmpty) {
-        _cachedFlattenedList.add({'type': 'header', 'text': 'Recently added'});
-        currentOffset += 42.0; 
-        for (var app in recentAddedApps) {
-          _cachedFlattenedList.add({'type': 'app', 'data': app});
-          currentOffset += itemHeight;
+      if (desktopState.showRecentlyAdded) {
+        if (recentAddedApps.isNotEmpty) {
+          _cachedFlattenedList.add({'type': 'header', 'text': 'Recently added'});
+          currentOffset += 32.0; 
+          for (var app in recentAddedApps) {
+            _cachedFlattenedList.add({'type': 'app', 'data': app});
+            currentOffset += itemHeight;
+          }
+        }
+        if (recentUpdatedApps.isNotEmpty) {
+          _cachedFlattenedList.add({'type': 'header', 'text': 'Recently updated'});
+          currentOffset += 32.0; 
+          for (var app in recentUpdatedApps) {
+            _cachedFlattenedList.add({'type': 'app', 'data': app});
+            currentOffset += itemHeight;
+          }
         }
       }
 
@@ -808,6 +800,16 @@ class _StartMenuState extends State<StartMenu> {
                       hintText: 'Search for apps, settings...',
                       hintStyle: TextStyle(color: secText, fontSize: 13),
                       prefixIcon: Icon(Icons.search, color: secText, size: 18),
+                      suffixIcon: _searchQuery.isNotEmpty 
+                          ? IconButton(
+                              icon: Icon(Icons.close, size: 16, color: textColor.withOpacity(0.7)),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                                FocusScope.of(context).unfocus();
+                              },
+                            )
+                          : null,
                       filled: true,
                       fillColor: searchBg,
                       contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -1149,6 +1151,103 @@ class _StartMenuState extends State<StartMenu> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _NewCategoryDialog extends StatefulWidget {
+  final bool isDark;
+  final Color accentColor;
+
+  const _NewCategoryDialog({
+    Key? key,
+    required this.isDark,
+    required this.accentColor,
+  }) : super(key: key);
+
+  @override
+  State<_NewCategoryDialog> createState() => _NewCategoryDialogState();
+}
+
+class _NewCategoryDialogState extends State<_NewCategoryDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: widget.isDark ? const Color(0xFF2B2B2B) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      title: Text(
+        'New Folder',
+        style: TextStyle(
+          color: widget.isDark ? Colors.white : Colors.black87,
+          fontSize: 16,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      content: SizedBox(
+        width: 260,
+        child: TextField(
+          controller: _controller,
+          autofocus: true,
+          style: TextStyle(
+            color: widget.isDark ? Colors.white : Colors.black87,
+            fontSize: 13,
+          ),
+          decoration: InputDecoration(
+            hintText: 'Enter category name (e.g. Work, Games)',
+            hintStyle: TextStyle(
+              color: widget.isDark ? Colors.white54 : Colors.black54,
+              fontSize: 12,
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: widget.accentColor, width: 1.5),
+            ),
+          ),
+          onSubmitted: (val) {
+            final text = val.trim();
+            if (text.isNotEmpty) {
+              Navigator.pop(context, text);
+            }
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54),
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            final text = _controller.text.trim();
+            if (text.isNotEmpty) {
+              Navigator.pop(context, text);
+            }
+          },
+          child: Text(
+            'Create',
+            style: TextStyle(
+              color: widget.accentColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -46,6 +46,7 @@ class AppsState extends ChangeNotifier {
   List<String> recentApps = [];
   
   List<String> recentlyAddedApps = [];
+  List<String> recentlyUpdatedApps = [];
   List<String> hiddenApps = [];
   List<String> lockedApps = [];
 
@@ -68,10 +69,6 @@ class AppsState extends ChangeNotifier {
 
   AppsState() {
     _loadState();
-    
-    // CRITICAL FIX: Commented out to prevent Undefined Class Reference compilation errors
-    // SearchDataSync.startBackgroundTimer();
-    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       loadRealAndroidApps();
     });
@@ -84,15 +81,31 @@ class AppsState extends ChangeNotifier {
     super.dispose();
   }
 
-  void addRecentlyAddedApp(String pkg) async {
+  void addRecentlyAddedApp(String pkg, {bool isUpdate = false}) async {
     final entry = '$pkg|${DateTime.now().millisecondsSinceEpoch}';
-    recentlyAddedApps.removeWhere((e) => e.split('|')[0] == pkg);
-    recentlyAddedApps.insert(0, entry);
-    if (recentlyAddedApps.length > 6) {
-      recentlyAddedApps = recentlyAddedApps.sublist(0, 6);
-    }
     final prefs = await SharedPreferences.getInstance();
+    
+    // 1. Purge the package from BOTH lists to guarantee mutual exclusivity
+    recentlyAddedApps.removeWhere((e) => e.split('|')[0] == pkg);
+    recentlyUpdatedApps.removeWhere((e) => e.split('|')[0] == pkg);
+    
+    // 2. Insert into the correct designated list
+    if (isUpdate) {
+      recentlyUpdatedApps.insert(0, entry);
+      if (recentlyUpdatedApps.length > 6) {
+        recentlyUpdatedApps = recentlyUpdatedApps.sublist(0, 6);
+      }
+    } else {
+      recentlyAddedApps.insert(0, entry);
+      if (recentlyAddedApps.length > 6) {
+        recentlyAddedApps = recentlyAddedApps.sublist(0, 6);
+      }
+    }
+    
+    // 3. Persist the cleaned states to disk
     await prefs.setStringList('recentlyAddedApps', recentlyAddedApps);
+    await prefs.setStringList('recentlyUpdatedApps', recentlyUpdatedApps);
+    
     notifyListeners();
   }
 
@@ -115,37 +128,44 @@ class AppsState extends ChangeNotifier {
   }
 
   Future<void> injectAndSyncApp(String pkg, String label) async {
-    if (kIsWeb) return;
+if (kIsWeb) return;
+try {
+  // Give the OS an extra second to finalize the APK extraction and manifest indexing
+  await Future.delayed(const Duration(milliseconds: 2500));
+  
+  AppInfo? fetchedInfo;
+  try {
+    fetchedInfo = await InstalledApps.getAppInfo(pkg);
+  } catch (_) {}
+
+  if (fetchedInfo == null) {
+    final allApps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: false);
     try {
-      await Future.delayed(const Duration(milliseconds: 1500));
-      
-      AppInfo? fetchedInfo;
-      try {
-        fetchedInfo = await InstalledApps.getAppInfo(pkg);
-      } catch (_) {}
-
-      if (fetchedInfo == null) {
-        final allApps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: false);
-        try {
-          fetchedInfo = allApps.firstWhere((a) => a.packageName == pkg);
-        } catch (_) {
-          debugPrint("App not found in system index yet. Will sync on next background refresh.");
-          return;
-        }
-      }
-
-      installedApps.removeWhere((a) => a.packageName == pkg);
-      installedApps.add(fetchedInfo);
-      installedApps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
-      
-      appMap[pkg] = fetchedInfo;
-      
-      await _updateCategorizedApps(); 
-      notifyListeners(); 
-    } catch (e) {
-      debugPrint("Failed to sync injected app: $e");
+      fetchedInfo = allApps.firstWhere((a) => a.packageName == pkg);
+    } catch (_) {
+      debugPrint("App not found in system index yet. Will sync on next background refresh.");
+      return;
     }
   }
+
+  installedApps.removeWhere((a) => a.packageName == pkg);
+  installedApps.add(fetchedInfo);
+  installedApps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
+  
+  appMap[pkg] = fetchedInfo;
+  
+  // Pre-populate the LazyAppIcon memory cache to prevent the "Green Android" fallback
+  if (fetchedInfo.icon != null) {
+    LazyAppIcon.globalIconCache[pkg] = fetchedInfo.icon!;
+    LazyAppIcon.failedFetches.remove(pkg);
+  }
+  
+  await _updateCategorizedApps(); 
+  notifyListeners(); 
+} catch (e) {
+  debugPrint("Failed to sync injected app: $e");
+}
+}
 
   Future<void> checkIconCacheStatus(String windowId, String? cachedIconsPath) async {
     if (cachedIconsPath != null && !iconCacheStatus.containsKey(windowId)) {
@@ -473,6 +493,7 @@ class AppsState extends ChangeNotifier {
       if (hiddenApps.length != initialHidden) prefsChanged = true;
       
       int initialNewlyLength = recentlyAddedApps.length;
+      int initialUpdatedLength = recentlyUpdatedApps.length;
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       
       recentlyAddedApps.removeWhere((entry) {
@@ -485,6 +506,17 @@ class AppsState extends ChangeNotifier {
         return !validPackages.contains(pkg);
       });
       if (recentlyAddedApps.length != initialNewlyLength) prefsChanged = true;
+
+      recentlyUpdatedApps.removeWhere((entry) {
+        final parts = entry.split('|');
+        final pkg = parts[0];
+        final ts = int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0;
+        
+        if (nowMs - ts >= 86400000) return true;
+        if (nowMs - ts < 300000) return false;
+        return !validPackages.contains(pkg);
+      });
+      if (recentlyUpdatedApps.length != initialUpdatedLength) prefsChanged = true;
 
       appNotificationCounts.removeWhere((pkg, _) => !validPackages.contains(pkg));
       iconCacheStatus.removeWhere((pkg, _) => pkg.contains('.') && !validPackages.contains(pkg));
@@ -502,6 +534,7 @@ class AppsState extends ChangeNotifier {
         await prefs.setStringList('lockedApps', lockedApps);
         await prefs.setStringList('hiddenApps', hiddenApps);
         await prefs.setStringList('recentlyAddedApps', recentlyAddedApps);
+        await prefs.setStringList('recentlyUpdatedApps', recentlyUpdatedApps);
       }
       _saveCustomCategoriesDebounced();
 
@@ -535,7 +568,6 @@ class AppsState extends ChangeNotifier {
         await prefs.setBool('hasInitializedPins', true);
       }
       
-      // PERFORMANCE FIX: Pre-warm the icon cache in the background during idle time
       final allPackages = installedApps.map((e) => e.packageName!).toList();
       Future.microtask(() {
         LazyAppIcon.prewarmIcons(allPackages);
@@ -694,7 +726,9 @@ class AppsState extends ChangeNotifier {
     lockedApps = prefs.getStringList('lockedApps') ?? [];
     
     final rawRecentAdded = prefs.getStringList('recentlyAddedApps') ?? [];
+    final rawRecentUpdated = prefs.getStringList('recentlyUpdatedApps') ?? [];
     final now = DateTime.now().millisecondsSinceEpoch;
+    
     recentlyAddedApps = rawRecentAdded.where((entry) {
       final parts = entry.split('|');
       if (parts.length == 2) {
@@ -705,6 +739,18 @@ class AppsState extends ChangeNotifier {
     }).toList();
     if (rawRecentAdded.length != recentlyAddedApps.length) {
       prefs.setStringList('recentlyAddedApps', recentlyAddedApps);
+    }
+
+    recentlyUpdatedApps = rawRecentUpdated.where((entry) {
+      final parts = entry.split('|');
+      if (parts.length == 2) {
+        final ts = int.tryParse(parts[1]) ?? 0;
+        return (now - ts) < 86400000; 
+      }
+      return false;
+    }).toList();
+    if (rawRecentUpdated.length != recentlyUpdatedApps.length) {
+      prefs.setStringList('recentlyUpdatedApps', recentlyUpdatedApps);
     }
 
     final String? catJson = prefs.getString('appCategoryMap');
