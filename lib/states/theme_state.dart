@@ -38,6 +38,9 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
 
   bool transparencyEffects = true;
   bool isLegacyDevice = false;
+  
+  bool enableSystemSounds = false;
+  String bootAnimation = 'None'; 
 
   double get activeBlurSigma {
     if (!transparencyEffects) return 0.0;
@@ -62,6 +65,9 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
     WinTheme(name: 'Vibrant Abstract', wallpaperUrl: 'assets/wallpapers/road.jpg', isDark: true, accentColor: Color(0xFFE91E63)),
     WinTheme(name: 'Frozen Stream', wallpaperUrl: 'assets/wallpapers/stream.jpg', isDark: false, accentColor: Color(0xFF388E3C)),
     WinTheme(name: 'Fiery Ribbons', wallpaperUrl: 'assets/wallpapers/green.jpg', isDark: true, accentColor: Color(0xFFD84315)),
+    WinTheme(name: 'Windows 98 Retro', wallpaperUrl: 'assets/wallpapers/theme_98.jpg', isDark: false, accentColor: Color(0xFF008080)),
+    WinTheme(name: 'Windows XP Bliss', wallpaperUrl: 'assets/wallpapers/theme_xp.jpg', isDark: false, accentColor: Color(0xFF245FDF)),
+    WinTheme(name: 'Windows 7 Aero', wallpaperUrl: 'assets/wallpapers/theme_7.jpg', isDark: false, accentColor: Color(0xFF3399FF)),
   ];
 
   Color get currentAccentColor {
@@ -277,6 +283,20 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.setBool('infiniteWebWallpapers', enabled);
     notifyListeners();
   }
+  
+  Future<void> setSystemSounds(bool enable) async {
+    enableSystemSounds = enable;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('enableSystemSounds', enable);
+    notifyListeners();
+  }
+
+  Future<void> setBootAnimation(String anim) async {
+    bootAnimation = anim;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('bootAnimation', anim);
+    notifyListeners();
+  }
 
   void _startSlideshowTimer() {
     _slideshowTimer?.cancel();
@@ -398,6 +418,9 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
     transparencyEffects = prefs.getBool('transparencyEffects') ?? true;
     syncAccentWithOS = prefs.getBool('syncAccentWithOS') ?? false;
     infiniteWebWallpapers = prefs.getBool('infiniteWebWallpapers') ?? false;
+    
+    enableSystemSounds = prefs.getBool('enableSystemSounds') ?? false;
+    bootAnimation = prefs.getString('bootAnimation') ?? 'None';
 
     final customColorInt = prefs.getInt('customAccentColor');
     if (customColorInt != null) customAccentColor = Color(customColorInt);
@@ -447,7 +470,6 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
       _applySystemOrExtractedColor();
     }
 
-    // PERFORMANCE FIX: Generate native WebP icon cache in background on fresh installs
     if (cachedIconsPath == null && !kIsWeb && Platform.isAndroid) {
       Future.delayed(const Duration(seconds: 2), () {
         setIconPack(null);

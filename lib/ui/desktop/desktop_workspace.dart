@@ -9,7 +9,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:installed_apps/app_info.dart';
-import 'package:win11_pc_launcher/services/battery_mock.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:device_calendar/device_calendar.dart';
@@ -87,6 +86,43 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
   final List<String> _transitionTypes = [
     'Classical', '3D Cube', '3D Page Flip', '3D Card', 'Cube Carousel', '3D Swipe'
   ];
+
+  Future<void> _launchSystemItem(DesktopItemModel item, AppsState appsState) async {
+    if (item.id == 'recycle_bin') {
+      String rootPath = '/storage/emulated/0';
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) rootPath = extDir.path.split('/Android')[0];
+      } catch (_) {}
+      
+      final binPath = '$rootPath/.Win11RecycleBin';
+      final rb = Directory(binPath);
+      if (!rb.existsSync()) {
+        try { 
+          rb.createSync(recursive: true); 
+          File('${rb.path}/.nomedia').createSync();
+        } catch (_) {}
+      }
+      appsState.currentExplorerPath = rb.path;
+      appsState.openApp('explorer');
+      widget.explorerKey?.currentState?.navigateTo(rb.path);
+    } else if (item.id == 'this_pc' || item.id == 'my_files') {
+      appsState.currentExplorerPath = '/storage/emulated/0';
+      appsState.openApp('explorer');
+      widget.explorerKey?.currentState?.navigateTo('/storage/emulated/0');
+    } else {
+      appsState.openApp(item.id);
+    }
+  }
+
+  void _executeShortcut(DesktopItemModel item, AppsState appsState) {
+    if (item.path == null || item.path!.isEmpty) return;
+    if (item.widgetType == 'web') {
+      appsState.openApp('browser');
+    } else {
+      NativeBridge.instance.launchApp(item.path!);
+    }
+  }
 
   Widget _buildDesktopFolderIcon(DesktopItemModel item, AppsState appsState, ThemeState themeState) {
     final apps = item.folderApps?.map((pkg) => appsState.appMap[pkg]).whereType<AppInfo>().take(4).toList() ?? [];
@@ -339,75 +375,82 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
   }
 
   Widget _getDesktopIconWidget(DesktopItemModel item, AppsState appsState, ThemeState themeState, double iconScale) {
-Widget? iconChild;
-bool isSystem = item.type == 'system';
-bool leaveUncircled = false;
+    Widget? iconChild;
+    bool isSystem = item.type == 'system';
+    bool leaveUncircled = false;
 
-if (item.type == 'folder') {
-  iconChild = _buildDesktopFolderIcon(item, appsState, themeState);
-  leaveUncircled = true;
-} else if (isSystem) {
-  String asset = 'folder';
-  if (item.id == 'browser') { asset = 'edge'; leaveUncircled = true; }
-  else if (item.id == 'calculator') { asset = 'calculator'; leaveUncircled = true; }
-  else if (item.id == 'settings') { asset = 'settings'; leaveUncircled = true; }
-  else if (item.id == 'recycle_bin') { asset = 'recycle'; leaveUncircled = true; }
-  else if (item.id == 'this_pc' || item.id == 'my_files') { asset = 'folder'; leaveUncircled = true; }
-  iconChild = Image.asset('assets/icons/$asset.png', fit: BoxFit.contain);
-} else if (item.type == 'app' && item.package != null) {
-  if (themeState.customAppIcons.containsKey(item.package)) {
-    iconChild = Image.file(
-      File(themeState.customAppIcons[item.package]!),
-      fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
-      // FIX: Replaced green Android with LazyAppIcon memory cache lookup
-      errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
-    );
-  } else if (themeState.cachedIconsPath != null) {
-    iconChild = Image.file(
-      File('${themeState.cachedIconsPath}/${item.package}.png'),
-      fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
-      // FIX: Replaced green Android with LazyAppIcon memory cache lookup
-      errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
-    );
-  } else {
-    iconChild = LazyAppIcon(
-      packageName: item.package!,
-      size: 32.0 * iconScale,
-    );
-  }
-} else if (item.type == 'file') {
-  final pathStr = item.path ?? '';
-  final name = pathStr.split('/').last;
-  final hasExtension = name.contains('.');
-  final ext = hasExtension ? name.split('.').last.toLowerCase() : '';
-  
-  if (!hasExtension) {
-     iconChild = Image.asset('assets/icons/custom_folder.png', errorBuilder: (_, __, ___) => const Icon(Icons.folder, color: Colors.amber));
-  } else {
-     if (['png', 'jpg', 'jpeg', 'webp'].contains(ext)) {
-        iconChild = ClipRRect(
-           borderRadius: BorderRadius.circular(4),
-           child: Image.file(File(pathStr), fit: BoxFit.cover, cacheWidth: 128)
+    if (item.type == 'folder') {
+      iconChild = _buildDesktopFolderIcon(item, appsState, themeState);
+      leaveUncircled = true;
+    } else if (item.type == 'shortcut') {
+      if (item.widgetType == 'call') {
+        iconChild = const Icon(Icons.phone_forwarded, color: Colors.greenAccent, size: 28);
+      } else if (item.widgetType == 'web') {
+        iconChild = const Icon(Icons.language, color: Colors.blueAccent, size: 28);
+      } else {
+        iconChild = const Icon(Icons.terminal, color: Colors.amber, size: 28);
+      }
+      isSystem = true;
+    } else if (isSystem) {
+      String asset = 'folder';
+      if (item.id == 'browser') { asset = 'edge'; leaveUncircled = true; }
+      else if (item.id == 'calculator') { asset = 'calculator'; leaveUncircled = true; }
+      else if (item.id == 'settings') { asset = 'settings'; leaveUncircled = true; }
+      else if (item.id == 'recycle_bin') { asset = 'recycle'; leaveUncircled = true; }
+      else if (item.id == 'this_pc' || item.id == 'my_files') { asset = 'folder'; leaveUncircled = true; }
+      iconChild = Image.asset('assets/icons/$asset.png', fit: BoxFit.contain);
+    } else if (item.type == 'app' && item.package != null) {
+      if (themeState.customAppIcons.containsKey(item.package)) {
+        iconChild = Image.file(
+          File(themeState.customAppIcons[item.package]!),
+          fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
         );
-     } else if (ext == 'pdf') {
-        iconChild = const Icon(Icons.picture_as_pdf, color: Colors.redAccent);
-     } else if (['mp4', 'mkv'].contains(ext)) {
-        iconChild = const Icon(Icons.video_file, color: Colors.purpleAccent);
-     } else if (['mp3', 'wav'].contains(ext)) {
-        iconChild = const Icon(Icons.audio_file, color: Colors.amber);
-     } else if (['zip', 'rar', '7z'].contains(ext)) {
-        iconChild = const Icon(Icons.folder_zip, color: Colors.orangeAccent);
-     } else {
-        iconChild = const Icon(Icons.insert_drive_file, color: Colors.blueGrey);
-     }
-  }
-  isSystem = true;
-}
+      } else if (themeState.cachedIconsPath != null) {
+        iconChild = Image.file(
+          File('${themeState.cachedIconsPath}/${item.package}.png'),
+          fit: BoxFit.contain, cacheWidth: 128, cacheHeight: 128, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => LazyAppIcon(packageName: item.package!, size: 32.0 * iconScale),
+        );
+      } else {
+        iconChild = LazyAppIcon(
+          packageName: item.package!,
+          size: 32.0 * iconScale,
+        );
+      }
+    } else if (item.type == 'file') {
+      final pathStr = item.path ?? '';
+      final name = pathStr.split('/').last;
+      final hasExtension = name.contains('.');
+      final ext = hasExtension ? name.split('.').last.toLowerCase() : '';
+      
+      if (!hasExtension) {
+         iconChild = Image.asset('assets/icons/custom_folder.png', errorBuilder: (_, __, ___) => const Icon(Icons.folder, color: Colors.amber));
+      } else {
+         if (['png', 'jpg', 'jpeg', 'webp'].contains(ext)) {
+            iconChild = ClipRRect(
+               borderRadius: BorderRadius.circular(4),
+               child: Image.file(File(pathStr), fit: BoxFit.cover, cacheWidth: 128)
+            );
+         } else if (ext == 'pdf') {
+            iconChild = const Icon(Icons.picture_as_pdf, color: Colors.redAccent);
+         } else if (['mp4', 'mkv'].contains(ext)) {
+            iconChild = const Icon(Icons.video_file, color: Colors.purpleAccent);
+         } else if (['mp3', 'wav'].contains(ext)) {
+            iconChild = const Icon(Icons.audio_file, color: Colors.amber);
+         } else if (['zip', 'rar', '7z'].contains(ext)) {
+            iconChild = const Icon(Icons.folder_zip, color: Colors.orangeAccent);
+         } else {
+            iconChild = const Icon(Icons.insert_drive_file, color: Colors.blueGrey);
+         }
+      }
+      isSystem = true;
+    }
 
-iconChild ??= const Icon(Icons.apps, color: Colors.blueAccent);
-if (leaveUncircled) return iconChild;
-return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
-}
+    iconChild ??= const Icon(Icons.apps, color: Colors.blueAccent);
+    if (leaveUncircled) return iconChild;
+    return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
+  }
 
   Widget _buildDesktopWidgetCard(DesktopItemModel item, ThemeState themeState, AppsState appsState) {
     final isDark = themeState.isDarkMode;
@@ -415,6 +458,18 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subColor = isDark ? Colors.white70 : Colors.black54;
+
+    // Direct circular gauge layout matching the exact design reference
+    if (item.widgetType == 'system_monitor') {
+      return Center(
+        child: _LiveSystemMonitorWidget(
+          textColor: textColor,
+          subColor: subColor,
+          accentColor: themeState.currentAccentColor,
+          isDark: isDark,
+        ),
+      );
+    }
 
     Widget content = const SizedBox.shrink();
     VoidCallback? onTap;
@@ -427,10 +482,6 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
       case 'weather':
         content = _LiveWeatherWidget(textColor: textColor, subColor: subColor);
         onTap = () => NativeBridge.instance.openWebSearch('weather forecast');
-        break;
-      case 'battery':
-        content = _LiveBatteryWidget(textColor: textColor, subColor: subColor);
-        onTap = () => NativeBridge.instance.openSettings('battery_saver');
         break;
       case 'storage':
         content = _LiveStorageWidget(textColor: textColor, subColor: subColor, isDark: isDark);
@@ -449,7 +500,7 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: cardBg,
           borderRadius: BorderRadius.circular(10),
@@ -457,9 +508,13 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 2))],
         ),
         child: FittedBox(
-          fit: BoxFit.scaleDown,
+          fit: BoxFit.contain,
           alignment: Alignment.centerLeft,
-          child: content,
+          child: SizedBox(
+            width: 220,
+            height: 220,
+            child: content,
+          ),
         ),
       ),
     );
@@ -640,32 +695,10 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
                     widget.onCloseOverlays();
                     if (item.type == 'folder') {
                       _showDesktopFolderDialog(context, item, appsState, desktopState, themeState);
+                    } else if (item.type == 'shortcut') {
+                      _executeShortcut(item, appsState);
                     } else if (item.type == 'system') {
-                      if (item.id == 'recycle_bin') {
-                        String rootPath = '/storage/emulated/0';
-                        try {
-                          final extDir = await getExternalStorageDirectory();
-                          if (extDir != null) rootPath = extDir.path.split('/Android')[0];
-                        } catch (_) {}
-                        
-                        final binPath = '$rootPath/.Win11RecycleBin';
-                        final rb = Directory(binPath);
-                        if (!rb.existsSync()) {
-                          try { 
-                              rb.createSync(recursive: true); 
-                              File('${rb.path}/.nomedia').createSync();
-                          } catch (_) {}
-                        }
-                        appsState.currentExplorerPath = rb.path;
-                        appsState.openApp('explorer');
-                        widget.explorerKey?.currentState?.navigateTo(rb.path);
-                      } else if (item.id == 'this_pc' || item.id == 'my_files') {
-                        appsState.currentExplorerPath = '/storage/emulated/0';
-                        appsState.openApp('explorer');
-                        widget.explorerKey?.currentState?.navigateTo('/storage/emulated/0');
-                      } else {
-                        appsState.openApp(item.id);
-                      }
+                      await _launchSystemItem(item, appsState); 
                     } else if (item.type == 'app' && item.package != null) {
                       appsState.launchNativeApp(item.package!, systemState: systemState);
                     } else if (item.type == 'file' && item.path != null) {
@@ -682,14 +715,19 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
                   onSecondaryTap: (globalPos) {
                     String cType = item.type;
                     if (item.type == 'folder') cType = 'desktop_folder';
+                    if (item.type == 'shortcut') cType = 'shortcut';
 
                     widget.onContextMenu(
                       globalPos,
                       cType, item.id, item.label,
                       () async {
-                        if (item.type == 'app' && item.package != null) appsState.launchNativeApp(item.package!, systemState: systemState);
-                        else if (item.type == 'system') appsState.openApp(item.id);
-                        else if (item.type == 'file' && item.path != null) {
+                        if (item.type == 'shortcut') {
+                          _executeShortcut(item, appsState);
+                        } else if (item.type == 'app' && item.package != null) {
+                          appsState.launchNativeApp(item.package!, systemState: systemState);
+                        } else if (item.type == 'system') {
+                          await _launchSystemItem(item, appsState);
+                        } else if (item.type == 'file' && item.path != null) {
                            final isDir = Directory(item.path!).existsSync();
                            if (isDir) appsState.requestExplorerNavigation(item.path!);
                            else NativeBridge.instance.openFile(item.path!);
@@ -702,14 +740,19 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
                   onLongPress: (globalPos) {
                     String cType = item.type;
                     if (item.type == 'folder') cType = 'desktop_folder';
+                    if (item.type == 'shortcut') cType = 'shortcut';
 
                     widget.onContextMenu(
                       globalPos,
                       cType, item.id, item.label,
                       () async {
-                        if (item.type == 'app' && item.package != null) appsState.launchNativeApp(item.package!, systemState: systemState);
-                        else if (item.type == 'system') appsState.openApp(item.id);
-                        else if (item.type == 'file' && item.path != null) {
+                        if (item.type == 'shortcut') {
+                          _executeShortcut(item, appsState);
+                        } else if (item.type == 'app' && item.package != null) {
+                          appsState.launchNativeApp(item.package!, systemState: systemState);
+                        } else if (item.type == 'system') {
+                          await _launchSystemItem(item, appsState);
+                        } else if (item.type == 'file' && item.path != null) {
                            final isDir = Directory(item.path!).existsSync();
                            if (isDir) appsState.requestExplorerNavigation(item.path!);
                            else NativeBridge.instance.openFile(item.path!);
@@ -868,11 +911,7 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
                   top: item.row * cellHeight,
                   width: itemWidth,
                   height: itemHeight,
-                  child: GestureDetector(
-                    onSecondaryTapDown: (details) => widget.onContextMenu(details.globalPosition, 'widget', item.id, item.label, null),
-                    onLongPressStart: (details) => widget.onContextMenu(details.globalPosition, 'widget', item.id, item.label, null),
-                    child: content,
-                  ),
+                  child: content,
                 );
               } else {
                 return Positioned(
@@ -880,27 +919,23 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
                   top: item.row * cellHeight,
                   width: itemWidth,
                   height: itemHeight,
-                  child: GestureDetector(
-                    onSecondaryTapDown: (details) => widget.onContextMenu(details.globalPosition, 'widget', item.id, item.label, null),
-                    onLongPressStart: (details) => widget.onContextMenu(details.globalPosition, 'widget', item.id, item.label, null),
-                    child: Draggable<DesktopItemModel>(
-                      data: item,
-                      feedback: Material(
-                        color: Colors.transparent,
-                        child: Opacity(
-                          opacity: 0.8,
-                          child: isNativeWidget
-                              ? Container(
-                                  width: itemWidth, height: itemHeight,
-                                  decoration: BoxDecoration(color: Colors.grey.shade800, borderRadius: BorderRadius.circular(10)),
-                                  child: const Center(child: Icon(Icons.widgets, color: Colors.white)),
-                                )
-                              : SizedBox(width: itemWidth, height: itemHeight, child: content),
-                        ),
+                  child: Draggable<DesktopItemModel>(
+                    data: item,
+                    feedback: Material(
+                      color: Colors.transparent,
+                      child: Opacity(
+                        opacity: 0.8,
+                        child: isNativeWidget
+                            ? Container(
+                                width: itemWidth, height: itemHeight,
+                                decoration: BoxDecoration(color: Colors.grey.shade800, borderRadius: BorderRadius.circular(10)),
+                                child: const Center(child: Icon(Icons.widgets, color: Colors.white)),
+                              )
+                            : SizedBox(width: itemWidth, height: itemHeight, child: content),
                       ),
-                      childWhenDragging: Opacity(opacity: 0.3, child: content),
-                      child: content,
                     ),
+                    childWhenDragging: Opacity(opacity: 0.3, child: content),
+                    child: content,
                   ),
                 );
               }
@@ -1090,6 +1125,285 @@ return isSystem ? Transform.scale(scale: 0.80, child: iconChild) : iconChild;
   }
 }
 
+// --- BUILT-IN LIVE WIDGETS ---
+
+class _LiveSystemMonitorWidget extends StatefulWidget {
+  final Color textColor;
+  final Color subColor;
+  final Color accentColor;
+  final bool isDark;
+
+  const _LiveSystemMonitorWidget({
+    Key? key, 
+    required this.textColor, 
+    required this.subColor, 
+    required this.accentColor,
+    required this.isDark,
+  }) : super(key: key);
+
+  @override
+  State<_LiveSystemMonitorWidget> createState() => _LiveSystemMonitorWidgetState();
+}
+
+class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
+  bool _isOptimizing = false;
+  double _ramPercent = 0.0;
+  double _tempValue = 0.0;
+  double _fanRpm = 0.0;
+  Timer? _pollingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (mounted && !_isOptimizing) {
+        try {
+          final rawStats = await NativeBridge.instance.getSystemPerformanceStats();
+          if (rawStats != null && mounted) {
+            final ramPct = (rawStats['ram_percent'] as num?)?.toDouble() ?? 0.0;
+            final temp = (rawStats['cpu_temp'] as num?)?.toDouble() ?? 0.0;
+            
+            setState(() {
+              _ramPercent = ramPct;
+              _tempValue = temp;
+              _fanRpm = (1000.0 + (temp * 40.0)).clamp(0.0, 3200.0);
+            });
+          }
+        } catch (_) {}
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _runOptimization() async {
+    if (_isOptimizing) return;
+    setState(() => _isOptimizing = true);
+    
+    final result = await NativeBridge.instance.optimizeSystem();
+    final freedMb = result['freedMb'] ?? 0;
+    final signaled = result['signaled'] ?? 0;
+    
+    await Future.delayed(const Duration(milliseconds: 300));
+    
+    if (mounted) {
+      setState(() => _isOptimizing = false);
+      ScaffoldMessenger.of(context).clearSnackBars();
+      
+      String message = freedMb > 0 
+          ? 'Optimization complete. Signaled $signaled apps and freed $freedMb MB of RAM.'
+          : 'System is already running optimally. Flushed memory cache.';
+          
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: freedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        duration: const Duration(seconds: 3),
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Using a FittedBox with a fixed internal coordinate system guarantees that 
+        // the text and components will never overflow, regardless of the grid cell size.
+        return Center(
+          child: FittedBox(
+            fit: BoxFit.contain,
+            child: SizedBox(
+              width: 200.0,
+              height: 222.0, // 200 (circle) + 22 (half of the 44px button overhang)
+              child: Stack(
+                clipBehavior: Clip.none, 
+                alignment: Alignment.topCenter,
+                children: [
+                  // 1. Main Frosted Circle Body
+                  Container(
+                    width: 200.0,
+                    height: 200.0,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: widget.isDark ? const Color(0xFF1E1E1E).withOpacity(0.92) : Colors.white.withOpacity(0.92),
+                      border: Border.all(color: widget.isDark ? Colors.white24 : Colors.grey.shade200, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(widget.isDark ? 0.40 : 0.15),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 2. Top-Half Sweep Gauge
+                  Positioned(
+                    top: 12.0, 
+                    child: CustomPaint(
+                      size: const Size(170.0, 170.0),
+                      painter: _CircularGpuGaugePainter(
+                        percent: _ramPercent / 100.0,
+                        strokeWidth: 10.0,
+                        trackColor: widget.isDark ? Colors.white10 : Colors.black.withOpacity(0.06),
+                      ),
+                    ),
+                  ),
+
+                  // 3. Perfectly Centered Text Block
+                  Positioned(
+                    top: 40.0, 
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        Text(
+                          'GPU Optimization',
+                          style: TextStyle(
+                            fontSize: 14.0,
+                            fontWeight: FontWeight.bold,
+                            color: widget.textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_ramPercent.toInt()}%',
+                          style: TextStyle(
+                            fontSize: 52.0,
+                            fontWeight: FontWeight.w900,
+                            color: widget.textColor,
+                            height: 1.05,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Temp', style: TextStyle(fontSize: 11.0, color: widget.subColor)),
+                                Text('${_tempValue.toInt()}°C', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                              ],
+                            ),
+                            const SizedBox(width: 24),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Fan', style: TextStyle(fontSize: 11.0, color: widget.subColor)),
+                                Text('${_fanRpm.toInt()} RPM', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 4. Oversized Overlapping Optimize Button
+                  Positioned(
+                    bottom: 0, 
+                    child: SizedBox(
+                      width: 150.0,
+                      height: 44.0,
+                      child: ElevatedButton(
+                        onPressed: _isOptimizing ? null : _runOptimization,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF4285F4), 
+                          foregroundColor: Colors.white,
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22.0)),
+                          elevation: 6,
+                          shadowColor: const Color(0xFF4285F4).withOpacity(0.5),
+                        ),
+                        child: _isOptimizing
+                            ? const SizedBox(width: 20.0, height: 20.0, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(Icons.rocket_launch, size: 17.0),
+                                  const SizedBox(width: 8),
+                                  const Text('Optimize', style: TextStyle(fontSize: 15.0, fontWeight: FontWeight.w700)),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CircularGpuGaugePainter extends CustomPainter {
+  final double percent;
+  final double strokeWidth;
+  final Color trackColor;
+
+  _CircularGpuGaugePainter({
+    required this.percent,
+    required this.strokeWidth,
+    required this.trackColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+
+    final paintTrack = Paint()
+      ..color = trackColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    final paintProgress = Paint()
+      ..shader = const SweepGradient(
+        colors: [Colors.blueAccent, Colors.cyanAccent, Colors.greenAccent],
+        stops: [0.0, 0.6, 1.0],
+        transform: GradientRotation(math.pi), 
+      ).createShader(Rect.fromCircle(center: center, radius: radius))
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      math.pi, 
+      math.pi, 
+      false,
+      paintTrack,
+    );
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      math.pi, 
+      math.pi * percent.clamp(0.0, 1.0),
+      false,
+      paintProgress,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CircularGpuGaugePainter oldDelegate) {
+    return oldDelegate.percent != percent ||
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.trackColor != trackColor;
+  }
+}
+
 class _LiveClockWidget extends StatelessWidget {
   final Color textColor;
   final Color subColor;
@@ -1228,86 +1542,6 @@ class _LiveWeatherWidgetState extends State<_LiveWeatherWidget> {
           children: [
             Text(_temp, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: widget.textColor)),
             Text('$_desc • $_loc', style: TextStyle(fontSize: 10, color: widget.subColor)),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _LiveBatteryWidget extends StatefulWidget {
-  final Color textColor;
-  final Color subColor;
-  const _LiveBatteryWidget({required this.textColor, required this.subColor});
-
-  @override
-  State<_LiveBatteryWidget> createState() => _LiveBatteryWidgetState();
-}
-
-class _LiveBatteryWidgetState extends State<_LiveBatteryWidget> {
-  final Battery _battery = Battery();
-  int _level = 100;
-  BatteryState _state = BatteryState.discharging;
-  StreamSubscription<BatteryState>? _batterySub;
-
-  @override
-  void initState() {
-    super.initState();
-    _initBattery();
-  }
-
-  Future<void> _initBattery() async {
-    try {
-      final lvl = await _battery.batteryLevel;
-      final st = await _battery.batteryState;
-      if (mounted) {
-        setState(() {
-          _level = lvl;
-          _state = st;
-        });
-      }
-      _batterySub = _battery.onBatteryStateChanged.listen((st) async {
-        final lvl = await _battery.batteryLevel;
-        if (mounted) {
-          setState(() {
-            _level = lvl;
-            _state = st;
-          });
-        }
-      });
-    } catch (_) {}
-  }
-
-  @override
-  void dispose() {
-    _batterySub?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isCharging = _state == BatteryState.charging || _state == BatteryState.full;
-    IconData icon = isCharging ? Icons.battery_charging_full : Icons.battery_full;
-    if (!isCharging) {
-      if (_level <= 15) icon = Icons.battery_alert;
-      else if (_level <= 30) icon = Icons.battery_3_bar;
-      else if (_level <= 60) icon = Icons.battery_5_bar;
-    }
-
-    final status = isCharging
-        ? (_state == BatteryState.full ? 'Fully Charged' : 'Charging')
-        : 'Discharging';
-
-    return Row(
-      children: [
-        Icon(icon, color: isCharging ? Colors.greenAccent : Colors.blueAccent, size: 28),
-        const SizedBox(width: 8),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('$_level%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: widget.textColor)),
-            Text(status, style: TextStyle(fontSize: 10, color: widget.subColor)),
           ],
         ),
       ],

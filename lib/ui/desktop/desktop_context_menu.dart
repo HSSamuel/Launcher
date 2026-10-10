@@ -89,6 +89,99 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     );
   }
 
+  void _showCreateShortcutDialog(BuildContext context, ThemeState themeState, DesktopState desktopState) {
+    if (!ProGatekeeper.checkAccess(context, featureName: 'Custom Desktop Shortcuts')) return;
+
+    final isDark = themeState.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final nameController = TextEditingController();
+    final targetController = TextEditingController();
+    String selectedType = 'web';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            title: Text('Create Desktop Shortcut', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+            content: SizedBox(
+              width: 300,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedType,
+                    dropdownColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+                    style: TextStyle(color: textColor, fontSize: 13),
+                    decoration: const InputDecoration(labelText: 'Shortcut Type', isDense: true),
+                    items: const [
+                      DropdownMenuItem(value: 'web', child: Text('Website / Web Link')),
+                      DropdownMenuItem(value: 'call', child: Text('Direct Phone Call / USSD')),
+                      DropdownMenuItem(value: 'custom', child: Text('Custom Android Intent / Action')),
+                    ],
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedType = val!;
+                        if (val == 'web') targetController.text = 'https://';
+                        else if (val == 'call') targetController.text = 'tel:';
+                        else targetController.text = '';
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameController,
+                    style: TextStyle(color: textColor, fontSize: 13),
+                    decoration: const InputDecoration(labelText: 'Shortcut Name (e.g. YouTube)', isDense: true),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: targetController,
+                    style: TextStyle(color: textColor, fontSize: 13),
+                    decoration: InputDecoration(
+                      labelText: selectedType == 'web' ? 'Target URL' : selectedType == 'call' ? 'Phone Number / Code' : 'Action Intent URI',
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent, 
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))
+                ),
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  final target = targetController.text.trim();
+                  if (name.isNotEmpty && target.isNotEmpty) {
+                    desktopState.addDesktopShortcut(
+                      name: name,
+                      targetPath: target,
+                      shortcutType: selectedType,
+                      targetPage: widget.currentDesktopPage,
+                      col: 0,
+                      row: 0,
+                    );
+                    Navigator.pop(ctx);
+                    _showToastSafe('Shortcut "$name" created on Desktop');
+                  }
+                },
+                child: const Text('Create'),
+              ),
+            ],
+          );
+        }
+      ),
+    );
+  }
+
   void _showRenameDialog(DesktopItemModel item, ThemeState themeState, DesktopState desktopState) {
     final safeContext = navigatorKey.currentContext;
     if (safeContext == null) return;
@@ -190,10 +283,14 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
         'dest': newZipPath
       });
 
-      Navigator.pop(safeContext); 
+      if (safeContext.mounted) {
+        Navigator.pop(safeContext); 
+      }
       _showToastSafe('Successfully compressed to Download/${newZipPath.split('/').last}');
     } catch (e) {
-      Navigator.pop(safeContext); 
+      if (safeContext.mounted) {
+        Navigator.pop(safeContext); 
+      }
       _showToastSafe('Compression failed. Ensure storage permissions are granted.');
     }
   }
@@ -224,11 +321,14 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
        } catch (_) {}
     } else if (item.type == 'app') {
        typeLabel = 'Android Application';
+    } else if (item.type == 'shortcut') {
+       typeLabel = 'Desktop Script / Shortcut (${item.widgetType?.toUpperCase()})';
+       location = item.path ?? 'Action';
     }
 
     final sizeStr = sizeBytes > 0 
         ? '${(sizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB' 
-        : 'Unknown / System Managed';
+        : 'System Managed';
 
     showDialog(
       context: safeContext,
@@ -241,7 +341,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
           children: [
             Text('Type: $typeLabel', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
-            Text('Location: $location', style: TextStyle(fontSize: 13, color: subTextColor)),
+            Text('Target: $location', style: TextStyle(fontSize: 13, color: subTextColor)),
             const SizedBox(height: 8),
             Text('Size: $sizeStr', style: TextStyle(fontSize: 13, color: subTextColor)),
           ],
@@ -263,7 +363,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     final availableWidgets = [
       {'type': 'clock', 'name': 'Digital Clock & Date', 'desc': 'Live updating clock with current day/date', 'icon': Icons.access_time},
       {'type': 'weather', 'name': 'Weather Card', 'desc': 'Displays local temperature and sky conditions', 'icon': Icons.wb_sunny_outlined},
-      {'type': 'battery', 'name': 'Battery & Power', 'desc': 'Live battery level meter and charging state', 'icon': Icons.battery_charging_full},
+      {'type': 'system_monitor', 'name': 'RAM Optimization', 'desc': 'Live system resources and memory cleaner', 'icon': Icons.memory},
       {'type': 'storage', 'name': 'Internal Storage', 'desc': 'Storage capacity bar and remaining free GB', 'icon': Icons.storage},
       {'type': 'calendar', 'name': 'Calendar Agenda', 'desc': 'Today\'s agenda and active event tracker', 'icon': Icons.calendar_month_outlined},
     ];
@@ -316,10 +416,11 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     );
   }
 
+  // Tighter padding, thinner fonts, and smaller icons for a crisp desktop feel
   Widget _buildContextMenuItem(String title, IconData? icon, ThemeState themeState, {Color? iconColor, String? shortcut, bool hasSubMenu = false, String? subMenuKey, double subMenuY = 0, VoidCallback? onTap}) {
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
-    final defaultIconColor = isDark ? Colors.white : Colors.black87;
+    final defaultIconColor = isDark ? Colors.white70 : Colors.black87;
 
     return InkWell(
       onTap: () {
@@ -332,19 +433,20 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), // Reduced padding
         child: Row(
           children: [
-            if (icon != null) Icon(icon, size: 18, color: iconColor ?? defaultIconColor),
-            if (icon != null) const SizedBox(width: 14),
+            if (icon != null) Icon(icon, size: 15, color: iconColor ?? defaultIconColor), // Reduced icon
+            if (icon != null) const SizedBox(width: 10),
             Expanded(
               child: Text(
                 title, 
-                style: TextStyle(fontSize: 14, color: textColor, fontWeight: FontWeight.w600, letterSpacing: 0.3)
+                // Removed letterSpacing, dropped weight to w400, reduced size
+                style: TextStyle(fontSize: 12.5, color: textColor, fontWeight: FontWeight.w400)
               )
             ),
-            if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey.shade600)),
-            if (hasSubMenu) Icon(Icons.chevron_right, size: 18, color: isDark ? Colors.white54 : Colors.grey.shade600),
+            if (shortcut != null) Text(shortcut, style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey.shade600)),
+            if (hasSubMenu) Icon(Icons.chevron_right, size: 15, color: isDark ? Colors.white54 : Colors.grey.shade600),
           ],
         ),
       ),
@@ -362,19 +464,19 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), // Reduced padding
         child: Row(
           children: [
             if (icon != null || isActive || isDot || isChecked) ...[
-              SizedBox(width: 18, child: isActive || isDot ? Icon(Icons.circle, size: 6, color: textColor) : (isChecked ? Icon(Icons.check, size: 16, color: textColor) : null)),
+              SizedBox(width: 16, child: isActive || isDot ? Icon(Icons.circle, size: 6, color: textColor) : (isChecked ? Icon(Icons.check, size: 14, color: textColor) : null)),
               const SizedBox(width: 8),
-              if (icon != null) Icon(icon, size: 18, color: textColor),
-              if (icon != null) const SizedBox(width: 14),
+              if (icon != null) Icon(icon, size: 15, color: textColor),
+              if (icon != null) const SizedBox(width: 10),
             ],
             Expanded(
               child: Text(
                 title, 
-                style: TextStyle(fontSize: 14, color: textColor, fontWeight: FontWeight.w600, letterSpacing: 0.3)
+                style: TextStyle(fontSize: 12.5, color: textColor, fontWeight: FontWeight.w400)
               )
             ),
           ],
@@ -383,7 +485,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     );
   }
 
-  Widget _buildContextDivider(ThemeState themeState) => Container(height: 1, color: themeState.isDarkMode ? Colors.white24 : Colors.grey.shade300, margin: const EdgeInsets.symmetric(vertical: 2));
+  Widget _buildContextDivider(ThemeState themeState) => Container(height: 1, color: themeState.isDarkMode ? Colors.white24 : Colors.grey.shade300, margin: const EdgeInsets.symmetric(vertical: 4));
 
   Widget _buildBottomContextAction(IconData icon, String label, DesktopItemModel item, ThemeState themeState, AppsState appsState, DesktopState desktopState) {
     final isDark = themeState.isDarkMode;
@@ -398,15 +500,15 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       borderRadius: BorderRadius.circular(6),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 20, color: const Color(0xFF0078D4)), 
+            Icon(icon, size: 18, color: const Color(0xFF0078D4)), 
             const SizedBox(height: 6),
             Text(
               label, 
-              style: TextStyle(fontSize: 12, color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, letterSpacing: 0.2)
+              style: TextStyle(fontSize: 11, color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.w500)
             ),
           ],
         ),
@@ -420,8 +522,8 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _buildContextMenuItem('View', Icons.grid_view, themeState, hasSubMenu: true, subMenuKey: 'view', subMenuY: 0),
-          _buildContextMenuItem('Sort by', Icons.swap_vert, themeState, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 46),
-          _buildContextMenuItem('Page Transition', Icons.animation, themeState, hasSubMenu: true, subMenuKey: 'transition', subMenuY: 92),
+          _buildContextMenuItem('Sort by', Icons.swap_vert, themeState, hasSubMenu: true, subMenuKey: 'sort', subMenuY: 28),
+          _buildContextMenuItem('Page Transition', Icons.animation, themeState, hasSubMenu: true, subMenuKey: 'transition', subMenuY: 56),
           _buildContextMenuItem('Refresh', Icons.refresh, themeState, onTap: () => _showToastSafe('Desktop refreshed')),
           if (appsState.clipboardPath != null) ...[
             _buildContextDivider(themeState),
@@ -440,6 +542,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
             }),
           ],
           _buildContextDivider(themeState),
+          _buildContextMenuItem('New Shortcut (Pro)', Icons.add_link, themeState, iconColor: Colors.blueAccent, onTap: () => _showCreateShortcutDialog(context, themeState, desktopState)),
           _buildContextMenuItem('Add Built-in Widget', Icons.widgets_outlined, themeState, iconColor: Colors.blueAccent, onTap: () => _showAddWidgetDialog(themeState, desktopState)),
           _buildContextMenuItem('Add Android Widget', Icons.android, themeState, iconColor: Colors.green, onTap: () {
             if (!ProGatekeeper.checkAccess(context, featureName: 'Android Widgets')) return;
@@ -510,10 +613,19 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
             _showToastSafe('Icon restored to default');
           }),
       ]);
+    } else if (item.type == 'shortcut') {
+      menuItems.addAll([
+        _buildContextMenuItem('Run Shortcut', Icons.play_arrow, themeState, iconColor: Colors.blueAccent, onTap: widget.openAction),
+        _buildContextMenuItem('Rename', Icons.edit, themeState, onTap: () => _showRenameDialog(item, themeState, desktopState)),
+        _buildContextMenuItem('Properties', Icons.build_circle_outlined, themeState, onTap: () => _showPropertiesDialog(themeState)),
+      ]);
     } else if (item.type == 'system') {
       menuItems.addAll([
         _buildContextMenuItem('Open', Icons.folder, themeState, iconColor: Colors.amber.shade400, onTap: widget.openAction),
-        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, themeState, onTap: () => _showToastSafe('Recycle Bin emptied')),
+        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, themeState, onTap: () {
+  NativeBridge.instance.playSound('recycle');
+  _showToastSafe('Recycle Bin emptied');
+}),
       ]);
     } else if (item.type == 'widget' || item.type == 'native_widget') {
       menuItems.addAll([
@@ -531,7 +643,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
         _buildContextMenuItem('Share', Icons.share_outlined, themeState, onTap: () {
           if (item.path != null) NativeBridge.instance.shareFile(item.path!);
         }),
-        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, themeState, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 46),
+        _buildContextMenuItem('Compress to...', Icons.folder_zip_outlined, themeState, hasSubMenu: true, subMenuKey: 'compress', subMenuY: 56),
         _buildContextMenuItem('Properties', Icons.build_circle_outlined, themeState, onTap: () => _showPropertiesDialog(themeState)),
       ]);
     }
@@ -645,11 +757,21 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
     double menuWidth = 260; 
-    
-    double menuHeight = widget.menuType == 'folder' || widget.menuType == 'file' ? 450 : 580; 
     double dx = widget.position.dx;
     double dy = widget.position.dy;
     final screenSize = MediaQuery.of(context).size;
+
+    // Dynamic height calculation to ensure it strictly prevents the menu from falling off the bottom edge
+    double menuHeight;
+    if (widget.menuType == 'desktop') {
+      menuHeight = appsState.clipboardPath != null ? 360 : 330;
+    } else if (widget.menuType == 'file') {
+      menuHeight = 280;
+    } else if (widget.menuType == 'folder' || widget.menuType == 'desktop_folder') {
+      menuHeight = 250;
+    } else {
+      menuHeight = 220;
+    }
 
     if (dx + menuWidth > screenSize.width) dx = screenSize.width - menuWidth - 8;
     if (dx < 8) dx = 8;

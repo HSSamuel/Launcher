@@ -22,10 +22,34 @@ class NativeBridge {
     debugPrint("NativeBridge Error [$method]: $e");
   }
 
+  // NEW: System Optimizer with real RAM calculation
+  Future<Map<String, int>> optimizeSystem() async {
+    if (kIsWeb) return {'signaled': 0, 'freedMb': 0};
+    try {
+      final Map<dynamic, dynamic>? res = await _channel.invokeMethod('optimizeSystem');
+      if (res != null) {
+        return {
+          'signaled': res['signaled'] as int? ?? 0, 
+          'freedMb': res['freedMb'] as int? ?? 0
+        };
+      }
+      return {'signaled': 0, 'freedMb': 0};
+    } catch (e) {
+      _logError('optimizeSystem', e);
+      return {'signaled': 0, 'freedMb': 0};
+    }
+  }
+
   Future<void> restartApp() async {
     if (kIsWeb) return;
     try { await _channel.invokeMethod('restartApp'); } 
     catch (e) { _logError('restartApp', e); }
+  }
+
+  Future<void> playSound(String type) async {
+    if (kIsWeb) return;
+    try { await _channel.invokeMethod('playSound', {'type': type}); } 
+    catch (e) { _logError('playSound', e); }
   }
 
   Future<Map<String, dynamic>> getHardwareState() async {
@@ -246,6 +270,26 @@ class NativeBridge {
       if (stats != null) return Map<String, double>.from(stats); 
     } catch (e) { _logError('getStorageStats', e); } 
     return null; 
+  }
+
+  Future<Map<String, dynamic>?> getSystemPerformanceStats() async {
+    if (kIsWeb) {
+      return {
+        "ram_used_mb": 3840,
+        "ram_total_mb": 8192,
+        "ram_percent": 47,
+        "rx_kbps": 128.5,
+        "tx_kbps": 32.4,
+        "cpu_temp": 36.5,
+      };
+    }
+    try {
+      final Map<dynamic, dynamic>? res = await _channel.invokeMethod('getSystemPerformanceStats');
+      if (res != null) return Map<String, dynamic>.from(res);
+    } catch (e) {
+      _logError('getSystemPerformanceStats', e);
+    }
+    return null;
   }
 
   Future<List<Map<String, dynamic>>> getDisks() async {

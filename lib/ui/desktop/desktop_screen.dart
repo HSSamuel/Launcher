@@ -51,6 +51,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   final DeviceCalendarPlugin _deviceCalendarPlugin = DeviceCalendarPlugin();
 
   int _currentDesktopPage = 0;
+  bool _isBooting = false;
   bool _isLocked = true;
   bool _isStartMenuOpen = false;
   bool _isWidgetBoardOpen = false;
@@ -107,7 +108,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   DateTime _lastBrightnessNativeCall = DateTime.now();
   DateTime _lastVolumeNativeCall = DateTime.now();
 
-  // CRITICAL FIX: Managed timers to prevent background lifecycle memory leaks & race conditions
   Timer? _hardwareSyncTimer;
   Timer? _physicalDesktopTimer;
   Timer? _backgroundTasksTimer;
@@ -129,9 +129,28 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       
       _initHardwareStreams(); 
       _initNotifications(); 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         context.read<DesktopState>().applyOrientationLock();
-        _runFirstLaunchSequence(); 
+        
+        final prefs = await SharedPreferences.getInstance();
+        final enableSounds = prefs.getBool('enableSystemSounds') ?? false;
+        final bootAnim = prefs.getString('bootAnimation') ?? 'None';
+        
+        if (bootAnim != 'None') {
+          setState(() => _isBooting = true);
+          if (enableSounds) {
+            NativeBridge.instance.playSound('startup');
+          }
+          Future.delayed(const Duration(milliseconds: 4500), () {
+            if (mounted) setState(() => _isBooting = false);
+            _runFirstLaunchSequence(); 
+          });
+        } else {
+          if (enableSounds) {
+            NativeBridge.instance.playSound('startup');
+          }
+          _runFirstLaunchSequence(); 
+        }
         
         Future.delayed(const Duration(milliseconds: 800), () {
           if (mounted) context.read<DesktopState>().syncPhysicalDesktop();
@@ -194,7 +213,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     _confettiController.dispose();
     _cancelHardwareStreams();
     
-    // Clean up lifecycle timers
     _hardwareSyncTimer?.cancel();
     _physicalDesktopTimer?.cancel();
     _backgroundTasksTimer?.cancel();
@@ -308,7 +326,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
         });
       });
 
-      // CRITICAL FIX: Convert floating Delays to bound Timers
       _hardwareSyncTimer?.cancel();
       _hardwareSyncTimer = Timer(const Duration(milliseconds: 1500), () {
         if (!mounted) return;
@@ -335,7 +352,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       });
       
     } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
-      // Cancel active timers so they don't fire if the user is already gone
       _hardwareSyncTimer?.cancel();
       _physicalDesktopTimer?.cancel();
       _backgroundTasksTimer?.cancel();
@@ -355,7 +371,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     SharedPreferences.getInstance().then((prefs) {
       if (mounted) {
         final updated = Map<String, bool>.from(_quickSettings.value);
-        for (var k in ['Data', 'Hotspot', 'Eye Care', 'Kids Mode']) {
+        for (var k in ['Hotspot', 'Eye Care', 'Kids Mode']) {
           updated[k] = prefs.getBool('qs_$k') ?? false;
         }
         _quickSettings.value = updated;
@@ -450,7 +466,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
            
            appsState.injectAndSyncApp(installedPkg, installedLabel ?? 'App').then((_) {
              if (!mounted) return;
-             // DO NOT call LazyAppIcon.invalidateCache here, as we just pre-populated it!
              if (desktopState.createShortcut && !isUpdate) {
                desktopState.addDesktopApp(installedPkg!, installedLabel ?? 'App', _currentDesktopPage, 0, 0); 
              }
@@ -716,7 +731,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
 
     _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
     
-    if (['Data', 'Hotspot', 'Eye Care', 'Kids Mode'].contains(key)) {
+    if (['Hotspot', 'Eye Care', 'Kids Mode'].contains(key)) {
        SharedPreferences.getInstance().then((prefs) => prefs.setBool('qs_$key', newVal));
     }
     
@@ -870,9 +885,73 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     );
   }
 
+  Widget _buildBootScreen(String type) {
+    if (type == 'Windows 98 Retro') {
+      return Container(
+        color: Colors.black,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Starting Windows 98...', style: TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 16)),
+            const SizedBox(height: 16),
+            const Text('Memory Test:  65536K OK', style: TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 14)),
+            const SizedBox(height: 8),
+            const Text('Detecting IDE Primary Master... [Press F4 to skip]', style: TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 14)),
+            const Spacer(),
+            LinearProgressIndicator(color: Colors.grey.shade400, backgroundColor: Colors.black),
+          ],
+        ),
+      );
+    } else if (type == 'Windows XP Bliss') {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.window, color: Colors.redAccent, size: 48),
+                  Icon(Icons.window, color: Colors.green, size: 48),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Windows XP', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),
+              const SizedBox(height: 48),
+              SizedBox(
+                width: 150,
+                height: 12,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: const LinearProgressIndicator(color: Colors.blueAccent, backgroundColor: Colors.white24),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else if (type == 'Windows 7 Aero') {
+      return Container(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.window, color: Colors.lightBlueAccent, size: 64, shadows: [Shadow(color: Colors.blueAccent, blurRadius: 20)]),
+              SizedBox(height: 32),
+              Text('Starting Windows', style: TextStyle(color: Colors.white, fontSize: 18)),
+            ],
+          ),
+        ),
+      );
+    }
+    return Container(color: Colors.black);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // CRITICAL FIX: Replaced watch() with select() to prevent full-tree frame drops
     final safeAreaTop = MediaQuery.of(context).padding.top;
     final safeAreaBottom = MediaQuery.of(context).padding.bottom;
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
@@ -886,6 +965,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
 
     final taskbarHeight = context.select<DesktopState, double>((state) => state.taskbarHeight);
     final taskbarAlignment = context.select<DesktopState, String>((state) => state.taskbarAlignment);
+    final bootAnimType = context.select<ThemeState, String>((state) => state.bootAnimation);
 
     const double startMenuWidth = 290.0;
     final bool isTaskbarCenter = taskbarAlignment == 'center';
@@ -911,7 +991,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
         canPop: false,
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
-          if (_isLocked) return;
+          if (_isLocked || _isBooting) return;
           if (_isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen) {
             _closeOverlays();
             return;
@@ -1023,7 +1103,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     ),
   
                     Offstage(
-                      offstage: _isLocked,
+                      offstage: _isLocked || _isBooting,
                       child: DesktopWorkspace(
                         taskbarHeight: currentTaskbarHeight, 
                         safeAreaTop: safeAreaTop, 
@@ -1048,9 +1128,9 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                         },
                       ),
                     ),
-  
+
                     Offstage(
-                      offstage: _isLocked,
+                      offstage: _isLocked || _isBooting,
                       child: WindowManager(
                         taskbarHeight: currentTaskbarHeight,
                         safeAreaBottom: safeAreaBottom,
@@ -1062,19 +1142,19 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     AnimatedPositioned(
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeOutCubic,
-                      bottom: (_isStartMenuOpen && !_isLocked) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
+                      bottom: (_isStartMenuOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       left: startMenuLeft, 
                       width: startMenuWidth,
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 200),
-                        opacity: (_isStartMenuOpen && !_isLocked) ? 1.0 : 0.0,
+                        opacity: (_isStartMenuOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
-                          ignoring: !(_isStartMenuOpen && !_isLocked),
+                          ignoring: !(_isStartMenuOpen && !_isLocked && !_isBooting),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(maxWidth: startMenuWidth, maxHeight: maxOverlayHeight),
                             child: _buildOverlayBlocker(
                               child: Provider<bool?>.value(
-                                value: _isStartMenuOpen && !_isLocked,
+                                value: _isStartMenuOpen && !_isLocked && !_isBooting,
                                 child: RepaintBoundary(
                                   child: StartMenu(currentDesktopPage: _currentDesktopPage, onOverlaysClosed: _closeOverlays, onPowerTapped: () { 
                                     _lockDesktop();
@@ -1090,19 +1170,19 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     AnimatedPositioned(
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeOutCubic,
-                      bottom: (_isQuickSettingsOpen && !_isLocked) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
+                      bottom: (_isQuickSettingsOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       right: 3.0, 
                       width: 270.0,
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 200),
-                        opacity: (_isQuickSettingsOpen && !_isLocked) ? 1.0 : 0.0,
+                        opacity: (_isQuickSettingsOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
-                          ignoring: !(_isQuickSettingsOpen && !_isLocked),
+                          ignoring: !(_isQuickSettingsOpen && !_isLocked && !_isBooting),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(maxHeight: maxOverlayHeight),
                             child: _buildOverlayBlocker(
                               child: Provider<bool?>.value(
-                                value: _isQuickSettingsOpen && !_isLocked,
+                                value: _isQuickSettingsOpen && !_isLocked && !_isBooting,
                                 child: AnimatedBuilder(
                                   animation: Listenable.merge([_quickSettings, _brightness, _volume, _batteryLevel, _isCharging, _realNotifications]),
                                   builder: (context, child) {
@@ -1154,18 +1234,18 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     AnimatedPositioned(
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeOutCubic,
-                      bottom: (_isNotificationCenterOpen && !_isLocked) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
+                      bottom: (_isNotificationCenterOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       right: 3.0,
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 200),
-                        opacity: (_isNotificationCenterOpen && !_isLocked) ? 1.0 : 0.0,
+                        opacity: (_isNotificationCenterOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
-                          ignoring: !(_isNotificationCenterOpen && !_isLocked),
+                          ignoring: !(_isNotificationCenterOpen && !_isLocked && !_isBooting),
                           child: ConstrainedBox(
                             constraints: BoxConstraints(maxWidth: 300.0, maxHeight: maxOverlayHeight),
                             child: _buildOverlayBlocker(
                               child: Provider<bool?>.value(
-                                value: _isNotificationCenterOpen && !_isLocked,
+                                value: _isNotificationCenterOpen && !_isLocked && !_isBooting,
                                 child: AnimatedBuilder(
                                   animation: _realNotifications,
                                   builder: (context, child) => NotificationCenterPanel(
@@ -1185,7 +1265,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       ),
                     ),
 
-                    if (_activeToasts.isNotEmpty && !_isLocked)
+                    if (_activeToasts.isNotEmpty && !_isLocked && !_isBooting)
                       AnimatedPositioned(
                         duration: const Duration(milliseconds: 160),
                         curve: const Cubic(0.05, 0.7, 0.1, 1.0),
@@ -1214,7 +1294,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       right: 0, 
                       height: currentTaskbarHeight,
                       child: Offstage(
-                        offstage: _isLocked,
+                        offstage: _isLocked || _isBooting,
                         child: _buildOverlayBlocker(
                           child: AnimatedBuilder(
                             animation: Listenable.merge([_batteryLevel, _isCharging, _unreadNotifications]),
@@ -1242,7 +1322,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       ),
                     ),
   
-                    if (_isContextMenuOpen && !_isLocked)
+                    if (_isContextMenuOpen && !_isLocked && !_isBooting)
                       DesktopContextMenu(
                         isOpen: _isContextMenuOpen, 
                         position: _contextMenuPos, 
@@ -1272,7 +1352,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       ),
                     ),
 
-                    if (_isLocked)
+                    if (_isLocked && !_isBooting)
                       Positioned.fill(
                         child: RepaintBoundary(
                           child: LockScreen(
@@ -1283,6 +1363,11 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                             },
                           ),
                         ),
+                      ),
+                      
+                    if (_isBooting)
+                      Positioned.fill(
+                        child: _buildBootScreen(bootAnimType),
                       ),
                   ],
                 ),

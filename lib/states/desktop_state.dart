@@ -73,6 +73,9 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   bool taskbarOverBattery = true;
   bool taskbarOverDate = true;
   bool hideNetworkIcons = false;
+  
+  // Advanced Feature: Live Taskbar Performance Monitor
+  bool showTaskbarSystemMonitor = false;
 
   bool keepOverlaysAliveNextPause = false;
 
@@ -542,6 +545,37 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  void addDesktopShortcut({
+    required String name,
+    required String targetPath,
+    required String shortcutType,
+    required int targetPage,
+    required int col,
+    required int row,
+  }) {
+    int page = targetPage;
+    if (_isSlotOccupied(page, col, row, 1, 1)) {
+      final loc = _findSafeSlotAndPage(page, 1, 1);
+      page = loc[0]; col = loc[1]; row = loc[2];
+    }
+
+    final newId = 'shortcut_${DateTime.now().millisecondsSinceEpoch}';
+    desktopItems.add(DesktopItemModel(
+      id: newId,
+      type: 'shortcut',
+      label: name,
+      path: targetPath,
+      widgetType: shortcutType,
+      spanX: 1,
+      spanY: 1,
+      page: page,
+      col: col,
+      row: row,
+    ));
+    _saveDesktopItems();
+    notifyListeners();
+  }
+
   void addDesktopWidget(String widgetType, String label, int targetPage, int col, int row, {int spanX = 2, int spanY = 1}) {
     int page = targetPage;
     if (_isSlotOccupied(page, col, row, spanX, spanY)) {
@@ -575,6 +609,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     if (key == 'previewFiles') { previewFiles = value; await prefs.setBool(key, value); }
     if (key == 'mouseSound') { mouseSound = value; await prefs.setBool(key, value); }
     if (key == 'gestureHapticFeedback') { gestureHapticFeedback = value; await prefs.setBool(key, value); }
+    if (key == 'showTaskbarSystemMonitor') { showTaskbarSystemMonitor = value; await prefs.setBool(key, value); }
     notifyListeners();
   }
 
@@ -724,6 +759,8 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     taskbarOverBattery = prefs.getBool('taskbar_overBattery') ?? true;
     taskbarOverDate = prefs.getBool('taskbar_overDate') ?? true;
     hideNetworkIcons = prefs.getBool('taskbar_hideNetworkIcons') ?? false;
+    
+    showTaskbarSystemMonitor = prefs.getBool('showTaskbarSystemMonitor') ?? false;
 
     desktopPages = prefs.getInt('desktopPages') ?? 1;
 

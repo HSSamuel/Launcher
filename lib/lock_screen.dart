@@ -84,6 +84,12 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     _bounceController.dispose(); 
     _snapController.dispose();
     _dragOffsetNotifier.dispose();
+
+    // Ensure physical torch is disabled when lock screen is dismissed
+    if (_isFlashlightOn) {
+      try { TorchLight.disableTorch(); } catch (_) {}
+    }
+
     super.dispose();
   }
 
@@ -122,14 +128,35 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   void _initHardwareListeners() async {
+    // 1. Fetch real-time hardware status instantly to prevent 100% default artifact
+    try {
+      final initialState = await NativeBridge.instance.getHardwareState();
+      if (mounted) {
+        setState(() {
+          if (initialState.containsKey('Wi-Fi')) _isWifiOn = initialState['Wi-Fi'] == true;
+          if (initialState.containsKey('battery_level')) {
+            _batteryLevel = (initialState['battery_level'] as num).toInt();
+          }
+          if (initialState.containsKey('battery_charging')) {
+            _isCharging = initialState['battery_charging'] == true;
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 2. Listen to subsequent updates emitted by system broadcasts
     try {
       _hwSub = NativeBridge.instance.hardwareStateStream.listen((event) {
         final data = Map<String, dynamic>.from(event);
         if (mounted) {
           setState(() {
             if (data.containsKey('Wi-Fi')) _isWifiOn = data['Wi-Fi'] == true;
-            if (data.containsKey('battery_level')) _batteryLevel = data['battery_level'];
-            if (data.containsKey('battery_charging')) _isCharging = data['battery_charging'];
+            if (data.containsKey('battery_level')) {
+              _batteryLevel = (data['battery_level'] as num).toInt();
+            }
+            if (data.containsKey('battery_charging')) {
+              _isCharging = data['battery_charging'] == true;
+            }
           });
         }
       });
@@ -144,16 +171,23 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
       } else {
         await TorchLight.disableTorch();
       }
-      setState(() => _isFlashlightOn = turnOn);
+      if (mounted) setState(() => _isFlashlightOn = turnOn);
       HapticFeedback.lightImpact(); 
     } catch (_) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Flashlight not available', style: TextStyle(color: Colors.white)), behavior: SnackBarBehavior.floating)
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Flashlight not available', style: TextStyle(color: Colors.white)), behavior: SnackBarBehavior.floating)
+        );
+      }
     }
   }
 
   void _handleFailedAttempt() async {
+    final themeState = context.read<ThemeState>();
+    if (themeState.enableSystemSounds) {
+      NativeBridge.instance.playSound('error');
+    }
+    
     _failedAttempts++;
     await const FlutterSecureStorage().write(key: 'failed_attempts', value: _failedAttempts.toString());
 
@@ -161,11 +195,13 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
       final lockoutDate = DateTime.now().add(const Duration(seconds: 30));
       setState(() => _lockoutUntil = lockoutDate);
       
-      const FlutterSecureStorage().write(key: 'lockout_until', value: lockoutDate.toIso8601String());
+      await const FlutterSecureStorage().write(key: 'lockout_until', value: lockoutDate.toIso8601String());
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Too many attempts. Locked out for 30 seconds.'), behavior: SnackBarBehavior.floating)
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Too many attempts. Locked out for 30 seconds.'), behavior: SnackBarBehavior.floating)
+        );
+      }
       
       _lockoutTimer?.cancel();
       _lockoutTimer = Timer(const Duration(seconds: 30), () async {
@@ -179,9 +215,11 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
         }
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect PIN'), behavior: SnackBarBehavior.floating)
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Incorrect PIN'), behavior: SnackBarBehavior.floating)
+        );
+      }
     }
   }
 
@@ -462,6 +500,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
               bottom: 24,
               left: 24,
               child: GestureDetector(
+                onTap: () => _toggleFlashlight(!_isFlashlightOn),
                 onHorizontalDragEnd: (details) {
                   final velocity = details.primaryVelocity ?? 0;
                   if (velocity > 100) {

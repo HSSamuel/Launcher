@@ -1,17 +1,20 @@
-import 'dart:async';
+// taskbar.dart
 import 'dart:io';
 import 'dart:math' as math; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:win11_pc_launcher/services/battery_mock.dart';
 
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
 import '../../states/desktop_state.dart';
 import '../../states/system_state.dart';
+import '../../states/monetization_state.dart';
 import '../../services/native_bridge.dart';
 import '../../services/lazy_app_icon.dart';
+import '../../services/pro_gatekeeper.dart';
 import 'search_overlay.dart';
 
 class Win11Taskbar extends StatefulWidget {
@@ -44,6 +47,33 @@ class Win11Taskbar extends StatefulWidget {
 }
 
 class _Win11TaskbarState extends State<Win11Taskbar> {
+  String _taskbarColorStyle = 'default';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadColorStyle();
+  }
+  
+  Future<void> _loadColorStyle() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _taskbarColorStyle = prefs.getString('taskbarColorStyle') ?? 'default';
+      });
+    }
+  }
+
+  Future<void> _setColorStyle(String style) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('taskbarColorStyle', style);
+    if (mounted) {
+      setState(() {
+        _taskbarColorStyle = style;
+      });
+    }
+  }
+
   String _formatTime(DateTime time) {
     int h = time.hour; 
     int m = time.minute;
@@ -63,6 +93,129 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     if (context.read<DesktopState>().gestureHapticFeedback) {
       HapticFeedback.lightImpact();
     }
+  }
+
+  // FIX: Displays strictly ABOVE the taskbar top edge, never covering the taskbar or at the extreme bottom
+  void _showTaskbarMenu(Offset position) {
+    final isDark = context.read<ThemeState>().isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    widget.onOverlaysClosed(); 
+    
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final double taskbarHeight = context.read<DesktopState>().taskbarHeight;
+    final double safeAreaBottom = MediaQuery.of(context).padding.bottom;
+    
+    // Exact distance from the bottom of the screen to the top of the taskbar
+    final double bottomOffset = taskbarHeight + safeAreaBottom;
+    const double menuWidth = 240.0;
+    
+    // Position horizontally near the tap, clamped safely within screen bounds
+    final double left = position.dx.clamp(8.0, screenWidth - menuWidth - 8.0);
+
+    showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'TaskbarThemeMenu',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 150),
+      pageBuilder: (ctx, anim1, anim2) {
+        return Stack(
+          children: [
+            Positioned(
+              left: left,
+              bottom: bottomOffset + 6.0, // Strictly anchored ABOVE the taskbar top edge
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: menuWidth,
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark ? Colors.white24 : Colors.grey.shade300,
+                      width: 1,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        child: Text(
+                          'Taskbar Color Theme',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent, fontSize: 12),
+                        ),
+                      ),
+                      Divider(height: 1, color: isDark ? Colors.white12 : Colors.grey.shade300),
+                      const SizedBox(height: 4),
+                      _colorMenuItemDialog(ctx, 'Default (Accent Blended)', 'default', textColor),
+                      _colorMenuItemDialog(ctx, 'Pure Black', 'black', textColor),
+                      _colorMenuItemDialog(ctx, 'Translucent Dark', 'dark', textColor),
+                      _colorMenuItemDialog(ctx, 'Pure White', 'white', textColor),
+                      _colorMenuItemDialog(ctx, 'Translucent Light', 'light', textColor),
+                      _colorMenuItemDialog(ctx, 'Transparent', 'transparent', textColor),
+                      const SizedBox(height: 4),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+      transitionBuilder: (ctx, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.95, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic),
+            ),
+            alignment: Alignment.bottomCenter,
+            child: child,
+          ),
+        );
+      },
+    ).then((value) {
+      if (value != null) _setColorStyle(value);
+    });
+  }
+
+  Widget _colorMenuItemDialog(BuildContext ctx, String label, String value, Color textColor) {
+    final bool isSelected = _taskbarColorStyle == value;
+    return InkWell(
+      onTap: () => Navigator.pop(ctx, value),
+      hoverColor: textColor.withOpacity(0.08),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+              size: 18,
+              color: isSelected ? Colors.blueAccent : textColor.withOpacity(0.7),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.blueAccent : textColor,
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _openSearchOverlay(BuildContext context, AppsState appsState, ThemeState themeState, DesktopState desktopState) {
@@ -123,6 +276,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     bool indicator = false,
     bool isApp = false,
     bool isActiveApp = false,
+    required Color baseIconColor,
   }) {
     final themeState = context.watch<ThemeState>();
     final isDark = themeState.isDarkMode;
@@ -162,7 +316,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
                   height: 3,
                   decoration: BoxDecoration(
                     color: isApp
-                        ? (isActiveApp ? indicatorColor : (isDark ? Colors.white54 : Colors.black45))
+                        ? (isActiveApp ? indicatorColor : (baseIconColor == Colors.white ? Colors.white54 : Colors.black45))
                         : indicatorColor,
                     borderRadius: BorderRadius.circular(1.5),
                   ),
@@ -174,7 +328,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     );
   }
 
-  Widget _getRawAppIcon(String windowId, AppsState appsState, bool isDark, ThemeState themeState, double iconSize) {
+  Widget _getRawAppIcon(String windowId, AppsState appsState, bool isDark, ThemeState themeState, double iconSize, Color fallbackColor) {
     if (windowId.contains('.')) {
       if (themeState.cachedIconsPath != null) {
          if (!appsState.iconCacheStatus.containsKey(windowId)) {
@@ -198,7 +352,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
       case 'explorer': return Image.asset('assets/icons/folder.png', width: iconSize, height: iconSize);
       case 'calculator': return Image.asset('assets/icons/calculator.png', width: iconSize, height: iconSize);
       case 'settings': return Image.asset('assets/icons/settings.png', width: iconSize, height: iconSize);
-      default: return Icon(Icons.apps, size: iconSize, color: isDark ? Colors.white : Colors.black87);
+      default: return Icon(Icons.apps, size: iconSize, color: fallbackColor);
     }
   }
 
@@ -242,7 +396,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
               _triggerHaptic();
               widget.onQuickSettingsToggled();
             },
-            onLongPress: () {},
             borderRadius: BorderRadius.circular(4),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0), 
@@ -266,7 +419,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
             _triggerHaptic();
             widget.onNotificationCenterToggled();
           },
-          onLongPress: () {},
           borderRadius: BorderRadius.circular(4),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -295,7 +447,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
              }
              widget.onOverlaysClosed();
           },
-          onLongPress: () {},
           child: Container(
             width: 6, 
             height: double.infinity, 
@@ -315,10 +466,44 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     final isDark = themeState.isDarkMode;
     final accent = themeState.currentAccentColor;
     
-    final baseColor = isDark ? const Color(0xFF141414) : const Color(0xFFF3F3F3);
+    Color taskbarBgColor;
+    Color iconColor;
+    BorderSide topBorder;
     
-    final taskbarColor = Color.alphaBlend(accent.withOpacity(isDark ? 0.25 : 0.18), baseColor).withOpacity(1.0);
-    final iconColor = isDark ? Colors.white : Colors.black87;
+    switch (_taskbarColorStyle) {
+      case 'black':
+        taskbarBgColor = const Color(0xFF000000);
+        iconColor = Colors.white;
+        topBorder = const BorderSide(color: Colors.white12, width: 1.0);
+        break;
+      case 'dark':
+        taskbarBgColor = const Color(0xDD181818); 
+        iconColor = Colors.white;
+        topBorder = const BorderSide(color: Colors.white12, width: 1.0);
+        break;
+      case 'white':
+        taskbarBgColor = const Color(0xFFFFFFFF);
+        iconColor = Colors.black87;
+        topBorder = const BorderSide(color: Colors.black12, width: 1.0);
+        break;
+      case 'light':
+        taskbarBgColor = const Color(0xDDF3F3F3); 
+        iconColor = Colors.black87;
+        topBorder = const BorderSide(color: Colors.black12, width: 1.0);
+        break;
+      case 'transparent':
+        taskbarBgColor = Colors.transparent;
+        iconColor = isDark ? Colors.white : Colors.black87;
+        topBorder = BorderSide.none;
+        break;
+      case 'default':
+      default:
+        final baseColor = isDark ? const Color(0xFF141414) : const Color(0xFFF3F3F3);
+        taskbarBgColor = Color.alphaBlend(accent.withOpacity(isDark ? 0.25 : 0.18), baseColor).withOpacity(1.0);
+        iconColor = isDark ? Colors.white : Colors.black87;
+        topBorder = BorderSide(color: accent.withOpacity(isDark ? 0.6 : 0.4), width: 1.5);
+        break;
+    }
 
     final double scale = desktopState.taskbarIconScale.clamp(0.6, 1.8);
     final double maxButtonBound = math.max(24.0, desktopState.taskbarHeight - 4.0);
@@ -327,130 +512,143 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     final double iconSpacing = desktopState.taskbarIconSpacing;
 
     return RepaintBoundary(
-      child: Container(
-        height: double.infinity, 
-        decoration: BoxDecoration(
-          color: taskbarColor,
-          border: Border(top: BorderSide(color: accent.withOpacity(isDark ? 0.6 : 0.4), width: 1.5)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 4, offset: const Offset(0, -1))],
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Row(
-                mainAxisAlignment: desktopState.taskbarAlignment == 'center' ? MainAxisAlignment.center : MainAxisAlignment.start,
-                children: [
-                  const SizedBox(width: 4),
-                  
-                  _buildTaskbarButton(
-                    buttonSize: buttonSize,
-                    spacing: iconSpacing,
-                    isActive: widget.isStartMenuOpen,
-                    onTap: widget.onStartToggled,
-                    child: desktopState.customStartIconPath != null && File(desktopState.customStartIconPath!).existsSync()
-                        ? Image.file(
-                            File(desktopState.customStartIconPath!), 
-                            width: iconSize, 
-                            height: iconSize, 
-                            errorBuilder: (c, e, s) => Icon(Icons.window, color: themeState.foregroundAccentColor, size: iconSize)
-                          )
-                        : Image.asset(
-                            'assets/icons/start.png', 
-                            width: iconSize, 
-                            height: iconSize, 
-                            errorBuilder: (c, e, s) => Icon(Icons.window, color: themeState.foregroundAccentColor, size: iconSize)
-                          ),
-                    indicator: widget.isStartMenuOpen,
-                  ),
-                  
-                  _buildTaskbarButton(
-                    buttonSize: buttonSize,
-                    spacing: iconSpacing,
-                    isActive: false,
-                    onTap: () { 
-                      widget.onOverlaysClosed(); 
-                      _openSearchOverlay(context, appsState, themeState, desktopState); 
-                    },
-                    child: Image.asset(
-                      'assets/icons/search.png', 
-                      width: iconSize * 0.9, 
-                      height: iconSize * 0.9, 
-                      errorBuilder: (c, e, s) => Icon(Icons.search, size: iconSize * 0.9, color: iconColor)
-                    ),
-                  ),
-                  
-                  _buildTaskbarButton(
-                    buttonSize: buttonSize,
-                    spacing: iconSpacing,
-                    isActive: false,
-                    onTap: () {
-                      widget.onOverlaysClosed();
-                      widget.onTaskViewToggled();
-                    },
-                    child: Image.asset(
-                      'assets/icons/task_view.png', 
-                      width: iconSize * 0.9, 
-                      height: iconSize * 0.9, 
-                      errorBuilder: (c, e, s) => Icon(Icons.filter_none, size: iconSize * 0.8, color: iconColor)
-                    ),
-                  ),
-                  
-                  Flexible(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: const BouncingScrollPhysics(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: appsState.windowStack.map((appId) {
-                          bool isActive = appsState.windowStack.last == appId && !appsState.minimizedApps.contains(appId);
-                          final int notifCount = appsState.appNotificationCounts[appId] ?? 0;
-
-                          return _buildTaskbarButton(
-                            buttonSize: buttonSize,
-                            spacing: iconSpacing,
-                            isActive: isActive,
-                            onTap: () { 
-                              if (appId.contains('.')) {
-                                NativeBridge.instance.launchApp(appId);
-                              } else {
-                                appsState.openApp(appId);
-                              }
-                            },
-                            onLongPress: () {
-                              appsState.closeApp(appId);
-                            }, 
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                _getRawAppIcon(appId, appsState, isDark, themeState, iconSize),
-                                if (notifCount > 0)
-                                  Positioned(
-                                    top: -4, right: -6,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(2),
-                                      decoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle, border: Border.all(color: Colors.transparent, width: 0)),
-                                      child: Text(notifCount > 9 ? '9+' : notifCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold, height: 1.0)),
-                                    ),
-                                  ),
-                              ]
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onSecondaryTapDown: (details) => _showTaskbarMenu(details.globalPosition),
+        onLongPressStart: (details) => _showTaskbarMenu(details.globalPosition),
+        child: Container(
+          height: double.infinity, 
+          decoration: BoxDecoration(
+            color: taskbarBgColor,
+            border: Border(top: topBorder),
+            boxShadow: _taskbarColorStyle == 'transparent' 
+                ? [] 
+                : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 4, offset: const Offset(0, -1))],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: desktopState.taskbarAlignment == 'center' ? MainAxisAlignment.center : MainAxisAlignment.start,
+                  children: [
+                    const SizedBox(width: 4),
+                    
+                    _buildTaskbarButton(
+                      buttonSize: buttonSize,
+                      spacing: iconSpacing,
+                      isActive: widget.isStartMenuOpen,
+                      onTap: widget.onStartToggled,
+                      baseIconColor: iconColor,
+                      child: desktopState.customStartIconPath != null && File(desktopState.customStartIconPath!).existsSync()
+                          ? Image.file(
+                              File(desktopState.customStartIconPath!), 
+                              width: iconSize, 
+                              height: iconSize, 
+                              errorBuilder: (c, e, s) => Icon(Icons.window, color: themeState.foregroundAccentColor, size: iconSize)
+                            )
+                          : Image.asset(
+                              'assets/icons/start.png', 
+                              width: iconSize, 
+                              height: iconSize, 
+                              errorBuilder: (c, e, s) => Icon(Icons.window, color: themeState.foregroundAccentColor, size: iconSize)
                             ),
-                            indicator: true,
-                            isApp: true,
-                            isActiveApp: isActive,
-                          );
-                        }).toList(),
+                      indicator: widget.isStartMenuOpen,
+                    ),
+                    
+                    _buildTaskbarButton(
+                      buttonSize: buttonSize,
+                      spacing: iconSpacing,
+                      isActive: false,
+                      baseIconColor: iconColor,
+                      onTap: () { 
+                        widget.onOverlaysClosed(); 
+                        _openSearchOverlay(context, appsState, themeState, desktopState); 
+                      },
+                      child: Image.asset(
+                        'assets/icons/search.png', 
+                        width: iconSize * 0.9, 
+                        height: iconSize * 0.9, 
+                        color: _taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null, 
+                        errorBuilder: (c, e, s) => Icon(Icons.search, size: iconSize * 0.9, color: iconColor)
                       ),
                     ),
-                  ),
-                ],
+                    
+                    _buildTaskbarButton(
+                      buttonSize: buttonSize,
+                      spacing: iconSpacing,
+                      isActive: false,
+                      baseIconColor: iconColor,
+                      onTap: () {
+                        widget.onOverlaysClosed();
+                        widget.onTaskViewToggled();
+                      },
+                      child: Image.asset(
+                        'assets/icons/task_view.png', 
+                        width: iconSize * 0.9, 
+                        height: iconSize * 0.9, 
+                        color: _taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null, 
+                        errorBuilder: (c, e, s) => Icon(Icons.filter_none, size: iconSize * 0.8, color: iconColor)
+                      ),
+                    ),
+                    
+                    Flexible(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: appsState.windowStack.map((appId) {
+                            bool isActive = appsState.windowStack.last == appId && !appsState.minimizedApps.contains(appId);
+                            final int notifCount = appsState.appNotificationCounts[appId] ?? 0;
+  
+                            return _buildTaskbarButton(
+                              buttonSize: buttonSize,
+                              spacing: iconSpacing,
+                              isActive: isActive,
+                              baseIconColor: iconColor,
+                              onTap: () { 
+                                if (appId.contains('.')) {
+                                  NativeBridge.instance.launchApp(appId);
+                                } else {
+                                  appsState.openApp(appId);
+                                }
+                              },
+                              onLongPress: () {
+                                appsState.closeApp(appId);
+                              }, 
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  _getRawAppIcon(appId, appsState, isDark, themeState, iconSize, iconColor),
+                                  if (notifCount > 0)
+                                    Positioned(
+                                      top: -4, right: -6,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle, border: Border.all(color: Colors.transparent, width: 0)),
+                                        child: Text(notifCount > 9 ? '9+' : notifCount.toString(), style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold, height: 1.0)),
+                                      ),
+                                    ),
+                                ]
+                              ),
+                              indicator: true,
+                              isApp: true,
+                              isActiveApp: isActive,
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.only(right: 0),
-              child: _buildSystemTray(appsState, iconColor, isDark),
-            ),
-          ],
+  
+              Padding(
+                padding: const EdgeInsets.only(right: 0),
+                child: _buildSystemTray(appsState, iconColor, isDark),
+              ),
+            ],
+          ),
         ),
       ),
     );

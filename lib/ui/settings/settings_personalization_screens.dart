@@ -82,6 +82,11 @@ class Win11SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final systemState = context.watch<SystemState>();
+    final monetization = context.watch<MonetizationState>();
+    final bool isPro = systemState.isActivated || monetization.isPro;
+    final bool showPadlock = isProLocked && !isPro;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -108,7 +113,7 @@ class Win11SettingsTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (isProLocked) ...[
+                        if (showPadlock) ...[
                           const SizedBox(width: 6),
                           const Icon(Icons.lock_outline, size: 14, color: Colors.amber),
                         ]
@@ -208,30 +213,11 @@ class ThemesScreen extends StatelessWidget {
     final textColor = isDark ? Colors.white : Colors.black87;
 
     final List<Color> customColors = [
-      Colors.black, 
-      Colors.white,
-      Colors.grey.shade700,
-      Colors.blueGrey,
-      Colors.brown,
-      Colors.red,
-      Colors.deepOrange,
-      Colors.orange,
-      Colors.amber,
-      Colors.yellow.shade700,
-      Colors.lime,
-      Colors.lightGreen,
-      Colors.green,
-      Colors.teal,
-      Colors.cyan,
-      Colors.lightBlue,
-      Colors.blue,
-      Colors.indigo,
-      Colors.deepPurple,
-      Colors.purple,
-      Colors.pink,
-      const Color(0xFFE57373),
-      const Color(0xFF4DB6AC),
-      const Color(0xFF7986CB),
+      Colors.black, Colors.white, Colors.grey.shade700, Colors.blueGrey, Colors.brown,
+      Colors.red, Colors.deepOrange, Colors.orange, Colors.amber, Colors.yellow.shade700,
+      Colors.lime, Colors.lightGreen, Colors.green, Colors.teal, Colors.cyan,
+      Colors.lightBlue, Colors.blue, Colors.indigo, Colors.deepPurple, Colors.purple,
+      Colors.pink, const Color(0xFFE57373), const Color(0xFF4DB6AC), const Color(0xFF7986CB),
     ];
 
     bool isClosing = false;
@@ -243,17 +229,12 @@ class ThemesScreen extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         title: Text('Pick Accent Color', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
         content: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: 280,
-            maxHeight: 220,
-          ),
+          constraints: const BoxConstraints(maxWidth: 280, maxHeight: 220),
           child: GridView.builder(
             shrinkWrap: true,
             physics: const BouncingScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 6,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
+              crossAxisCount: 6, crossAxisSpacing: 12, mainAxisSpacing: 12,
             ),
             itemCount: customColors.length,
             itemBuilder: (context, index) {
@@ -275,8 +256,7 @@ class ThemesScreen extends StatelessWidget {
                     },
                     child: Container(
                       decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
+                        color: color, shape: BoxShape.circle,
                         border: Border.all(
                           color: isSelected ? (isDark ? Colors.white : Colors.black87) : defaultBorder, 
                           width: isSelected ? 2.5 : 1.0
@@ -348,9 +328,7 @@ class ThemesScreen extends StatelessWidget {
                     value: themeState.syncAccentWithOS,
                     activeColor: themeState.currentAccentColor,
                     onChanged: (val) {
-                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Material You (Dynamic Color)')) {
-                        return;
-                      }
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Material You (Dynamic Color)')) return;
                       themeState.setSyncAccentWithOS(val);
                     },
                   ),
@@ -391,7 +369,7 @@ class ThemesScreen extends StatelessWidget {
                 ),
               ),
               Win11SettingsTile(
-                title: 'Browse themes', subtitle: '8 curated Windows themes with matching colors', icon: Icons.art_track, isDark: isDark,
+                title: 'Browse themes', subtitle: 'Curated Windows themes with matching colors', icon: Icons.art_track, isDark: isDark,
                 trailing: Icon(Icons.chevron_right, size: 20, color: textColor),
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BrowseThemesScreen()))
               ),
@@ -401,7 +379,7 @@ class ThemesScreen extends StatelessWidget {
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const IconPackScreen()))
               ),
             ],
-          )
+          ),
         ],
       ),
     );
@@ -699,12 +677,53 @@ class BackgroundScreen extends StatelessWidget {
 
 class StartSettingsScreen extends StatelessWidget {
   const StartSettingsScreen({Key? key}) : super(key: key);
+
+  void _showBootAnimationDialog(BuildContext context, ThemeState themeState) {
+    final isDark = themeState.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final accent = themeState.currentAccentColor;
+    final options = ['None', 'Windows 98 Retro', 'Windows XP Bliss', 'Windows 7 Aero'];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: bgColor,
+          title: Text('Boot Animation', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((opt) => InkWell(
+              onTap: () {
+                themeState.setBootAnimation(opt);
+                Navigator.pop(ctx);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(opt, style: TextStyle(color: textColor, fontSize: 14))),
+                    if (themeState.bootAnimation == opt) Icon(Icons.check, color: accent, size: 18),
+                  ],
+                ),
+              ),
+            )).toList(),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)))
+          ]
+        );
+      }
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final desktopState = context.watch<DesktopState>();
     final themeState = context.watch<ThemeState>();
     final isDark = themeState.isDarkMode;
     final accent = themeState.currentAccentColor;
+    final textColor = isDark ? Colors.white : Colors.black87;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -722,6 +741,42 @@ class StartSettingsScreen extends StatelessWidget {
                   scale: 0.85, 
                   child: Switch(value: desktopState.showRecentlyAdded, activeColor: accent, onChanged: (val) => desktopState.setStartMenuOptions(recentlyAdded: val))
                 ),
+              ),
+            ],
+          ),
+          Win11SettingsGroup(
+            title: 'Retro & Effects (Pro)',
+            isDark: isDark,
+            children: [
+              Win11SettingsTile(
+                title: 'System Sounds',
+                subtitle: 'Play classic startup and system error chimes',
+                icon: Icons.speaker_group_outlined,
+                isDark: isDark,
+                isProLocked: true,
+                trailing: Transform.scale(
+                  scale: 0.85,
+                  child: Switch(
+                    value: themeState.enableSystemSounds,
+                    activeColor: themeState.currentAccentColor,
+                    onChanged: (val) {
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Retro System Sounds')) return;
+                      themeState.setSystemSounds(val);
+                    },
+                  ),
+                ),
+              ),
+              Win11SettingsTile(
+                title: 'Boot Animation',
+                subtitle: themeState.bootAnimation == 'None' ? 'Disabled' : themeState.bootAnimation,
+                icon: Icons.power_settings_new,
+                isDark: isDark,
+                isProLocked: true,
+                trailing: Icon(Icons.chevron_right, size: 20, color: textColor),
+                onTap: () {
+                  if (!ProGatekeeper.checkAccess(context, featureName: 'Retro Boot Animations')) return;
+                  _showBootAnimationDialog(context, themeState);
+                },
               ),
             ],
           ),

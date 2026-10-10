@@ -40,6 +40,7 @@ class MainActivity: FlutterFragmentActivity() {
     private val mediaManager by lazy { MediaManager(this) }
     private val notificationManager by lazy { NotificationManager(this) }
     private val widgetEngine by lazy { WidgetEngine(this) }
+    private var soundManager: SoundManager? = null
 
     private var hardwareReceiver: BroadcastReceiver? = null
     private var packageReceiver: BroadcastReceiver? = null
@@ -117,6 +118,7 @@ class MainActivity: FlutterFragmentActivity() {
         appManager.onDestroy()
         mediaManager.onDestroy()
         hardwareManager.onDestroy()
+        soundManager?.onDestroy()
         
         hardwareReceiver?.let { try { applicationContext.unregisterReceiver(it) } catch (e: Exception) {} }
         packageReceiver?.let { try { applicationContext.unregisterReceiver(it) } catch (e: Exception) {} }
@@ -136,6 +138,7 @@ class MainActivity: FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        soundManager = SoundManager(this)
         hardwareManager.registerUsbChannel(flutterEngine.dartExecutor.binaryMessenger)
 
         flutterEngine.platformViewsController.registry.registerViewFactory(
@@ -198,6 +201,7 @@ class MainActivity: FlutterFragmentActivity() {
                         addAction(Intent.ACTION_BATTERY_CHANGED)
                         addAction(Intent.ACTION_POWER_CONNECTED)
                         addAction(Intent.ACTION_POWER_DISCONNECTED)
+                        addAction("android.net.conn.CONNECTIVITY_CHANGE")
                     }
                     
                     applicationContext.registerSystemReceiver(hardwareReceiver, filter, exported = false)
@@ -325,6 +329,50 @@ class MainActivity: FlutterFragmentActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "optimizeSystem" -> {
+                    activityScope.launch {
+                        try {
+                            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                            val pm = packageManager
+                            
+                            val memInfoBefore = android.app.ActivityManager.MemoryInfo()
+                            am.getMemoryInfo(memInfoBefore)
+                            val availBefore = memInfoBefore.availMem
+                            
+                            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+                            val apps = pm.queryIntentActivities(mainIntent, 0)
+                            
+                            var signaledApps = 0
+                            for (resolveInfo in apps) {
+                                val pkg = resolveInfo.activityInfo.packageName
+                                if (pkg != packageName) {
+                                    am.killBackgroundProcesses(pkg)
+                                    signaledApps++
+                                }
+                            }
+                            
+                            System.gc()
+                            Runtime.getRuntime().gc()
+                            
+                            kotlinx.coroutines.delay(800)
+                            
+                            val memInfoAfter = android.app.ActivityManager.MemoryInfo()
+                            am.getMemoryInfo(memInfoAfter)
+                            val availAfter = memInfoAfter.availMem
+                            
+                            val freedMb = ((availAfter - availBefore) / (1024 * 1024)).coerceAtLeast(0)
+                            
+                            // FIX: Using this@MainActivity instead of activity
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to signaledApps, "freedMb" to freedMb.toInt()))
+                        } catch (e: Exception) {
+                            // FIX: Using this@MainActivity instead of activity
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+                        }
+                    }
+                }
+
+                "getSystemPerformanceStats" -> hardwareManager.getSystemPerformanceStats(result)
+                "playSound" -> soundManager?.playSound(call, result)
                 "getHardwareState" -> hardwareManager.getHardwareState(result)
                 "setSystemBrightness" -> hardwareManager.setSystemBrightness(call, result)
                 "toggleHardware" -> hardwareManager.toggleHardware(call, result)

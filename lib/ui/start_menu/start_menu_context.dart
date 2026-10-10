@@ -11,22 +11,44 @@ import '../../services/native_bridge.dart';
 
 class StartMenuContext {
   static void showAccessibilityPrompt(BuildContext context, bool isDark) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
-        title: Text('Accessibility Required', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: Text(
-          "To open the Power Menu, Android requires Accessibility permissions.\n\n1. Tap 'Go to Settings'\n2. Select 'Downloaded Apps'\n3. Turn ON 'Win11 PC Launcher'", 
-          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 14)
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))),
-          TextButton(onPressed: () { Navigator.pop(ctx); NativeBridge.instance.openSettings('accessibility'); }, child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold))),
-        ],
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+      title: Text(
+        'Accessibility Service Required', 
+        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)
       ),
-    );
-  }
+      content: SingleChildScrollView(
+        child: Text(
+          "Win11 PC Launcher uses the AccessibilityService API to enable core launcher functionalities without requiring root access. Specifically, this allows you to:\n\n"
+          "• Open the system Power Menu\n"
+          "• Expand the Notification Panel\n"
+          "• Access Recent Apps / Task View\n\n"
+          "Privacy Promise: This permission is used strictly for system navigation. We do not collect, monitor, store, or share any personal data, screen content, or keystrokes.\n\n"
+          "To proceed:\n"
+          "1. Tap 'Go to Settings'\n"
+          "2. Select 'Downloaded Apps'\n"
+          "3. Turn ON 'Win11 PC Launcher'", 
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4)
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx), 
+          child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))
+        ),
+        TextButton(
+          onPressed: () { 
+            Navigator.pop(ctx); 
+            NativeBridge.instance.openSettings('accessibility'); 
+          }, 
+          child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold))
+        ),
+      ],
+    ),
+  );
+}
 
   static PopupMenuItem<String> buildCompactMenuItem(String value, IconData icon, String label, Color textColor, {Color? iconColor}) {
     return PopupMenuItem<String>(

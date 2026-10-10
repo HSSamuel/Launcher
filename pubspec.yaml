@@ -2,7 +2,7 @@ name: win11_pc_launcher
 description: A customization launcher inspired by desktop interfaces.
 publish_to: 'none'
 
-version: 1.0.5+2
+version: 1.0.6+3
 
 environment:
   sdk: '^3.0.0'
@@ -37,6 +37,9 @@ dependencies:
   dynamic_color: ^2.1.0
   local_auth: ^3.0.2
   xml: ^7.1.0
+  google_sign_in: ^6.2.1
+  googleapis: ^13.1.0
+  extension_google_sign_in_as_googleapis_auth: ^2.0.7
   in_app_purchase: ^3.1.13
 
 dev_dependencies:
@@ -52,6 +55,7 @@ flutter:
   assets:
     - assets/icons/
     - assets/wallpapers/
+    - assets/sounds/
   
 flutter_launcher_icons:
   android: true

@@ -128,44 +128,44 @@ class AppsState extends ChangeNotifier {
   }
 
   Future<void> injectAndSyncApp(String pkg, String label) async {
-if (kIsWeb) return;
-try {
-  // Give the OS an extra second to finalize the APK extraction and manifest indexing
-  await Future.delayed(const Duration(milliseconds: 2500));
-  
-  AppInfo? fetchedInfo;
-  try {
-    fetchedInfo = await InstalledApps.getAppInfo(pkg);
-  } catch (_) {}
-
-  if (fetchedInfo == null) {
-    final allApps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: false);
+    if (kIsWeb) return;
     try {
-      fetchedInfo = allApps.firstWhere((a) => a.packageName == pkg);
-    } catch (_) {
-      debugPrint("App not found in system index yet. Will sync on next background refresh.");
-      return;
+      // Give the OS an extra second to finalize the APK extraction and manifest indexing
+      await Future.delayed(const Duration(milliseconds: 2500));
+      
+      AppInfo? fetchedInfo;
+      try {
+        fetchedInfo = await InstalledApps.getAppInfo(pkg);
+      } catch (_) {}
+
+      if (fetchedInfo == null) {
+        final allApps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: false);
+        try {
+          fetchedInfo = allApps.firstWhere((a) => a.packageName == pkg);
+        } catch (_) {
+          debugPrint("App not found in system index yet. Will sync on next background refresh.");
+          return;
+        }
+      }
+
+      installedApps.removeWhere((a) => a.packageName == pkg);
+      installedApps.add(fetchedInfo);
+      installedApps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
+      
+      appMap[pkg] = fetchedInfo;
+      
+      // Pre-populate the LazyAppIcon memory cache to prevent the "Green Android" fallback
+      if (fetchedInfo.icon != null) {
+        LazyAppIcon.globalIconCache[pkg] = fetchedInfo.icon!;
+        LazyAppIcon.failedFetches.remove(pkg);
+      }
+      
+      await _updateCategorizedApps(); 
+      notifyListeners(); 
+    } catch (e) {
+      debugPrint("Failed to sync injected app: $e");
     }
   }
-
-  installedApps.removeWhere((a) => a.packageName == pkg);
-  installedApps.add(fetchedInfo);
-  installedApps.sort((a, b) => (a.name ?? '').toLowerCase().compareTo((b.name ?? '').toLowerCase()));
-  
-  appMap[pkg] = fetchedInfo;
-  
-  // Pre-populate the LazyAppIcon memory cache to prevent the "Green Android" fallback
-  if (fetchedInfo.icon != null) {
-    LazyAppIcon.globalIconCache[pkg] = fetchedInfo.icon!;
-    LazyAppIcon.failedFetches.remove(pkg);
-  }
-  
-  await _updateCategorizedApps(); 
-  notifyListeners(); 
-} catch (e) {
-  debugPrint("Failed to sync injected app: $e");
-}
-}
 
   Future<void> checkIconCacheStatus(String windowId, String? cachedIconsPath) async {
     if (cachedIconsPath != null && !iconCacheStatus.containsKey(windowId)) {
@@ -637,10 +637,20 @@ try {
     }
   }
 
+  // CRITICAL FIX: Ensure 'this_pc' and 'recycle_bin' are correctly translated to 'explorer' 
+  // uniformly across the app to prevent empty ghost windows from launching.
   void openApp(String appId) {
-    if (minimizedApps.contains(appId)) minimizedApps.remove(appId);
-    if (!windowStack.contains(appId)) windowStack.add(appId);
-    focusWindow(appId);
+    String resolvedId = appId;
+    if (appId == 'this_pc' || appId == 'my_files') {
+      currentExplorerPath = '/storage/emulated/0';
+      resolvedId = 'explorer';
+    } else if (appId == 'recycle_bin') {
+      resolvedId = 'explorer';
+    }
+
+    if (minimizedApps.contains(resolvedId)) minimizedApps.remove(resolvedId);
+    if (!windowStack.contains(resolvedId)) windowStack.add(resolvedId);
+    focusWindow(resolvedId);
   }
 
   void closeApp(String appId) {

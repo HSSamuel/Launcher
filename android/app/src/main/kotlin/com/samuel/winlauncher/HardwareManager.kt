@@ -12,7 +12,9 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.net.TrafficStats
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -34,7 +36,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-// API Compatibility Fix: Pass receiver export flag explicitly
 fun Context.registerSystemReceiver(receiver: BroadcastReceiver?, filter: IntentFilter, exported: Boolean = true): Intent? {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val flag = if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED
@@ -44,7 +45,6 @@ fun Context.registerSystemReceiver(receiver: BroadcastReceiver?, filter: IntentF
     }
 }
 
-// Thread-safe dispatch logic
 fun MethodChannel.Result.safeSuccess(activity: Activity, data: Any?) {
     activity.runOnUiThread {
         try {
@@ -73,8 +73,11 @@ class HardwareManager(private val activity: Activity) {
     private var cachedApps: List<android.content.pm.ResolveInfo>? = null
     private var isReceiverRegistered = false
     
-    // Lifecycle Fix: Tied receiver to instance scope to prevent registration leaks
     private var screenOffReceiver: BroadcastReceiver? = null
+
+    private var lastNetSampleTime: Long = 0
+    private var lastRxBytes: Long = 0
+    private var lastTxBytes: Long = 0
 
     companion object {
         var wasScreenOff = false
@@ -90,7 +93,6 @@ class HardwareManager(private val activity: Activity) {
                 }
             }
             val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
-            // CRITICAL FIX: Ensure system broadcasts are not exported on API 34+
             activity.applicationContext.registerSystemReceiver(screenOffReceiver, filter, exported = false)
             isReceiverRegistered = true
         }
@@ -162,7 +164,6 @@ class HardwareManager(private val activity: Activity) {
                             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
                             addAction("com.samuel.winlauncher.USB_ATTACHED_LOCAL")
                         }
-                        // CRITICAL FIX: Local and protected system broadcasts do not need exporting
                         activity.registerSystemReceiver(usbReceiver, filter, exported = false)
                     }
 
@@ -174,6 +175,59 @@ class HardwareManager(private val activity: Activity) {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize USB event channel", e)
+        }
+    }
+
+    fun getSystemPerformanceStats(result: MethodChannel.Result) {
+        scope.launch {
+            try {
+                val am = activity.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+                val memInfo = android.app.ActivityManager.MemoryInfo()
+                am?.getMemoryInfo(memInfo)
+                val totalRamMb = (memInfo.totalMem / (1024 * 1024)).toInt()
+                val availRamMb = (memInfo.availMem / (1024 * 1024)).toInt()
+                val usedRamMb = totalRamMb - availRamMb
+                val ramPercent = if (totalRamMb > 0) ((usedRamMb.toFloat() / totalRamMb.toFloat()) * 100).toInt() else 0
+
+                val now = System.currentTimeMillis()
+                val currentRx = TrafficStats.getTotalRxBytes()
+                val currentTx = TrafficStats.getTotalTxBytes()
+
+                var rxSpeedKbps = 0.0
+                var txSpeedKbps = 0.0
+
+                if (lastNetSampleTime > 0 && now > lastNetSampleTime) {
+                    val timeDiffSec = (now - lastNetSampleTime) / 1000.0
+                    if (timeDiffSec > 0 && currentRx >= lastRxBytes && currentTx >= lastTxBytes) {
+                        rxSpeedKbps = ((currentRx - lastRxBytes) / 1024.0) / timeDiffSec
+                        txSpeedKbps = ((currentTx - lastTxBytes) / 1024.0) / timeDiffSec
+                    }
+                }
+                lastNetSampleTime = now
+                lastRxBytes = currentRx
+                lastTxBytes = currentTx
+
+                var tempCelsius = 35.0
+                try {
+                    val batteryIntent = activity.applicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val rawTemp = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+                    if (rawTemp > 0) {
+                        tempCelsius = rawTemp / 10.0
+                    }
+                } catch (e: Exception) {}
+
+                val stats = mapOf(
+                    "ram_used_mb" to usedRamMb,
+                    "ram_total_mb" to totalRamMb,
+                    "ram_percent" to ramPercent,
+                    "rx_kbps" to rxSpeedKbps,
+                    "tx_kbps" to txSpeedKbps,
+                    "cpu_temp" to tempCelsius
+                )
+                result.safeSuccess(activity, stats)
+            } catch (e: Exception) {
+                result.safeError(activity, "PERF_STATS_ERROR", e.message, null)
+            }
         }
     }
 
@@ -270,6 +324,10 @@ class HardwareManager(private val activity: Activity) {
         }.onFailure { states["Airplane mode"] = false }
 
         runCatching {
+            states["Data"] = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
+        }.onFailure { states["Data"] = false }
+
+        runCatching {
             val notifManager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
             states["DND"] = notifManager?.currentInterruptionFilter != android.app.NotificationManager.INTERRUPTION_FILTER_ALL
         }.onFailure { states["DND"] = false }
@@ -289,7 +347,7 @@ class HardwareManager(private val activity: Activity) {
 
         runCatching {
             val currentNightMode = activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
         }.onFailure { states["Dark Theme"] = false }
 
         runCatching {
@@ -297,6 +355,20 @@ states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_
             val brightnessInt = Settings.System.getInt(activity.contentResolver, Settings.System.SCREEN_BRIGHTNESS, 128)
             states["sys_brightness"] = (brightnessInt / 255.0).coerceIn(0.0, 1.0)
         }.onFailure { states["Brightness"] = false; states["sys_brightness"] = 0.5 }
+
+        // Fetch real-time battery status directly from the sticky intent for instant synchronization
+        runCatching {
+            val batteryIntent = activity.applicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+
+            states["battery_level"] = if (level != -1 && scale != -1) (level * 100 / scale.toFloat()).toInt() else 100
+            states["battery_charging"] = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        }.onFailure {
+            states["battery_level"] = 100
+            states["battery_charging"] = false
+        }
 
         return states
     }
@@ -568,7 +640,6 @@ states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_
         } catch (e: Exception) { 
             Log.e(TAG, "Error opening custom settings: $type", e)
             try {
-                // CRITICAL FIX: Safe fallback routing directly to Application Details Settings to allow users to toggle permissions cleanly
                 activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                     data = Uri.parse("package:" + activity.packageName)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -599,10 +670,19 @@ states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_
                 dpm.lockNow()
                 result.safeSuccess(activity, true)
             } else {
-                // CRITICAL FIX: Return false gracefully if Accessibility/Admin fails rather than abruptly routing out of the app
+                try {
+                    val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                        putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to lock functionality.")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    activity.startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to launch Device Admin intent", e)
+                }
                 result.safeSuccess(activity, false)
             }
-        } catch (e: Exception) {
+        } catch (e: Exception) { 
             Log.e(TAG, "Error locking device", e)
             result.safeError(activity, "LOCK_DEVICE_FAILED", e.message, null)
         }
@@ -718,7 +798,7 @@ states["Dark Theme"] = currentNightMode == android.content.res.Configuration.UI_
                     ))
                 }
                 result.safeSuccess(activity, disks)
-            } catch (e: Exception) {
+            } catch (e: Exception) { 
                 Log.e(TAG, "Error getting disks", e)
                 result.safeError(activity, "DISKS_ERROR", e.message, null)
             }

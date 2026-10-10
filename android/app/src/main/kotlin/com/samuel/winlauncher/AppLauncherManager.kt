@@ -169,10 +169,11 @@ class AppLauncherManager(private val activity: Activity) {
                                                 val drawable = parser.getAttributeValue(null, "drawable")
                                                 if (comp != null && drawable != null) {
                                                     iconPackMap[comp] = drawable
+                                                    val openBrace = comp.indexOf("{")
                                                     val slashIdx = comp.indexOf("/")
                                                     val closeBrace = comp.indexOf("}")
-                                                    if (slashIdx != -1 && closeBrace != -1) {
-                                                        val pkgPart = comp.substring(comp.indexOf("{") + 1, slashIdx)
+                                                    if (openBrace != -1 && slashIdx > openBrace && closeBrace > slashIdx) {
+                                                        val pkgPart = comp.substring(openBrace + 1, slashIdx)
                                                         val clsPart = comp.substring(slashIdx + 1, closeBrace)
                                                         val normalizedCls = if (clsPart.startsWith(".")) "$pkgPart$clsPart" else clsPart
                                                         iconPackMap["ComponentInfo{$pkgPart/$normalizedCls}"] = drawable

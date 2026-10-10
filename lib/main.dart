@@ -10,6 +10,7 @@ import 'states/system_state.dart';
 import 'states/desktop_state.dart';
 import 'states/apps_state.dart';
 import 'states/monetization_state.dart';
+import 'states/cloud_drive_state.dart'; // NEW
 import 'ui/desktop/desktop_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -26,6 +27,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => DesktopState()),
         ChangeNotifierProvider(create: (_) => AppsState()),
         ChangeNotifierProvider(create: (_) => MonetizationState()),
+        ChangeNotifierProvider(create: (_) => CloudDriveState()), // NEW
       ],
       child: const Win11LauncherApp(),
     ),

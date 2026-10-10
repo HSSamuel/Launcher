@@ -368,7 +368,6 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                 decoration: BoxDecoration(color: const Color(0xFF161616), borderRadius: BorderRadius.circular(8), border: Border.all(color: borderColor)), clipBehavior: Clip.antiAlias,
                                 child: Stack(
                                   children: [
-                                    // 1. Base Image (for News articles)
                                     if (slide['logo1'] == null)
                                       Positioned.fill(
                                         child: CachedNetworkImage(
@@ -380,7 +379,6 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                         ),
                                       ),
 
-                                    // 2. Dark Gradient Overlay (Ensures text remains readable)
                                     Positioned.fill(
                                       child: Container(
                                         decoration: const BoxDecoration(
@@ -394,7 +392,6 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                       ),
                                     ),
 
-                                    // 3. Sports Team Logos (Rendered above the gradient so they are bold and clear)
                                     if (slide['logo1'] != null)
                                       Positioned.fill(
                                         child: Row(
@@ -430,7 +427,6 @@ class _SearchDashboardState extends State<SearchDashboard> {
                                         )
                                       ),
 
-                                    // 4. Foreground Text Content
                                     Padding(
                                       padding: const EdgeInsets.only(left: 12, top: 12, right: 12, bottom: 20),
                                       child: Column(
@@ -468,21 +464,30 @@ class _SearchDashboardState extends State<SearchDashboard> {
                               bottom: 8,
                               left: 0,
                               right: 0,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: List.generate(widget.infoSlides.length, (index) {
-                                  bool isActive = _activePageIndex == index;
-                                  return AnimatedContainer(
-                                    duration: const Duration(milliseconds: 300),
-                                    margin: const EdgeInsets.symmetric(horizontal: 2.5),
-                                    height: 4,
-                                    width: isActive ? 14 : 4,
-                                    decoration: BoxDecoration(
-                                      color: isActive ? Colors.white : Colors.white.withOpacity(0.4),
-                                      borderRadius: BorderRadius.circular(4),
+                              child: Center(
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: List.generate(widget.infoSlides.length, (index) {
+                                        bool isActive = _activePageIndex == index;
+                                        return AnimatedContainer(
+                                          duration: const Duration(milliseconds: 300),
+                                          margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                                          height: 4,
+                                          width: isActive ? 14 : 4,
+                                          decoration: BoxDecoration(
+                                            color: isActive ? Colors.white : Colors.white.withOpacity(0.4),
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                        );
+                                      }),
                                     ),
-                                  );
-                                }),
+                                  ),
+                                ),
                               ),
                             ),
                         ],
