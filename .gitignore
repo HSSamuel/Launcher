@@ -13,6 +13,9 @@
 migrate_working_dir/
 node_modules
 .env
+# Nested Node.js project
+win11-license/node_modules/
+win11-license/.env
 
 # IntelliJ related
 *.iml
