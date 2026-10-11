@@ -1,11 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:installed_apps/app_info.dart';
 
 import '../../states/apps_state.dart';
 import '../../states/system_state.dart';
 import '../../states/theme_state.dart';
 import '../../services/native_bridge.dart';
 import '../../services/pro_gatekeeper.dart';
+import '../../services/lazy_app_icon.dart';
 import 'settings_widgets.dart';
 
 class SettingsPrivacySecurityView extends StatefulWidget {
@@ -60,6 +63,51 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
     } finally {
       _isSyncing = false;
     }
+  }
+
+  Widget _buildAppIcon(AppInfo app, double size, ThemeState themeState) {
+    final pkg = app.packageName;
+    if (pkg == null) return Icon(Icons.android, size: size, color: Colors.green);
+
+    if (themeState.customAppIcons.containsKey(pkg)) {
+      final file = File(themeState.customAppIcons[pkg]!);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            file,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    if (themeState.cachedIconsPath != null) {
+      final iconFile = File('${themeState.cachedIconsPath}/$pkg.png');
+      if (iconFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            iconFile,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    return LazyAppIcon(packageName: pkg, size: size);
   }
 
   void _openWithDisclosure(String type, String title, String disclosure) async {
@@ -117,16 +165,11 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                   final isChecked = localSelectedCache.contains(app.packageName);
                   return CheckboxListTile(
                     dense: true,
-                    secondary: app.icon != null 
-                        ? Image.memory(
-                            app.icon!, 
-                            width: 24, 
-                            height: 24, 
-                            cacheWidth: 72, 
-                            cacheHeight: 72, 
-                            gaplessPlayback: true
-                          ) 
-                        : const Icon(Icons.android),
+                    secondary: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: _buildAppIcon(app, 26, themeState),
+                    ),
                     title: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 13), overflow: TextOverflow.ellipsis),
                     value: isChecked,
                     activeColor: themeState.currentAccentColor,

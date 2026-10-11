@@ -7,7 +7,6 @@ import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sig
 import '../models/cloud_file_model.dart';
 
 class CloudDriveState extends ChangeNotifier {
-  // Upgraded to full driveScope so we have permission to Delete and Modify files
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: [drive.DriveApi.driveScope],
   );
@@ -16,8 +15,9 @@ class CloudDriveState extends ChangeNotifier {
   bool isLoading = false;
   List<CloudFile> currentCloudFiles = [];
   String activeProvider = '';
+  String? driveErrorMessage;
 
-  // Google Drive uses a stack array to track breadcrumbs because it relies on unique IDs, not file paths.
+  // Google Drive uses a stack array to track breadcrumbs by unique folder IDs
   List<Map<String, String>> gDrivePathStack = [];
 
   String get currentFolderId => gDrivePathStack.isNotEmpty ? gDrivePathStack.last['id']! : 'root';
@@ -27,33 +27,85 @@ class CloudDriveState extends ChangeNotifier {
       isGoogleDriveConnected = account != null;
       notifyListeners();
     });
-    // Silently log in if the user already authenticated previously
-    _googleSignIn.signInSilently();
-  }
-
-  // CRITICAL FIX: Return a boolean and directly check the account instead of waiting for the stream listener
-  Future<bool> connectGoogleDrive() async {
-    try {
-      final account = await _googleSignIn.signIn();
+    _googleSignIn.signInSilently().then((account) {
       if (account != null) {
         isGoogleDriveConnected = true;
         notifyListeners();
-        await openDrive('gdrive', folderId: 'root');
-        return true;
       }
-    } catch (e) {
-      debugPrint("Google Auth Error: $e");
+    }).catchError((_) {});
+  }
+
+  /// Connects to Google Drive. Returns null on success, or a descriptive error message on failure.
+  Future<String?> connectGoogleDrive() async {
+    try {
+      isLoading = true;
+      driveErrorMessage = null;
+      notifyListeners();
+
+      final account = await _googleSignIn.signIn();
+      if (account == null) {
+        isLoading = false;
+        notifyListeners();
+        return "Sign-in was cancelled.";
+      }
+
+      // Verify and request scopes explicitly if required by the device
+      try {
+        final hasScope = await _googleSignIn.canAccessScopes([drive.DriveApi.driveScope]);
+        if (!hasScope) {
+          final granted = await _googleSignIn.requestScopes([drive.DriveApi.driveScope]);
+          if (!granted) {
+            isLoading = false;
+            notifyListeners();
+            return "Google Drive permission was not granted.";
+          }
+        }
+      } catch (scopeError) {
+        debugPrint("Scope check note: $scopeError");
+      }
+
+      final authClient = await _googleSignIn.authenticatedClient();
+      if (authClient == null) {
+        isLoading = false;
+        notifyListeners();
+        return "Failed to create authenticated Google client.";
+      }
+
+      isGoogleDriveConnected = true;
+      activeProvider = 'gdrive';
+      notifyListeners();
+
+      await openDrive('gdrive', folderId: 'root');
+      return null; // Success
+    } catch (e, stack) {
+      debugPrint("Google Auth Error: $e\n$stack");
+      isLoading = false;
+      notifyListeners();
+
+      final err = e.toString();
+      if (err.contains('10') || err.contains('DEVELOPER_ERROR')) {
+        return "Developer Error (10): Ensure your SHA-1 key and package name (com.samuel.winlauncher) are added to Google Cloud Console.";
+      } else if (err.contains('12500')) {
+        return "OAuth Error (12500): Check that OAuth consent screen is configured and support email is set in Google Cloud.";
+      } else if (err.contains('access_denied') || err.contains('Access denied')) {
+        return "Access denied: If your Google Cloud project is in 'Testing' mode, add your email as a Test User.";
+      }
+      return "Google Sign-in failed: ${err.replaceFirst('PlatformException(', '').replaceAll(')', '')}";
     }
-    return false;
   }
 
   Future<void> disconnectDrive(String provider) async {
     if (provider == 'gdrive') {
-      await _googleSignIn.signOut();
+      try {
+        await _googleSignIn.disconnect();
+      } catch (_) {
+        await _googleSignIn.signOut();
+      }
       isGoogleDriveConnected = false;
       gDrivePathStack.clear();
       currentCloudFiles = [];
       activeProvider = '';
+      driveErrorMessage = null;
       notifyListeners();
     }
   }
@@ -61,6 +113,7 @@ class CloudDriveState extends ChangeNotifier {
   Future<void> openDrive(String provider, {String? folderId, String? folderName, bool isBack = false}) async {
     activeProvider = provider;
     isLoading = true;
+    driveErrorMessage = null;
     currentCloudFiles = [];
     notifyListeners();
 
@@ -69,13 +122,11 @@ class CloudDriveState extends ChangeNotifier {
         gDrivePathStack = []; // Reset to root
       } else {
         if (isBack) {
-          // If we clicked a breadcrumb to go back
           int idx = gDrivePathStack.indexWhere((e) => e['id'] == folderId);
           if (idx != -1) {
             gDrivePathStack = gDrivePathStack.sublist(0, idx + 1);
           }
         } else {
-          // Moving forward into a new folder
           gDrivePathStack.add({'id': folderId, 'name': folderName ?? 'Folder'});
         }
       }
@@ -88,17 +139,19 @@ class CloudDriveState extends ChangeNotifier {
 
   Future<void> _fetchGoogleDriveFiles(String folderId) async {
     try {
+      driveErrorMessage = null;
       final authClient = await _googleSignIn.authenticatedClient();
-      if (authClient == null) return;
+      if (authClient == null) {
+        driveErrorMessage = "Authentication expired. Please reconnect Google Drive.";
+        return;
+      }
 
       final driveApi = drive.DriveApi(authClient);
       
-      // Query Google Drive for items inside the target folder ID
       final fileList = await driveApi.files.list(
         q: "'$folderId' in parents and trashed = false",
-        // Request the thumbnailLink property so we can display image previews
         $fields: "files(id, name, mimeType, size, modifiedTime, thumbnailLink)",
-        orderBy: "folder, name"
+        orderBy: "folder, name",
       );
 
       final files = fileList.files ?? [];
@@ -106,7 +159,7 @@ class CloudDriveState extends ChangeNotifier {
       currentCloudFiles = files.map((f) => CloudFile(
         id: f.id ?? '',
         name: f.name ?? 'Unknown',
-        path: f.id ?? '', // For GDrive, we use ID as path
+        path: f.id ?? '',
         isFolder: f.mimeType == 'application/vnd.google-apps.folder',
         size: int.tryParse(f.size ?? '0') ?? 0,
         modifiedTime: f.modifiedTime,
@@ -116,6 +169,12 @@ class CloudDriveState extends ChangeNotifier {
       
     } catch (e) {
       debugPrint("GDrive Fetch Error: $e");
+      final err = e.toString();
+      if (err.contains('Google Drive API has not been used') || err.contains('disabled')) {
+        driveErrorMessage = "Google Drive API is disabled. Please enable it in your Google Cloud Console.";
+      } else {
+        driveErrorMessage = "Failed to load files: $e";
+      }
     }
   }
 
@@ -126,11 +185,8 @@ class CloudDriveState extends ChangeNotifier {
         if (authClient == null) return;
         
         final driveApi = drive.DriveApi(authClient);
-        
-        // Delete the file using the official Google Drive API
         await driveApi.files.delete(fileId);
         
-        // Refresh the current folder after deletion to update the UI
         await _fetchGoogleDriveFiles(currentFolderId);
         notifyListeners();
       } catch (e) {
@@ -147,17 +203,15 @@ class CloudDriveState extends ChangeNotifier {
 
         final driveApi = drive.DriveApi(authClient);
         
-        // Request the raw media stream from Google Drive
         final drive.Media media = await driveApi.files.get(
           fileId,
           downloadOptions: drive.DownloadOptions.fullMedia,
         ) as drive.Media;
 
-        // Get the device's temporary cache directory
         final tempDir = await getTemporaryDirectory();
-        final saveFile = File('${tempDir.path}/$fileName');
+        final sanitizedName = fileName.split('/').last.split('\\').last;
+        final saveFile = File('${tempDir.path}/$sanitizedName');
 
-        // Stream the bytes into the local file
         final sink = saveFile.openWrite();
         await media.stream.forEach((List<int> chunk) {
           sink.add(chunk);

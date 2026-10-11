@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,10 +6,12 @@ import 'package:provider/provider.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:installed_apps/app_info.dart';
 
 import '../../states/system_state.dart';
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
+import '../../services/lazy_app_icon.dart';
 import 'settings_widgets.dart';
 import '../../services/native_bridge.dart';
 
@@ -26,13 +29,27 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
+class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsBindingObserver {
   bool _hasListenerPermission = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _checkPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermission();
+    }
   }
 
   Future<void> _checkPermission() async {
@@ -44,6 +61,51 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  Widget _buildAppIcon(AppInfo app, double size, ThemeState themeState) {
+    final pkg = app.packageName;
+    if (pkg == null) return Icon(Icons.android, size: size, color: Colors.green);
+
+    if (themeState.customAppIcons.containsKey(pkg)) {
+      final file = File(themeState.customAppIcons[pkg]!);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            file,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    if (themeState.cachedIconsPath != null) {
+      final iconFile = File('${themeState.cachedIconsPath}/$pkg.png');
+      if (iconFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            iconFile,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    return LazyAppIcon(packageName: pkg, size: size);
   }
 
   void _showAppExclusionDialog(BuildContext context, SystemState systemState, AppsState appsState, ThemeState themeState) {
@@ -85,9 +147,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           secondary: SizedBox(
                             width: 28,
                             height: 28,
-                            child: app.icon != null
-                                ? Image.memory(app.icon!, fit: BoxFit.contain)
-                                : const Icon(Icons.android, color: Colors.green, size: 24),
+                            child: _buildAppIcon(app, 28, themeState),
                           ),
                           title: Text(
                             app.name ?? 'App',
@@ -827,7 +887,6 @@ class DeviceSupportScreen extends StatelessWidget {
   const DeviceSupportScreen({Key? key}) : super(key: key);
 
   void _launchWhatsApp(BuildContext context) async {
-    // CRITICAL FIX: Safe deep linking resolving around package visibility
     final String url = "https://wa.me/${SupportConfig.supportPhone}?text=${Uri.encodeComponent('Hello, I need some assistance with the Win11 PC Launcher.')}";
     final success = await NativeBridge.instance.launchApp(url);
     if (!success && context.mounted) {

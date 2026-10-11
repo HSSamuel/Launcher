@@ -20,7 +20,6 @@ import '../../models/file_item.dart';
 import '../../models/cloud_file_model.dart';
 import '../../models/desktop_item_model.dart';
 import '../../services/native_bridge.dart';
-import '../shared/acrylic_container.dart';
 import 'explorer_content_view.dart';
 import 'file_system_service.dart';
 import 'explorer_components.dart';
@@ -298,7 +297,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   bool _isPromptingPermission = false;
 
   bool _isViewingCloud = false;
-  final Set<String> _pendingDownloads = {}; // NEW
+  final Set<String> _pendingDownloads = {};
 
   @override
   void initState() {
@@ -1308,29 +1307,32 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                 : _contextMenuType == 'cloud_file' 
                   ? [
                       _buildContextMenuItem('Open', Icons.open_in_new, themeState, iconColor: Colors.blueAccent, onTap: () {
-                      final cloudState = context.read<CloudDriveState>();
-                      final targetId = _selectedPaths.isNotEmpty ? _selectedPaths.first : '';
-                      final targetFile = cloudState.currentCloudFiles.firstWhere((f) => f.id == targetId, orElse: () => CloudFile(id: '', name: '', path: '', isFolder: false, size: 0, provider: ''));
-                      
-                      if (targetFile.isFolder) {
-                        cloudState.openDrive(cloudState.activeProvider, folderId: targetFile.id, folderName: targetFile.name);
-                      } else {
-                        if (_pendingDownloads.contains(targetFile.id)) {
-                          _showToast('Download already in progress...');
-                          return;
-                        }
-                        setState(() => _pendingDownloads.add(targetFile.id));
-                        _showToast('Fetching ${targetFile.name}...');
-                        cloudState.downloadCloudFile(targetFile.id, targetFile.name).then((localPath) {
-                          if (mounted) setState(() => _pendingDownloads.remove(targetFile.id));
-                          if (localPath != null && mounted) {
-                            NativeBridge.instance.openFile(localPath);
-                          } else if (mounted) {
-                            _showToast('Failed to open ${targetFile.name}');
+                        final cloudState = context.read<CloudDriveState>();
+                        final targetId = _selectedPaths.isNotEmpty ? _selectedPaths.first : '';
+                        final targetFile = cloudState.currentCloudFiles.firstWhere(
+                          (f) => f.id == targetId, 
+                          orElse: () => CloudFile(id: '', name: '', path: '', isFolder: false, size: 0, provider: '')
+                        );
+                        
+                        if (targetFile.isFolder) {
+                          cloudState.openDrive(cloudState.activeProvider, folderId: targetFile.id, folderName: targetFile.name);
+                        } else {
+                          if (_pendingDownloads.contains(targetFile.id)) {
+                            _showToast('Download already in progress...');
+                            return;
                           }
-                        });
-                      }
-                    }),
+                          setState(() => _pendingDownloads.add(targetFile.id));
+                          _showToast('Fetching ${targetFile.name}...');
+                          cloudState.downloadCloudFile(targetFile.id, targetFile.name).then((localPath) {
+                            if (mounted) setState(() => _pendingDownloads.remove(targetFile.id));
+                            if (localPath != null && mounted) {
+                              NativeBridge.instance.openFile(localPath);
+                            } else if (mounted) {
+                              _showToast('Failed to open ${targetFile.name}');
+                            }
+                          });
+                        }
+                      }),
                       _buildContextMenuItem('Delete', Icons.delete_outline, themeState, iconColor: Colors.redAccent, onTap: () async {
                         _showToast('Deleting $_contextTargetName...');
                         final cloudState = context.read<CloudDriveState>();
@@ -1343,9 +1345,17 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                       }),
                     ]
                   : [
-                      // CRITICAL FIX: Proper local file launch via NativeBridge
+                      // Local file options
                       _buildContextMenuItem('Open', Icons.open_in_new, themeState, iconColor: Colors.blueAccent, onTap: () {
-                         if (_selectedPaths.isNotEmpty) NativeBridge.instance.openFile(_selectedPaths.first);
+                         if (_selectedPaths.isNotEmpty) {
+                           final targetPath = _selectedPaths.first;
+                           final isDir = Directory(targetPath).existsSync();
+                           if (isDir) {
+                             _loadDirectorySafe(targetPath);
+                           } else {
+                             NativeBridge.instance.openFile(targetPath);
+                           }
+                         }
                       }),
                       _buildContextMenuItem('Share', Icons.share_outlined, themeState, onTap: () {
                         if (_selectedPaths.isNotEmpty) NativeBridge.instance.shareFile(_selectedPaths.first);
@@ -1384,7 +1394,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     );
   }
 
-  // --- CLOUD UI RENDERER (RESPONSIVE) ---
+  // --- CLOUD UI RENDERER ---
 
   Widget _getCloudFileIcon(CloudFile file, double size) {
     if (file.isFolder) {
@@ -1414,7 +1424,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     if (nameLower.endsWith('.mp3') || nameLower.endsWith('.wav') || nameLower.endsWith('.ogg')) return Icon(Icons.audio_file, size: size, color: Colors.amber);
     if (nameLower.endsWith('.zip') || nameLower.endsWith('.rar') || nameLower.endsWith('.7z')) return Icon(Icons.folder_zip, size: size, color: Colors.orangeAccent);
     if (nameLower.endsWith('.doc') || nameLower.endsWith('.docx')) return Icon(Icons.description, size: size, color: Colors.blue);
-    if (nameLower.endsWith('.xls') || nameLower.endsWith('.xlsx') || nameLower.endsWith('.csv')) return Icon(Icons.table_chart, size: size, color: Colors.green);
+    if (nameLower.endsWith('.xls') || nameLower.endsWith('.xlsx')) return Icon(Icons.table_chart, size: size, color: Colors.green);
     if (nameLower.endsWith('.png') || nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg')) return Icon(Icons.image, size: size, color: Colors.blueAccent);
     
     return Icon(Icons.insert_drive_file, size: size, color: Colors.blueGrey);
@@ -1422,11 +1432,40 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
 
   Widget _buildCloudFileGrid(CloudDriveState cloudState, ThemeState themeState, AppsState appsState) {
     if (cloudState.isLoading) return const Center(child: CircularProgressIndicator(color: Colors.blueAccent));
-    if (cloudState.currentCloudFiles.isEmpty) return Center(child: Text('This folder is empty.', style: TextStyle(color: themeState.isDarkMode ? Colors.white70 : Colors.black54)));
 
-    final viewType = appsState.explorerViewType;
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
+
+    if (cloudState.driveErrorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off, size: 48, color: Colors.redAccent),
+              const SizedBox(height: 12),
+              Text(
+                cloudState.driveErrorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: textColor, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () => cloudState.openDrive('gdrive', folderId: cloudState.currentFolderId),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (cloudState.currentCloudFiles.isEmpty) {
+      return Center(child: Text('This folder is empty.', style: TextStyle(color: isDark ? Colors.white70 : Colors.black54)));
+    }
+
+    final viewType = appsState.explorerViewType;
 
     if (viewType == 'List') {
       return ListView.separated(
@@ -1629,7 +1668,11 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     return Scaffold(
       backgroundColor: bgColor,
       body: AnnotatedRegion<SystemUiOverlayStyle>(
-        value: SystemUiOverlayStyle(statusBarColor: bgColor, statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark, statusBarBrightness: isDark ? Brightness.dark : Brightness.light),
+        value: SystemUiOverlayStyle(
+          statusBarColor: bgColor, 
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark, 
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        ),
         child: Focus(
           autofocus: true,
           onKeyEvent: (node, event) {
@@ -1770,13 +1813,20 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                                   if (cloudState.isGoogleDriveConnected) {
                                     cloudState.openDrive('gdrive', folderId: 'root');
                                   } else {
-                                    final success = await cloudState.connectGoogleDrive();
-                                    if (success && mounted) {
+                                    final error = await cloudState.connectGoogleDrive();
+                                    if (error == null && mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('Google Drive Synced Successfully'))
                                       );
                                     } else if (mounted) {
                                       setState(() => _isViewingCloud = false); 
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(error ?? 'Connection failed'),
+                                          backgroundColor: Colors.redAccent,
+                                          duration: const Duration(seconds: 5),
+                                        )
+                                      );
                                     }
                                   }
                                 },

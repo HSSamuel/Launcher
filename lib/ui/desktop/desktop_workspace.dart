@@ -459,7 +459,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
     final textColor = isDark ? Colors.white : Colors.black87;
     final subColor = isDark ? Colors.white70 : Colors.black54;
 
-    // Direct circular gauge layout matching the exact design reference
+    // Retain the circular GPU Monitor untouched
     if (item.widgetType == 'system_monitor') {
       return Center(
         child: _LiveSystemMonitorWidget(
@@ -500,7 +500,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10), 
         decoration: BoxDecoration(
           color: cardBg,
           borderRadius: BorderRadius.circular(10),
@@ -509,12 +509,8 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
         ),
         child: FittedBox(
           fit: BoxFit.contain,
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: 220,
-            height: 220,
-            child: content,
-          ),
+          alignment: Alignment.center,
+          child: content,
         ),
       ),
     );
@@ -1216,19 +1212,16 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Using a FittedBox with a fixed internal coordinate system guarantees that 
-        // the text and components will never overflow, regardless of the grid cell size.
         return Center(
           child: FittedBox(
             fit: BoxFit.contain,
             child: SizedBox(
               width: 200.0,
-              height: 222.0, // 200 (circle) + 22 (half of the 44px button overhang)
+              height: 222.0, 
               child: Stack(
                 clipBehavior: Clip.none, 
                 alignment: Alignment.topCenter,
                 children: [
-                  // 1. Main Frosted Circle Body
                   Container(
                     width: 200.0,
                     height: 200.0,
@@ -1245,8 +1238,6 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                       ],
                     ),
                   ),
-
-                  // 2. Top-Half Sweep Gauge
                   Positioned(
                     top: 12.0, 
                     child: CustomPaint(
@@ -1258,8 +1249,6 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                       ),
                     ),
                   ),
-
-                  // 3. Perfectly Centered Text Block
                   Positioned(
                     top: 40.0, 
                     child: Column(
@@ -1307,8 +1296,6 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                       ],
                     ),
                   ),
-
-                  // 4. Oversized Overlapping Optimize Button
                   Positioned(
                     bottom: 0, 
                     child: SizedBox(
@@ -1417,17 +1404,18 @@ class _LiveClockWidget extends StatelessWidget {
         final now = snapshot.data ?? DateTime.now();
         final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
         final timeStr = '$hour:${now.minute.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}';
-        const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+        const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         final dateStr = '${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}';
 
         return Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(timeStr, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor, height: 1.0)),
-            const SizedBox(height: 4),
-            Text(dateStr, style: TextStyle(fontSize: 11, color: subColor)),
+            Text(timeStr, style: TextStyle(fontSize: 100, fontWeight: FontWeight.bold, color: textColor, height: 1.0)),
+            const SizedBox(height: 16),
+            Text(dateStr, style: TextStyle(fontSize: 36, color: subColor)),
           ],
         );
       },
@@ -1533,15 +1521,20 @@ class _LiveWeatherWidgetState extends State<_LiveWeatherWidget> {
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(_icon, color: Colors.orange, size: 28),
-        const SizedBox(width: 8),
+        Icon(_icon, color: Colors.orange, size: 100),
+        const SizedBox(width: 32),
         Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(_temp, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: widget.textColor)),
-            Text('$_desc • $_loc', style: TextStyle(fontSize: 10, color: widget.subColor)),
+            Text(_temp, style: TextStyle(fontSize: 84, fontWeight: FontWeight.bold, color: widget.textColor, height: 1.0)),
+            const SizedBox(height: 12),
+            Text('$_desc • $_loc', style: TextStyle(fontSize: 28, color: widget.subColor), textAlign: TextAlign.center),
           ],
         ),
       ],
@@ -1591,35 +1584,46 @@ class _LiveStorageWidgetState extends State<_LiveStorageWidget> {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.storage, size: 16, color: Colors.blueAccent),
-            const SizedBox(width: 6),
-            Text('Internal Storage', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: widget.textColor)),
+            const Icon(Icons.storage, size: 54, color: Colors.blueAccent),
+            const SizedBox(width: 16),
+            Text(
+              'Internal Storage',
+              style: TextStyle(fontSize: 48, fontWeight: FontWeight.w700, color: widget.textColor),
+            ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 22),
         SizedBox(
-          width: 120,
+          width: 380,
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: BorderRadius.circular(16),
             child: LinearProgressIndicator(
               value: _percent,
-              minHeight: 6,
+              minHeight: 28,
               backgroundColor: widget.isDark ? Colors.white24 : Colors.grey.shade300,
               color: Colors.blueAccent,
             ),
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 18),
         Text(
           _totalGB > 0
               ? '${_freeGB.toStringAsFixed(1)} GB free of ${_totalGB.toStringAsFixed(1)} GB'
               : 'Loading storage...',
-          style: TextStyle(fontSize: 9, color: widget.subColor),
+          style: TextStyle(
+            fontSize: 34,
+            fontWeight: FontWeight.w600,
+            color: widget.subColor,
+          ),
+          textAlign: TextAlign.center,
         ),
       ],
     );
@@ -1736,25 +1740,67 @@ class _LiveCalendarWidgetState extends State<_LiveCalendarWidget> {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     return Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.2), borderRadius: BorderRadius.circular(6)),
+          padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.redAccent.withOpacity(0.18),
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(months[now.month - 1].toUpperCase(), style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.redAccent)),
-              Text('${now.day}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: widget.textColor)),
+              Text(
+                months[now.month - 1].toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.redAccent,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${now.day}',
+                style: TextStyle(
+                  fontSize: 84,
+                  fontWeight: FontWeight.w900,
+                  color: widget.textColor,
+                  height: 1.0,
+                ),
+              ),
             ],
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 32),
         Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text(_upcomingEvent, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: widget.textColor), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(_eventTimeStr, style: TextStyle(fontSize: 9, color: widget.subColor)),
+            Text(
+              _upcomingEvent,
+              style: TextStyle(
+                fontSize: 42,
+                fontWeight: FontWeight.bold,
+                color: widget.textColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _eventTimeStr,
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: widget.subColor,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ],

@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:installed_apps/app_info.dart';
+
 import '../../states/desktop_state.dart';
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
 import '../../services/pro_gatekeeper.dart';
+import '../../services/lazy_app_icon.dart';
 import 'settings_personalization_screens.dart';
 
 class SettingsGesturesView extends StatefulWidget {
@@ -16,6 +20,51 @@ class SettingsGesturesView extends StatefulWidget {
 
 class _SettingsGesturesViewState extends State<SettingsGesturesView> {
   
+  Widget _buildAppIcon(AppInfo app, double size, ThemeState themeState) {
+    final pkg = app.packageName;
+    if (pkg == null) return Icon(Icons.android, size: size, color: Colors.green);
+
+    if (themeState.customAppIcons.containsKey(pkg)) {
+      final file = File(themeState.customAppIcons[pkg]!);
+      if (file.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            file,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    if (themeState.cachedIconsPath != null) {
+      final iconFile = File('${themeState.cachedIconsPath}/$pkg.png');
+      if (iconFile.existsSync()) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.22),
+          child: Image.file(
+            iconFile,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            cacheWidth: (size * 2).toInt().clamp(48, 144),
+            cacheHeight: (size * 2).toInt().clamp(48, 144),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
+          ),
+        );
+      }
+    }
+
+    return LazyAppIcon(packageName: pkg, size: size);
+  }
+
   String _formatActionDisplay(String action, AppsState appsState) {
     if (action.startsWith('app:')) {
       final pkg = action.substring(4);
@@ -77,8 +126,9 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
                         return ListTile(
                           dense: true,
                           leading: SizedBox(
-                            width: 28, height: 28,
-                            child: app.icon != null ? Image.memory(app.icon!, fit: BoxFit.contain) : const Icon(Icons.android),
+                            width: 28, 
+                            height: 28,
+                            child: _buildAppIcon(app, 28, themeState),
                           ),
                           title: Text(app.name ?? '', style: TextStyle(color: textColor, fontSize: 13), overflow: TextOverflow.ellipsis),
                           onTap: () {
@@ -242,17 +292,17 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
                       if (val && !ProGatekeeper.checkAccess(context, featureName: 'Desktop Gestures')) return;
                       desktopState.updateDesktopSetting('gestureHapticFeedback', val);
                     },
-                  )
-                )
+                  ),
+                ),
               )
-            ]
+            ],
           ),
           Win11SettingsGroup(
             title: 'Tap Gestures',
             isDark: isDark,
             children: [
               _buildGestureTile('Double tap', 'Quickly tap the desktop wallpaper twice', Icons.touch_app, isDark, desktopState.gestureDoubleTapAction, appsState, desktopState, themeState, 'DOUBLE_TAP'),
-            ]
+            ],
           ),
           Win11SettingsGroup(
             title: 'Pinch Gestures',
@@ -260,7 +310,7 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
             children: [
               _buildGestureTile('Pinch In', 'Pinch the desktop with two fingers', Icons.close_fullscreen, isDark, desktopState.gesturePinchInAction, appsState, desktopState, themeState, 'PINCH_IN'),
               _buildGestureTile('Pinch Out', 'Expand the desktop with two fingers', Icons.open_in_full, isDark, desktopState.gesturePinchOutAction, appsState, desktopState, themeState, 'PINCH_OUT'),
-            ]
+            ],
           ),
           Win11SettingsGroup(
             title: 'Swipe Gestures',
@@ -272,7 +322,7 @@ class _SettingsGesturesViewState extends State<SettingsGesturesView> {
               _buildGestureTile('1-Finger Swipe RIGHT', 'Swipe right across the desktop', Icons.swipe_right, isDark, desktopState.gestureRightAction, appsState, desktopState, themeState, 'RIGHT'),
               _buildGestureTile('2-Finger Swipe UP', 'Swipe up using two fingers', Icons.swipe_up_alt, isDark, desktopState.gestureTwoFingerUpAction, appsState, desktopState, themeState, '2_UP'),
               _buildGestureTile('2-Finger Swipe DOWN', 'Swipe down using two fingers', Icons.swipe_down_alt, isDark, desktopState.gestureTwoFingerDownAction, appsState, desktopState, themeState, '2_DOWN'),
-            ]
+            ],
           ),
         ],
       ),
