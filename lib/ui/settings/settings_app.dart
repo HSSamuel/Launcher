@@ -33,7 +33,9 @@ class _SettingsAppState extends State<SettingsApp> {
   final GlobalKey<NavigatorState> _nestedNavKey = GlobalKey<NavigatorState>();
   
   AppsState? _appsState;
-  int _selectedIndex = 3; 
+  
+  // FIX: Defaults to 0 (System) to match native Windows 11 behavior
+  int _selectedIndex = 0; 
   
   final TextEditingController _searchController = TextEditingController();
   final ValueNotifier<String> _searchQueryNotifier = ValueNotifier<String>('');
@@ -261,7 +263,6 @@ class _SettingsAppState extends State<SettingsApp> {
                         final category = _categories[index];
                         final isSelected = _selectedIndex == index;
                         return InkWell(
-                          // Route through _onCategorySelected to clear sub-screens and close the drawer cleanly
                           onTap: () => _onCategorySelected(index, isCompact),
                           child: Container(
                             decoration: BoxDecoration(
@@ -392,6 +393,7 @@ class _SettingsAppState extends State<SettingsApp> {
   }
 }
 
+// --- MISSING SETTINGS SCREENS DECLARED HERE ---
 class SystemViewScreen extends StatelessWidget {
   final BuildContext innerContext;
   const SystemViewScreen({Key? key, required this.innerContext}) : super(key: key);

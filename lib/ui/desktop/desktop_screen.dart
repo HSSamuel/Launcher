@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:volume_controller/volume_controller.dart';
 import 'package:screen_brightness/screen_brightness.dart';
-import 'package:torch_light/torch_light.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:confetti/confetti.dart';
 
@@ -114,6 +113,9 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   Timer? _calendarDelayTimer;
   Timer? _updateCheckTimer;
 
+  // Track listener registration specifically so we can detach cleanly
+  VoidCallback? _notificationCountsUpdater;
+
   @override
   void initState() {
     super.initState();
@@ -212,6 +214,10 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.removeObserver(this);
     _confettiController.dispose();
     _cancelHardwareStreams();
+    
+    if (_notificationCountsUpdater != null) {
+      _realNotifications.removeListener(_notificationCountsUpdater!);
+    }
     
     _hardwareSyncTimer?.cancel();
     _physicalDesktopTimer?.cancel();
@@ -315,6 +321,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _fetchActualHardwareState();
       context.read<DesktopState>().applyOrientationLock();
 
       NativeBridge.instance.checkAndClearScreenOffFlag().then((wasScreenOff) {
@@ -379,6 +386,8 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     });
 
     _fetchActualHardwareState();
+    
+    // Subscribe to background hardware events
     _hwSub = NativeBridge.instance.hardwareStateStream.listen((event) {
       if (!mounted) return;
       final data = Map<String, dynamic>.from(event);
@@ -402,6 +411,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       
       final updatedSettings = Map<String, bool>.from(_quickSettings.value);
       data.forEach((key, value) { 
+        // Only apply background state updates if we haven't actively toggled it within the last 4 seconds
         if (value is bool && !_recentlyToggledHardware.contains(key)) { 
           updatedSettings[key] = value; 
         } 
@@ -564,9 +574,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   void _initNotifications() async {
     try {
       _refreshNotifications();
-      _realNotifications.addListener(() { 
+      
+      // Cleanly attach notification listener
+      if (_notificationCountsUpdater != null) {
+        _realNotifications.removeListener(_notificationCountsUpdater!);
+      }
+      _notificationCountsUpdater = () { 
         if (mounted) context.read<AppsState>().updateNotificationCounts(_realNotifications.value); 
-      });
+      };
+      _realNotifications.addListener(_notificationCountsUpdater!);
       
       _notifSub = NativeBridge.instance.notificationStream.listen((event) {
         if (!mounted) return;
@@ -637,7 +653,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     } catch (_) {}
   }
 
-  void _updateBrightness(double val) {
+  void _updateBrightness(double val) async {
     if (val.isNaN || val.isInfinite) val = 0.5;
     final clamped = val.clamp(0.0, 1.0);
     _brightness.value = clamped;
@@ -667,6 +683,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     bool currentVal = _quickSettings.value[key] ?? false;
     bool newVal = !currentVal;
 
+    // Handle direct app launches (No state to toggle)
     if (key == 'Calculator') { appsState.openApp('calculator'); return; }
     if (key == 'Storage') { NativeBridge.instance.toggleHardware('Storage', true); return; }
     if (key == 'ChatGPT') { final success = await NativeBridge.instance.launchApp('com.openai.chatgpt'); if (!success) _showToast('ChatGPT app not installed'); return; }
@@ -722,25 +739,44 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       return;
     }
 
-    if (key == 'Flash') {
-      try { if (currentVal) await TorchLight.disableTorch(); else await TorchLight.enableTorch(); } catch (e) { _showToast('Flashlight not available'); return; }
-    } else if (key == 'Dark Theme') {
+    if (key == 'Dark Theme') {
       if (newVal && !ProGatekeeper.checkAccess(context, featureName: 'Dark Theme')) return;
       themeState.setDarkMode(newVal);
+      _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
+      return;
     }
 
-    _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
+    // Flashlight is tracked securely natively, so we just invoke the bridge and let it broadcast the new state
+    if (key == 'Flash') {
+      NativeBridge.instance.toggleHardware('Flash', newVal);
+      _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
+      return;
+    } 
+
+    // CRITICAL FIX: Distinguish between Silent Toggles and Intent Toggles
+    // If an action opens a System UI Panel (like Wi-Fi on Android 10+, Hotspot, Airplane Mode),
+    // we MUST NOT optimistically update the tile color. We must wait for the OS 
+    // BroadcastReceiver to confirm the hardware actually changed state.
+    final intentKeys = [
+      'Data', 'Airplane mode', 'Hotspot', 'Location', 'Battery saver', 
+      'Accessibility', 'Screen Cast', 'Eye Care', 'Users & Account', 'Wi-Fi', 'Bluetooth'
+    ];
     
-    if (['Hotspot', 'Eye Care', 'Kids Mode'].contains(key)) {
-       SharedPreferences.getInstance().then((prefs) => prefs.setBool('qs_$key', newVal));
-    }
-    
-    _recentlyToggledHardware.add(key);
     NativeBridge.instance.toggleHardware(key, newVal);
     
-    Future.delayed(const Duration(seconds: 4), () {
-      _recentlyToggledHardware.remove(key);
-    });
+    // Only instantaneously update tiles that do not require explicit user confirmation via System Intents
+    if (!intentKeys.contains(key)) {
+       _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
+       
+       if (['Hotspot', 'Eye Care', 'Kids Mode'].contains(key)) {
+          SharedPreferences.getInstance().then((prefs) => prefs.setBool('qs_$key', newVal));
+       }
+       
+       _recentlyToggledHardware.add(key);
+       Future.delayed(const Duration(seconds: 4), () {
+         _recentlyToggledHardware.remove(key);
+       });
+    }
   }
 
   void _closeOverlays() {

@@ -34,30 +34,6 @@ class AppLauncherManager(private val activity: Activity) {
         am?.launcherLargeIconSize ?: 144
     }
 
-    private fun safeResultSuccess(result: MethodChannel.Result, data: Any?) {
-        activity.runOnUiThread {
-            try {
-                result.success(data)
-            } catch (e: IllegalStateException) {
-                Log.w(TAG, "MethodChannel response already submitted: ${e.message}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Unexpected error in safeResultSuccess", e)
-            }
-        }
-    }
-
-    private fun safeResultError(result: MethodChannel.Result, errorCode: String, errorMessage: String?, errorDetails: Any?) {
-        activity.runOnUiThread {
-            try {
-                result.error(errorCode, errorMessage, errorDetails)
-            } catch (e: IllegalStateException) {
-                Log.w(TAG, "MethodChannel response already submitted: ${e.message}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Unexpected error in safeResultError", e)
-            }
-        }
-    }
-
     fun onDestroy() {
         managerJob.cancel()
     }
@@ -70,7 +46,7 @@ class AppLauncherManager(private val activity: Activity) {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 activity.startActivity(intent)
-                safeResultSuccess(result, true)
+                result.safeSuccess(activity, true)
                 return
             }
 
@@ -78,13 +54,13 @@ class AppLauncherManager(private val activity: Activity) {
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 activity.startActivity(intent)
-                safeResultSuccess(result, true)
+                result.safeSuccess(activity, true)
             } else {
-                safeResultSuccess(result, false)
+                result.safeSuccess(activity, false)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error launching app: $pkg", e)
-            safeResultError(result, "APP_LAUNCH_FAILED", e.message, null)
+            result.safeError(activity, "APP_LAUNCH_FAILED", e.message, null)
         }
     }
 
@@ -96,10 +72,10 @@ class AppLauncherManager(private val activity: Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             activity.startActivity(intent)
-            safeResultSuccess(result, true)
+            result.safeSuccess(activity, true)
         } catch (e: Exception) {
             Log.e(TAG, "Error uninstalling app: $pkg", e)
-            safeResultError(result, "UNINSTALL_FAILED", e.message, null)
+            result.safeError(activity, "UNINSTALL_FAILED", e.message, null)
         }
     }
 
@@ -115,10 +91,10 @@ class AppLauncherManager(private val activity: Activity) {
                     "package" to it.activityInfo.packageName
                 )
             }
-            safeResultSuccess(result, results)
+            result.safeSuccess(activity, results)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching icon packs", e)
-            safeResultError(result, "ICON_PACK_FETCH_FAILED", e.message, null)
+            result.safeError(activity, "ICON_PACK_FETCH_FAILED", e.message, null)
         }
     }
 
@@ -300,7 +276,6 @@ class AppLauncherManager(private val activity: Activity) {
 
                         finalBitmap?.let {
                             val scaled = Bitmap.createScaledBitmap(it, targetSize, targetSize, true)
-                            // Memory Fix: Utilizing efficient WebP compression output to conserve storage and RAM decoding
                             val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Bitmap.CompressFormat.WEBP_LOSSY else Bitmap.CompressFormat.WEBP
                             FileOutputStream(file).use { out ->
                                 scaled.compress(format, 95, out)
@@ -325,13 +300,13 @@ class AppLauncherManager(private val activity: Activity) {
                     }
                 }
 
-                safeResultSuccess(result, cacheDir.absolutePath)
+                result.safeSuccess(activity, cacheDir.absolutePath)
                 
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to apply icon pack", e)
-                safeResultSuccess(result, null)
+                result.safeSuccess(activity, null)
             }
         }
     }
@@ -360,7 +335,6 @@ class AppLauncherManager(private val activity: Activity) {
         val left = (outputSize - iconSize) / 2f
         val top = (outputSize - iconSize) / 2f
 
-        // Memory Fix: Replace entire ARGB bitmap array allocations with zero-copy Canvas save layers
         val bounds = RectF(0f, 0f, outputSize.toFloat(), outputSize.toFloat())
         val saveCount = canvas.saveLayer(bounds, null)
 

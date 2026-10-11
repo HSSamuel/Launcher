@@ -14,6 +14,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   List<DesktopItemModel> desktopItems = [];
 
   String taskbarAlignment = 'left';
+  String taskbarColorStyle = 'default'; // Moved to global state
   bool showRecentlyAdded = true;
   bool showMostUsed = true;
   bool showRecommended = true;
@@ -74,7 +75,6 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   bool taskbarOverDate = true;
   bool hideNetworkIcons = false;
   
-  // Advanced Feature: Live Taskbar Performance Monitor
   bool showTaskbarSystemMonitor = false;
 
   bool keepOverlaysAliveNextPause = false;
@@ -686,6 +686,14 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     await prefs.setString('taskbarAlignment', alignment);
     notifyListeners();
   }
+  
+  // NEW: Set the taskbar color style globally
+  Future<void> setTaskbarColorStyle(String style) async {
+    taskbarColorStyle = style;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('taskbarColorStyle', style);
+    notifyListeners();
+  }
 
   Future<void> setCustomStartIcon(String? path) async {
     customStartIconPath = path;
@@ -701,6 +709,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _loadState() async {
     final prefs = await SharedPreferences.getInstance();
     taskbarAlignment = prefs.getString('taskbarAlignment') ?? 'left';
+    taskbarColorStyle = prefs.getString('taskbarColorStyle') ?? 'default'; // Load the globally tracked theme
     showRecentlyAdded = prefs.getBool('showRecentlyAdded') ?? true;
     showMostUsed = prefs.getBool('showMostUsed') ?? true;
     showRecommended = prefs.getBool('showRecommended') ?? true;

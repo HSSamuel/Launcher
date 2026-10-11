@@ -7,7 +7,6 @@ class MonetizationState extends ChangeNotifier {
   final InAppPurchase _iap = InAppPurchase.instance;
   late StreamSubscription<List<PurchaseDetails>> _purchaseSubscription;
 
-  // Replace this with your exact Product ID from the Google Play Console
   final String _proProductId = 'win11_pro_upgrade';
 
   bool _isPro = false;
@@ -33,7 +32,6 @@ class MonetizationState extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Load cached Pro status immediately so the user isn't locked out while offline
   Future<void> _initOfflineState() async {
     const storage = FlutterSecureStorage();
     final proStatus = await storage.read(key: 'is_pro_user');
@@ -76,7 +74,6 @@ class MonetizationState extends ChangeNotifier {
     _isPurchasePending = true;
     notifyListeners();
     
-    // Initiates the Google Play bottom sheet
     await _iap.buyNonConsumable(purchaseParam: purchaseParam);
   }
 
@@ -87,28 +84,31 @@ class MonetizationState extends ChangeNotifier {
   }
 
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchaseDetailsList) async {
-  for (var purchaseDetails in purchaseDetailsList) {
-    if (purchaseDetails.status == PurchaseStatus.pending) {
-      _isPurchasePending = true;
-    } else {
-      try {
-        if (purchaseDetails.status == PurchaseStatus.error) {
-          debugPrint("Purchase error: ${purchaseDetails.error}");
-        } else if (purchaseDetails.status == PurchaseStatus.purchased || 
-                   purchaseDetails.status == PurchaseStatus.restored) {
-          await _deliverPremiumContent(purchaseDetails);
+    for (var purchaseDetails in purchaseDetailsList) {
+      if (purchaseDetails.status == PurchaseStatus.pending) {
+        _isPurchasePending = true;
+      } else {
+        try {
+          if (purchaseDetails.status == PurchaseStatus.error) {
+            debugPrint("Purchase error: ${purchaseDetails.error}");
+          } else if (purchaseDetails.status == PurchaseStatus.purchased || 
+                     purchaseDetails.status == PurchaseStatus.restored) {
+            
+            await _deliverPremiumContent(purchaseDetails);
+            
+            if (purchaseDetails.pendingCompletePurchase) {
+              await _iap.completePurchase(purchaseDetails);
+            }
+          }
+        } catch (e) {
+           debugPrint("Premium delivery failed, purchase will not be acknowledged: $e");
+        } finally {
+          _isPurchasePending = false;
         }
-      } finally {
-        // CRITICAL FIX: Ensure purchase is ALWAYS acknowledged to prevent Google Play refunds
-        if (purchaseDetails.pendingCompletePurchase) {
-          await _iap.completePurchase(purchaseDetails);
-        }
-        _isPurchasePending = false;
       }
     }
+    notifyListeners();
   }
-  notifyListeners();
-}
 
   Future<void> _deliverPremiumContent(PurchaseDetails purchaseDetails) async {
     if (purchaseDetails.productID == _proProductId) {

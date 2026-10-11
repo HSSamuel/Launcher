@@ -193,6 +193,7 @@ class MainActivity: FlutterFragmentActivity() {
                     val filter = IntentFilter().apply {
                         addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
                         addAction(android.net.wifi.WifiManager.WIFI_STATE_CHANGED_ACTION)
+                        addAction("android.net.wifi.WIFI_AP_STATE_CHANGED")
                         addAction(android.media.AudioManager.RINGER_MODE_CHANGED_ACTION)
                         addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED)
                         addAction(android.location.LocationManager.PROVIDERS_CHANGED_ACTION)
@@ -362,11 +363,27 @@ class MainActivity: FlutterFragmentActivity() {
                             
                             val freedMb = ((availAfter - availBefore) / (1024 * 1024)).coerceAtLeast(0)
                             
-                            // FIX: Using this@MainActivity instead of activity
                             result.safeSuccess(this@MainActivity, mapOf("signaled" to signaledApps, "freedMb" to freedMb.toInt()))
                         } catch (e: Exception) {
-                            // FIX: Using this@MainActivity instead of activity
                             result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+                        }
+                    }
+                }
+
+                "setNativeWallpaper" -> {
+                    val path = call.argument<String>("path")
+                    activityScope.launch {
+                        try {
+                            if (path != null && !path.startsWith("http")) {
+                                val wallpaperManager = android.app.WallpaperManager.getInstance(applicationContext)
+                                val file = File(path)
+                                if (file.exists()) {
+                                    wallpaperManager.setStream(file.inputStream())
+                                }
+                            }
+                            result.safeSuccess(this@MainActivity, true)
+                        } catch (e: Exception) {
+                            result.safeError(this@MainActivity, "WALLPAPER_ERROR", e.message, null)
                         }
                     }
                 }

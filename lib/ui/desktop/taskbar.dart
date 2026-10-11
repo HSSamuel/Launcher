@@ -1,4 +1,3 @@
-// taskbar.dart
 import 'dart:io';
 import 'dart:math' as math; 
 import 'package:flutter/material.dart';
@@ -10,8 +9,7 @@ import 'package:win11_pc_launcher/services/battery_mock.dart';
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
 import '../../states/desktop_state.dart';
-import '../../states/system_state.dart';
-import '../../states/monetization_state.dart';
+import '../../states/system_state.dart'; 
 import '../../services/native_bridge.dart';
 import '../../services/lazy_app_icon.dart';
 import '../../services/pro_gatekeeper.dart';
@@ -47,32 +45,6 @@ class Win11Taskbar extends StatefulWidget {
 }
 
 class _Win11TaskbarState extends State<Win11Taskbar> {
-  String _taskbarColorStyle = 'default';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadColorStyle();
-  }
-  
-  Future<void> _loadColorStyle() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _taskbarColorStyle = prefs.getString('taskbarColorStyle') ?? 'default';
-      });
-    }
-  }
-
-  Future<void> _setColorStyle(String style) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('taskbarColorStyle', style);
-    if (mounted) {
-      setState(() {
-        _taskbarColorStyle = style;
-      });
-    }
-  }
 
   String _formatTime(DateTime time) {
     int h = time.hour; 
@@ -93,129 +65,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     if (context.read<DesktopState>().gestureHapticFeedback) {
       HapticFeedback.lightImpact();
     }
-  }
-
-  // FIX: Displays strictly ABOVE the taskbar top edge, never covering the taskbar or at the extreme bottom
-  void _showTaskbarMenu(Offset position) {
-    final isDark = context.read<ThemeState>().isDarkMode;
-    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-
-    widget.onOverlaysClosed(); 
-    
-    final double screenWidth = MediaQuery.of(context).size.width;
-    final double taskbarHeight = context.read<DesktopState>().taskbarHeight;
-    final double safeAreaBottom = MediaQuery.of(context).padding.bottom;
-    
-    // Exact distance from the bottom of the screen to the top of the taskbar
-    final double bottomOffset = taskbarHeight + safeAreaBottom;
-    const double menuWidth = 240.0;
-    
-    // Position horizontally near the tap, clamped safely within screen bounds
-    final double left = position.dx.clamp(8.0, screenWidth - menuWidth - 8.0);
-
-    showGeneralDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'TaskbarThemeMenu',
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 150),
-      pageBuilder: (ctx, anim1, anim2) {
-        return Stack(
-          children: [
-            Positioned(
-              left: left,
-              bottom: bottomOffset + 6.0, // Strictly anchored ABOVE the taskbar top edge
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  width: menuWidth,
-                  decoration: BoxDecoration(
-                    color: bgColor,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isDark ? Colors.white24 : Colors.grey.shade300,
-                      width: 1,
-                    ),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
-                    ],
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        child: Text(
-                          'Taskbar Color Theme',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent, fontSize: 12),
-                        ),
-                      ),
-                      Divider(height: 1, color: isDark ? Colors.white12 : Colors.grey.shade300),
-                      const SizedBox(height: 4),
-                      _colorMenuItemDialog(ctx, 'Default (Accent Blended)', 'default', textColor),
-                      _colorMenuItemDialog(ctx, 'Pure Black', 'black', textColor),
-                      _colorMenuItemDialog(ctx, 'Translucent Dark', 'dark', textColor),
-                      _colorMenuItemDialog(ctx, 'Pure White', 'white', textColor),
-                      _colorMenuItemDialog(ctx, 'Translucent Light', 'light', textColor),
-                      _colorMenuItemDialog(ctx, 'Transparent', 'transparent', textColor),
-                      const SizedBox(height: 4),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-      transitionBuilder: (ctx, anim1, anim2, child) {
-        return FadeTransition(
-          opacity: anim1,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.95, end: 1.0).animate(
-              CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic),
-            ),
-            alignment: Alignment.bottomCenter,
-            child: child,
-          ),
-        );
-      },
-    ).then((value) {
-      if (value != null) _setColorStyle(value);
-    });
-  }
-
-  Widget _colorMenuItemDialog(BuildContext ctx, String label, String value, Color textColor) {
-    final bool isSelected = _taskbarColorStyle == value;
-    return InkWell(
-      onTap: () => Navigator.pop(ctx, value),
-      hoverColor: textColor.withOpacity(0.08),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        child: Row(
-          children: [
-            Icon(
-              isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-              size: 18,
-              color: isSelected ? Colors.blueAccent : textColor.withOpacity(0.7),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? Colors.blueAccent : textColor,
-                  fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _openSearchOverlay(BuildContext context, AppsState appsState, ThemeState themeState, DesktopState desktopState) {
@@ -447,10 +296,9 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
              }
              widget.onOverlaysClosed();
           },
-          child: Container(
-            width: 6, 
-            height: double.infinity, 
-            margin: const EdgeInsets.only(left: 2),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Container(width: 2, height: double.infinity, color: isDark ? Colors.white24 : Colors.black26),
           ),
         ),
       ],
@@ -465,6 +313,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
 
     final isDark = themeState.isDarkMode;
     final accent = themeState.currentAccentColor;
+    final _taskbarColorStyle = desktopState.taskbarColorStyle;
     
     Color taskbarBgColor;
     Color iconColor;
@@ -514,8 +363,6 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     return RepaintBoundary(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onSecondaryTapDown: (details) => _showTaskbarMenu(details.globalPosition),
-        onLongPressStart: (details) => _showTaskbarMenu(details.globalPosition),
         child: Container(
           height: double.infinity, 
           decoration: BoxDecoration(
@@ -610,7 +457,11 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
                                 if (appId.contains('.')) {
                                   NativeBridge.instance.launchApp(appId);
                                 } else {
-                                  appsState.openApp(appId);
+                                  if (isActive) {
+                                    appsState.minimizeApp(appId);
+                                  } else {
+                                    appsState.openApp(appId);
+                                  }
                                 }
                               },
                               onLongPress: () {

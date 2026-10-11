@@ -14,6 +14,10 @@ class SettingsAccountsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final systemState = context.watch<SystemState>();
+    final themeState = context.watch<ThemeState>();
+    final isDark = themeState.isDarkMode;
+    final borderColor = isDark ? Colors.white.withOpacity(0.10) : Colors.grey.shade300;
+    final userImage = systemState.userImageBytes;
 
     return Column(
       children: [
@@ -21,6 +25,24 @@ class SettingsAccountsView extends StatelessWidget {
           title: 'Your info',
           subtitle: 'Accounts used by email, calendar and contacts',
           icon: Icons.person_search_outlined,
+          customLeading: userImage != null
+              ? Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: borderColor, width: 1),
+                  ),
+                  child: ClipOval(
+                    child: Image.memory(
+                      userImage,
+                      fit: BoxFit.cover,
+                      cacheWidth: 84,
+                      cacheHeight: 84,
+                    ),
+                  ),
+                )
+              : null,
           onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const YourInfoScreen())),
         ),
         SettingsCard(
@@ -92,7 +114,7 @@ class _EditInfoDialogState extends State<_EditInfoDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context), 
-          child: Text('Cancel', style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54))
+          child: Text('Cancel', style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54)),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _controller.text),
@@ -138,6 +160,7 @@ class YourInfoScreen extends StatelessWidget {
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final borderColor = isDark ? Colors.white.withOpacity(0.10) : Colors.grey.shade300;
+    final userImage = systemState.userImageBytes;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -148,9 +171,51 @@ class YourInfoScreen extends StatelessWidget {
         children: [
           SettingsCard(
             title: 'Picture',
-            subtitle: 'Select user account picture',
+            subtitle: userImage != null ? 'Account picture set' : 'Select user account picture',
             icon: Icons.image_outlined,
-            trailing: const SizedBox.shrink(),
+            customLeading: userImage != null
+                ? Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: borderColor, width: 1),
+                    ),
+                    child: ClipOval(
+                      child: Image.memory(
+                        userImage,
+                        fit: BoxFit.cover,
+                        cacheWidth: 84,
+                        cacheHeight: 84,
+                      ),
+                    ),
+                  )
+                : null,
+            trailing: userImage != null
+                ? Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: borderColor, width: 1.5),
+                    ),
+                    child: ClipOval(
+                      child: Image.memory(
+                        userImage,
+                        fit: BoxFit.cover,
+                        cacheWidth: 108,
+                        cacheHeight: 108,
+                      ),
+                    ),
+                  )
+                : Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: borderColor), 
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text('Browse', style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                  ),
             onTap: () async {
               final picker = ImagePicker();
               final XFile? image = await picker.pickImage(

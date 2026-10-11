@@ -85,7 +85,6 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     _snapController.dispose();
     _dragOffsetNotifier.dispose();
 
-    // Ensure physical torch is disabled when lock screen is dismissed
     if (_isFlashlightOn) {
       try { TorchLight.disableTorch(); } catch (_) {}
     }
@@ -128,7 +127,6 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   }
 
   void _initHardwareListeners() async {
-    // 1. Fetch real-time hardware status instantly to prevent 100% default artifact
     try {
       final initialState = await NativeBridge.instance.getHardwareState();
       if (mounted) {
@@ -144,7 +142,6 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
       }
     } catch (_) {}
 
-    // 2. Listen to subsequent updates emitted by system broadcasts
     try {
       _hwSub = NativeBridge.instance.hardwareStateStream.listen((event) {
         final data = Map<String, dynamic>.from(event);
@@ -564,6 +561,7 @@ class _SignInWidget extends StatefulWidget {
 class _SignInWidgetState extends State<_SignInWidget> {
   String _enteredPin = '';
   bool _canUseBiometrics = false;
+  bool _isVerifying = false;
 
   @override
   void initState() {
@@ -598,16 +596,24 @@ class _SignInWidgetState extends State<_SignInWidget> {
   }
 
   void _handleNumpad(String digit) {
+    if (_isVerifying) return; 
+    
     HapticFeedback.lightImpact();
     if (_enteredPin.length < 4) {
       setState(() {
         _enteredPin += digit;
       });
       if (_enteredPin.length == 4) {
+        setState(() => _isVerifying = true); 
+        
         widget.onLogin(enteredPin: _enteredPin);
+        
         Future.delayed(const Duration(milliseconds: 400), () {
-          if (mounted && _enteredPin.length == 4) {
-            setState(() { _enteredPin = ''; });
+          if (mounted) {
+            setState(() { 
+              _enteredPin = ''; 
+              _isVerifying = false; 
+            });
           }
         });
       }
@@ -615,6 +621,7 @@ class _SignInWidgetState extends State<_SignInWidget> {
   }
 
   void _handleBackspace() {
+    if (_isVerifying) return;
     HapticFeedback.lightImpact();
     if (_enteredPin.isNotEmpty) {
       setState(() {

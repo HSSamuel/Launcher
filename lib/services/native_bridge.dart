@@ -22,7 +22,15 @@ class NativeBridge {
     debugPrint("NativeBridge Error [$method]: $e");
   }
 
-  // NEW: System Optimizer with real RAM calculation
+  Future<void> setNativeWallpaper(String path) async {
+    if (kIsWeb) return;
+    try {
+      await _channel.invokeMethod('setNativeWallpaper', {'path': path});
+    } catch (e) {
+      _logError('setNativeWallpaper', e);
+    }
+  }
+
   Future<Map<String, int>> optimizeSystem() async {
     if (kIsWeb) return {'signaled': 0, 'freedMb': 0};
     try {

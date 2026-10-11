@@ -275,11 +275,18 @@ class ExplorerAddressBar extends StatelessWidget {
   final VoidCallback onGoHome;
   final Function(String) onNavigate;
   final List<Map<String, dynamic>> disks;
+  
+  // FIX: Cloud Drive Parameters correctly fully included
+  final bool isViewingCloud;
+  final List<Map<String, String>> cloudPathStack;
+  final String cloudProvider;
+  final Function(String, String, bool)? onCloudNavigate;
 
   const ExplorerAddressBar({
     Key? key, required this.isDark, required this.isAtHome, required this.currentPath, required this.rootPath, 
     required this.pathHistory, required this.searchController, required this.onGoBack, required this.onGoHome, 
     required this.onNavigate, this.disks = const [],
+    this.isViewingCloud = false, this.cloudPathStack = const [], this.cloudProvider = '', this.onCloudNavigate,
   }) : super(key: key);
 
   @override
@@ -291,51 +298,72 @@ class ExplorerAddressBar extends StatelessWidget {
     final inputBg = isDark ? const Color(0xFF2D2D2D) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
     
-    List<Widget> breadcrumbs = [
-      Container(width: 12, height: 10, color: accent), const SizedBox(width: 4),
-      InkWell(onTap: onGoHome, child: Text('This PC', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))), const SizedBox(width: 2),
-      Icon(Icons.chevron_right, size: 14, color: textColor),
-    ];
+    List<Widget> breadcrumbs = [];
 
-    if (!isAtHome) {
-      if (currentPath.contains('.Win11RecycleBin')) {
+    if (isViewingCloud) {
+      breadcrumbs.add(Container(width: 12, height: 10, color: accent));
+      breadcrumbs.add(const SizedBox(width: 4));
+      breadcrumbs.add(InkWell(
+        onTap: () => onCloudNavigate?.call('root', 'Google Drive', true),
+        child: Text(cloudProvider == 'gdrive' ? 'GOOGLE DRIVE' : cloudProvider.toUpperCase(), style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
+      ));
+      
+      for (var folder in cloudPathStack) {
+        breadcrumbs.add(const SizedBox(width: 2));
+        breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
         breadcrumbs.add(const SizedBox(width: 2));
         breadcrumbs.add(InkWell(
-          onTap: () => onNavigate(currentPath), 
-          child: Text('Recycle Bin', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
+          onTap: () => onCloudNavigate?.call(folder['id']!, folder['name']!, true), 
+          child: Text(folder['name']!, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
         ));
-        breadcrumbs.add(const SizedBox(width: 2));
-        breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
-      } else {
-        Map<String, dynamic>? activeDisk;
-        for (var d in disks) {
-          final dPath = d['path'] as String? ?? '';
-          if (dPath.isNotEmpty && currentPath.startsWith(dPath)) {
-            if (activeDisk == null || dPath.length > (activeDisk['path'] as String).length) {
-              activeDisk = d;
-            }
-          }
-        }
+      }
+    } else {
+      breadcrumbs.add(Container(width: 12, height: 10, color: accent));
+      breadcrumbs.add(const SizedBox(width: 4));
+      breadcrumbs.add(InkWell(onTap: onGoHome, child: Text('This PC', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+      breadcrumbs.add(const SizedBox(width: 2));
+      breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
 
-        final basePath = activeDisk != null ? (activeDisk['path'] as String) : rootPath;
-        final diskLabel = activeDisk != null ? (activeDisk['label'] as String) : 'Local Disk (C:)';
-
-        breadcrumbs.add(const SizedBox(width: 2));
-        breadcrumbs.add(InkWell(onTap: () => onNavigate(basePath), child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
-        breadcrumbs.add(const SizedBox(width: 2));
-        breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
-
-        final relativeSubPath = currentPath.replaceFirst(basePath, '');
-        final folders = relativeSubPath.split('/').where((e) => e.isNotEmpty).toList();
-        String cumulativePath = basePath;
-
-        for (var folder in folders) {
-          cumulativePath += '/$folder';
-          final targetPath = cumulativePath;
+      if (!isAtHome) {
+        if (currentPath.contains('.Win11RecycleBin')) {
           breadcrumbs.add(const SizedBox(width: 2));
-          breadcrumbs.add(InkWell(onTap: () => onNavigate(targetPath), child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+          breadcrumbs.add(InkWell(
+            onTap: () => onNavigate(currentPath), 
+            child: Text('Recycle Bin', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
+          ));
           breadcrumbs.add(const SizedBox(width: 2));
           breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+        } else {
+          Map<String, dynamic>? activeDisk;
+          for (var d in disks) {
+            final dPath = d['path'] as String? ?? '';
+            if (dPath.isNotEmpty && currentPath.startsWith(dPath)) {
+              if (activeDisk == null || dPath.length > (activeDisk['path'] as String).length) {
+                activeDisk = d;
+              }
+            }
+          }
+
+          final basePath = activeDisk != null ? (activeDisk['path'] as String) : rootPath;
+          final diskLabel = activeDisk != null ? (activeDisk['label'] as String) : 'Local Disk (C:)';
+
+          breadcrumbs.add(const SizedBox(width: 2));
+          breadcrumbs.add(InkWell(onTap: () => onNavigate(basePath), child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+          breadcrumbs.add(const SizedBox(width: 2));
+          breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+
+          final relativeSubPath = currentPath.replaceFirst(basePath, '');
+          final folders = relativeSubPath.split('/').where((e) => e.isNotEmpty).toList();
+          String cumulativePath = basePath;
+
+          for (var folder in folders) {
+            cumulativePath += '/$folder';
+            final targetPath = cumulativePath;
+            breadcrumbs.add(const SizedBox(width: 2));
+            breadcrumbs.add(InkWell(onTap: () => onNavigate(targetPath), child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+            breadcrumbs.add(const SizedBox(width: 2));
+            breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
+          }
         }
       }
     }
@@ -345,7 +373,7 @@ class ExplorerAddressBar extends StatelessWidget {
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200))),
       child: Row(
         children: [
-          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: pathHistory.isEmpty ? null : onGoBack, style: btnStyle), const SizedBox(width: 2),
+          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: pathHistory.isEmpty && !isViewingCloud ? null : onGoBack, style: btnStyle), const SizedBox(width: 2),
           IconButton(icon: Icon(Icons.arrow_forward, size: 18, color: isDark ? Colors.white30 : Colors.black38), onPressed: null, style: btnStyle), const SizedBox(width: 4),
           Expanded(
             flex: 7,
@@ -377,7 +405,7 @@ class ExplorerAddressBar extends StatelessWidget {
                       style: TextStyle(fontSize: 11, color: textColor),
                       decoration: InputDecoration(
                         isDense: true,
-                        hintText: isAtHome ? 'Search This PC' : 'Search...',
+                        hintText: isAtHome && !isViewingCloud ? 'Search This PC' : 'Search...',
                         hintStyle: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : Colors.grey.shade600),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.only(bottom: 3), 
@@ -404,11 +432,16 @@ class ExplorerSidebar extends StatefulWidget {
   final VoidCallback onGoHome;
   final Function(String) onNavigate;
   final List<Map<String, dynamic>> disks;
+  
+  // FIX: Cloud Drive Parameters correctly fully included
+  final bool isViewingCloud;
+  final VoidCallback? onGoogleDriveTap;
 
   const ExplorerSidebar({
     Key? key, required this.width, required this.isDark, required this.isAtHome, required this.rootPath, 
     required this.currentPath, this.currentLibraryCategory,
     required this.onGoHome, required this.onNavigate, this.disks = const [],
+    this.isViewingCloud = false, this.onGoogleDriveTap,
   }) : super(key: key);
 
   @override
@@ -420,6 +453,7 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
   bool _isThisPCExpanded = true;
 
   bool _isSelected(String? category, String path) {
+    if (widget.isViewingCloud) return false;
     if (widget.isAtHome && category == null && path == 'home') return true;
     if (widget.currentLibraryCategory != null && category != null) {
       return widget.currentLibraryCategory == category;
@@ -506,6 +540,34 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
           child: Row(children: [const SizedBox(width: 16), Icon(icon, color: color, size: 16), const SizedBox(width: 8), Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: textColor), overflow: TextOverflow.ellipsis))])
+        )
+      ),
+    );
+  }
+
+  Widget _buildCloudSidebarItem(String label, IconData icon, Color color, bool isSelected, VoidCallback? onTap) {
+    final textColor = widget.isDark ? Colors.white70 : Colors.grey.shade700;
+    final selectedBg = widget.isDark ? Colors.white12 : Colors.blue.withOpacity(0.12);
+    return Material(
+      color: isSelected ? selectedBg : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: [
+                  const SizedBox(width: 16), 
+                  Icon(icon, color: color, size: 16), 
+                  const SizedBox(width: 8), 
+                  Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: textColor, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal), overflow: TextOverflow.ellipsis))
+                ]
+              )
+            ),
+            if (isSelected)
+              Positioned(left: 0, top: 4, bottom: 4, child: Container(width: 3, decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(3)))),
+          ],
         )
       ),
     );
@@ -634,6 +696,12 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
                 ],
               ),
             ),
+          
+          const Padding(
+            padding: EdgeInsets.only(top: 16, bottom: 4, left: 16),
+            child: Align(alignment: Alignment.centerLeft, child: Text('Network Drives', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey))),
+          ),
+          _buildCloudSidebarItem('Google Drive', Icons.add_to_drive, Colors.green, widget.isViewingCloud, widget.onGoogleDriveTap),
         ],
       ),
     );

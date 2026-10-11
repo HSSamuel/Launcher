@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.net.TrafficStats
@@ -17,6 +18,8 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.StatFs
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
@@ -45,26 +48,6 @@ fun Context.registerSystemReceiver(receiver: BroadcastReceiver?, filter: IntentF
     }
 }
 
-fun MethodChannel.Result.safeSuccess(activity: Activity, data: Any?) {
-    activity.runOnUiThread {
-        try {
-            this.success(data)
-        } catch (e: IllegalStateException) {
-            Log.w("Win11Launcher", "Result already handled: ${e.message}")
-        }
-    }
-}
-
-fun MethodChannel.Result.safeError(activity: Activity, code: String, msg: String?, details: Any?) {
-    activity.runOnUiThread {
-        try {
-            this.error(code, msg, details)
-        } catch (e: IllegalStateException) {
-            Log.w("Win11Launcher", "Result already handled: ${e.message}")
-        }
-    }
-}
-
 class HardwareManager(private val activity: Activity) {
     private val TAG = "Win11HardwareManager"
     private val job = SupervisorJob()
@@ -74,10 +57,15 @@ class HardwareManager(private val activity: Activity) {
     private var isReceiverRegistered = false
     
     private var screenOffReceiver: BroadcastReceiver? = null
+    private var torchCallback: CameraManager.TorchCallback? = null
 
     private var lastNetSampleTime: Long = 0
     private var lastRxBytes: Long = 0
     private var lastTxBytes: Long = 0
+    private var isTorchOn = false
+
+    // NEW: Callback to notify MainActivity when hardware states change outside normal intents
+    var onHardwareChangedListener: (() -> Unit)? = null
 
     companion object {
         var wasScreenOff = false
@@ -96,6 +84,18 @@ class HardwareManager(private val activity: Activity) {
             activity.applicationContext.registerSystemReceiver(screenOffReceiver, filter, exported = false)
             isReceiverRegistered = true
         }
+
+        runCatching {
+            val cameraManager = activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            torchCallback = object : CameraManager.TorchCallback() {
+                override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                    isTorchOn = enabled
+                    // Trigger instant broadcast to Flutter
+                    onHardwareChangedListener?.invoke() 
+                }
+            }
+            cameraManager.registerTorchCallback(torchCallback!!, Handler(Looper.getMainLooper()))
+        }
     }
 
     fun checkAndClearScreenOffFlag(result: MethodChannel.Result) {
@@ -112,6 +112,10 @@ class HardwareManager(private val activity: Activity) {
             } catch (e: Exception) {}
             isReceiverRegistered = false
             screenOffReceiver = null
+        }
+        runCatching {
+            val cameraManager = activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+            torchCallback?.let { cameraManager.unregisterTorchCallback(it) }
         }
     }
 
@@ -316,6 +320,14 @@ class HardwareManager(private val activity: Activity) {
         }.onFailure { states["Wi-Fi"] = false }
 
         runCatching {
+            val wifiManager = activity.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            val method = wifiManager?.javaClass?.getMethod("isWifiApEnabled")
+            states["Hotspot"] = method?.invoke(wifiManager) as? Boolean == true
+        }.onFailure { states["Hotspot"] = false }
+
+        states["Flash"] = isTorchOn
+
+        runCatching {
             states["Rotate"] = Settings.System.getInt(activity.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1
         }.onFailure { states["Rotate"] = false }
 
@@ -406,6 +418,13 @@ class HardwareManager(private val activity: Activity) {
         scope.launch(Dispatchers.Main) {
             try {
                 when (key) {
+                    "Flash" -> {
+                        val cameraManager = activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                        val cameraId = cameraManager.cameraIdList.firstOrNull { 
+                            cameraManager.getCameraCharacteristics(it).get(android.hardware.camera2.CameraCharacteristics.FLASH_INFO_AVAILABLE) == true 
+                        }
+                        if (cameraId != null) cameraManager.setTorchMode(cameraId, enable)
+                    }
                     "Rotate", "Brightness" -> {
                         if (!Settings.System.canWrite(activity)) {
                             val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
@@ -557,12 +576,24 @@ class HardwareManager(private val activity: Activity) {
         val permissions = mutableMapOf<String, Boolean>()
         
         permissions["storage"] = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val images = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
-            val video = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+            val images = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.READ_MEDIA_IMAGES
+            ) == PackageManager.PERMISSION_GRANTED
+            val video = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.READ_MEDIA_VIDEO
+            ) == PackageManager.PERMISSION_GRANTED
             images && video
         } else {
-            val readGranted = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            val writeGranted = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            val readGranted = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
+            val writeGranted = ContextCompat.checkSelfPermission(
+                activity,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == PackageManager.PERMISSION_GRANTED
             readGranted && writeGranted
         }
 

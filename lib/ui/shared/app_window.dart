@@ -94,8 +94,6 @@ class _AppWindowState extends State<AppWindow> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.isMinimized) return const SizedBox.shrink();
-
     final themeState = context.watch<ThemeState>();
     final isDark = themeState.isDarkMode;
     
@@ -125,7 +123,6 @@ class _AppWindowState extends State<AppWindow> {
       currentSize = widget.size;
     }
 
-    // CRITICAL FIX: Wrapped the window content inside a Material layer to provide a canvas for the app's internal ListTiles to draw ink splashes onto.
     Widget windowContent = Provider<bool?>.value(
       value: widget.isFocused,
       child: Material(
@@ -165,122 +162,125 @@ class _AppWindowState extends State<AppWindow> {
           top: activePosition.dy, 
           width: currentSize.width, 
           height: currentSize.height,
-          child: RepaintBoundary(
-            child: Listener(
-              onPointerDown: (_) => widget.onFocus(),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: widget.isMaximized ? Colors.transparent : frameColor,
-                  borderRadius: (widget.isMaximized || _currentSnap != WindowSnap.none) ? BorderRadius.zero : BorderRadius.circular(8),
-                  border: Border.all(
-                    color: widget.isMaximized ? Colors.transparent : borderColor, 
-                    width: widget.isMaximized ? 0 : 1
+          child: Offstage(
+            offstage: widget.isMinimized,
+            child: RepaintBoundary(
+              child: Listener(
+                onPointerDown: (_) => widget.onFocus(),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: widget.isMaximized ? Colors.transparent : frameColor,
+                    borderRadius: (widget.isMaximized || _currentSnap != WindowSnap.none) ? BorderRadius.zero : BorderRadius.circular(8),
+                    border: Border.all(
+                      color: widget.isMaximized ? Colors.transparent : borderColor, 
+                      width: widget.isMaximized ? 0 : 1
+                    ),
+                    boxShadow: (widget.isMaximized || _currentSnap != WindowSnap.none)
+                        ? [] 
+                        : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.35 : 0.12), blurRadius: _isDragging ? 4 : 16, offset: Offset(0, _isDragging ? 2 : 8))],
                   ),
-                  boxShadow: (widget.isMaximized || _currentSnap != WindowSnap.none)
-                      ? [] 
-                      : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.35 : 0.12), blurRadius: _isDragging ? 4 : 16, offset: Offset(0, _isDragging ? 2 : 8))],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    if (showTitleBar)
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onPanStart: (details) {
-                          setState(() => _isDragging = true);
-                          widget.onFocus();
-
-                          if (_currentSnap != WindowSnap.none || widget.isMaximized) {
-                            if (widget.isMaximized) widget.onMaximize();
-                            
-                            double relativeX = details.localPosition.dx / currentSize.width;
-                            setState(() => _currentSnap = WindowSnap.none);
-
-                            double newX = details.globalPosition.dx - (widget.size.width * relativeX);
-                            double newY = details.globalPosition.dy - (showTitleBar ? safeAreaTop : 0) - 18; 
-                            
-                            _positionNotifier.value = Offset(newX, newY);
-                          }
-                        },
-                        onPanUpdate: (details) {
-                          _lastPointerPos = details.globalPosition;
-                          if (!widget.isMaximized && _currentSnap == WindowSnap.none) {
-                            Offset newPos = _positionNotifier.value + details.delta;
-                            
-                            final maxX = screenWidth - 50;
-                            final maxY = screenHeight - widget.taskbarHeight - 50;
-                            
-                            if (newPos.dy < 0) newPos = Offset(newPos.dx, 0);
-                            if (newPos.dy > maxY) newPos = Offset(newPos.dx, maxY);
-                            if (newPos.dx < -currentSize.width + 50) newPos = Offset(-currentSize.width + 50, newPos.dy);
-                            if (newPos.dx > maxX) newPos = Offset(maxX, newPos.dy);
-
-                            _positionNotifier.value = newPos;
-                          }
-                        },
-                        onPanEnd: (details) {
-                          setState(() => _isDragging = false);
-                          
-                          if (!widget.isMaximized && _lastPointerPos != null) {
-                            final px = _lastPointerPos!.dx;
-                            final py = _lastPointerPos!.dy;
-
-                            if (py <= safeAreaTop + 5) {
-                              widget.onMaximize();
-                            } else if (px <= 5) {
-                              setState(() => _currentSnap = WindowSnap.left);
-                              widget.onPositionChanged(Offset(0, maximizedTop));
-                            } else if (px >= screenWidth - 5) {
-                              setState(() => _currentSnap = WindowSnap.right);
-                              widget.onPositionChanged(Offset(screenWidth / 2, maximizedTop));
-                            } else {
-                              widget.onPositionChanged(_positionNotifier.value);
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      if (showTitleBar)
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanStart: (details) {
+                            setState(() => _isDragging = true);
+                            widget.onFocus();
+  
+                            if (_currentSnap != WindowSnap.none || widget.isMaximized) {
+                              if (widget.isMaximized) widget.onMaximize();
+                              
+                              double relativeX = details.localPosition.dx / currentSize.width;
+                              setState(() => _currentSnap = WindowSnap.none);
+  
+                              double newX = details.globalPosition.dx - (widget.size.width * relativeX);
+                              double newY = details.globalPosition.dy - (showTitleBar ? safeAreaTop : 0) - 18; 
+                              
+                              _positionNotifier.value = Offset(newX, newY);
                             }
-                          }
-                          _lastPointerPos = null;
-                        },
-                        onPanCancel: () {
-                          setState(() => _isDragging = false);
-                          _lastPointerPos = null;
-                        },
-                        onDoubleTap: () {
-                          HapticFeedback.lightImpact();
-                          widget.onMaximize();
-                        }, 
-                        child: Container(
-                          height: 36, 
-                          color: titleBarColor, 
-                          padding: const EdgeInsets.only(left: 10),
-                          child: Row(
-                            children: [
-                              Icon(widget.icon, size: 16, color: Colors.blueAccent), 
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  widget.title, 
-                                  style: TextStyle(color: titleTextColor, fontSize: 12, fontWeight: FontWeight.w500), 
-                                  overflow: TextOverflow.ellipsis
-                                )
-                              ),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _buildControlButton(Icons.remove, widget.onMinimize, iconColor),
-                                  _buildControlButton(widget.isMaximized ? Icons.filter_none : Icons.crop_square, widget.onMaximize, iconColor),
-                                  _buildControlButton(Icons.close, widget.onClose, iconColor, isClose: true),
-                                ],
-                              ),
-                            ],
+                          },
+                          onPanUpdate: (details) {
+                            _lastPointerPos = details.globalPosition;
+                            if (!widget.isMaximized && _currentSnap == WindowSnap.none) {
+                              Offset newPos = _positionNotifier.value + details.delta;
+                              
+                              final maxX = screenWidth - 50;
+                              final maxY = screenHeight - widget.taskbarHeight - 50;
+                              
+                              if (newPos.dy < 0) newPos = Offset(newPos.dx, 0);
+                              if (newPos.dy > maxY) newPos = Offset(newPos.dx, maxY);
+                              if (newPos.dx < -currentSize.width + 50) newPos = Offset(-currentSize.width + 50, newPos.dy);
+                              if (newPos.dx > maxX) newPos = Offset(maxX, newPos.dy);
+  
+                              _positionNotifier.value = newPos;
+                            }
+                          },
+                          onPanEnd: (details) {
+                            setState(() => _isDragging = false);
+                            
+                            if (!widget.isMaximized && _lastPointerPos != null) {
+                              final px = _lastPointerPos!.dx;
+                              final py = _lastPointerPos!.dy;
+  
+                              if (py <= safeAreaTop + 5) {
+                                widget.onMaximize();
+                              } else if (px <= 5) {
+                                setState(() => _currentSnap = WindowSnap.left);
+                                widget.onPositionChanged(Offset(0, maximizedTop));
+                              } else if (px >= screenWidth - 5) {
+                                setState(() => _currentSnap = WindowSnap.right);
+                                widget.onPositionChanged(Offset(screenWidth / 2, maximizedTop));
+                              } else {
+                                widget.onPositionChanged(_positionNotifier.value);
+                              }
+                            }
+                            _lastPointerPos = null;
+                          },
+                          onPanCancel: () {
+                            setState(() => _isDragging = false);
+                            _lastPointerPos = null;
+                          },
+                          onDoubleTap: () {
+                            HapticFeedback.lightImpact();
+                            widget.onMaximize();
+                          }, 
+                          child: Container(
+                            height: 36, 
+                            color: titleBarColor, 
+                            padding: const EdgeInsets.only(left: 10),
+                            child: Row(
+                              children: [
+                                Icon(widget.icon, size: 16, color: Colors.blueAccent), 
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.title, 
+                                    style: TextStyle(color: titleTextColor, fontSize: 12, fontWeight: FontWeight.w500), 
+                                    overflow: TextOverflow.ellipsis
+                                  )
+                                ),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildControlButton(Icons.remove, widget.onMinimize, iconColor),
+                                    _buildControlButton(widget.isMaximized ? Icons.filter_none : Icons.crop_square, widget.onMaximize, iconColor),
+                                    _buildControlButton(Icons.close, widget.onClose, iconColor, isClose: true),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
+                      Expanded(
+                        child: Container(
+                          color: widget.isMaximized ? Colors.transparent : contentBgColor, 
+                          child: windowContent
+                        ),
                       ),
-                    Expanded(
-                      child: Container(
-                        color: widget.isMaximized ? Colors.transparent : contentBgColor, 
-                        child: windowContent
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

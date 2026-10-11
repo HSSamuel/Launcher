@@ -368,6 +368,11 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
     
     await prefs.setString('wallpaper', url);
 
+    // CRITICAL FIX: Push the wallpaper change to the Android OS level to prevent wallpaper flashing
+    if (isCustom && !isWeb) {
+       NativeBridge.instance.setNativeWallpaper(url);
+    }
+
     if (syncAccentWithOS) {
       await _applySystemOrExtractedColor();
     } else {

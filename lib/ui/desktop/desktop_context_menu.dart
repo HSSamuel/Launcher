@@ -756,7 +756,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     final bgColor = isDark ? const Color(0xFF2B2B2B).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
-    double menuWidth = 260; 
+    double menuWidth = 200; 
     double dx = widget.position.dx;
     double dy = widget.position.dy;
     final screenSize = MediaQuery.of(context).size;
@@ -792,7 +792,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
 
     Widget? subMenu;
     if (_activeSubMenu != null) {
-      double subMenuWidth = 220; 
+      double subMenuWidth = 200; 
       double subMenuX = dx + menuWidth - 4;
       if (subMenuX + subMenuWidth > screenSize.width) subMenuX = dx - subMenuWidth + 4;
       if (subMenuX < 8) subMenuX = 8;

@@ -864,6 +864,44 @@ class TaskbarScreen extends StatelessWidget {
     );
   }
 
+  void _showColorStyleDialog(BuildContext context, DesktopState desktopState, ThemeState themeState) {
+    final isDark = themeState.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    
+    Widget _colorMenuItem(String label, String value) {
+      final isSelected = desktopState.taskbarColorStyle == value;
+      return ListTile(
+        title: Text(label, style: TextStyle(color: textColor, fontSize: 14)),
+        leading: Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: isSelected ? themeState.currentAccentColor : textColor.withOpacity(0.7)),
+        onTap: () {
+          desktopState.setTaskbarColorStyle(value);
+          Navigator.pop(context);
+        },
+      );
+    }
+
+    showDialog(
+      context: context, 
+      builder: (ctx) => AlertDialog(
+        backgroundColor: bgColor, 
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), 
+        title: Text('Taskbar Color Theme', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)), 
+        content: Column(
+          mainAxisSize: MainAxisSize.min, 
+          children: [
+            _colorMenuItem('Default (Accent Blended)', 'default'),
+            _colorMenuItem('Pure Black', 'black'),
+            _colorMenuItem('Translucent Dark', 'dark'),
+            _colorMenuItem('Pure White', 'white'),
+            _colorMenuItem('Translucent Light', 'light'),
+            _colorMenuItem('Transparent', 'transparent'),
+          ]
+        )
+      )
+    );
+  }
+
   void _showDimensionSliderDialog(
     BuildContext context, 
     String title, 
@@ -967,6 +1005,21 @@ class TaskbarScreen extends StatelessWidget {
                   child: Text(desktopState.taskbarAlignment == 'center' ? 'Center' : 'Left', style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)
                 ), 
                 onTap: () => _showAlignmentDialog(context, desktopState, themeState)
+              ),
+              Win11SettingsTile(
+                title: 'Taskbar Color Theme', 
+                subtitle: 'Change the background style of the taskbar', 
+                icon: Icons.color_lens_outlined, 
+                isDark: isDark,
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), 
+                  decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)), 
+                  child: Text(
+                    desktopState.taskbarColorStyle.toUpperCase(), 
+                    style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis
+                  )
+                ), 
+                onTap: () => _showColorStyleDialog(context, desktopState, themeState)
               ),
               Win11SettingsTile(
                 title: 'Taskbar height', 

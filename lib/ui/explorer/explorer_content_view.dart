@@ -321,9 +321,14 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
   }
 
   void _handleItemTap(FileItem item, bool isSelected) {
-    if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+    final desktopState = context.read<DesktopState>();
+    if (desktopState.mouseSound) SystemSound.play(SystemSoundType.click);
     
     if (widget.isMultiSelectMode) {
+      if (desktopState.gestureHapticFeedback) {
+        HapticFeedback.selectionClick();
+      }
+      
       final newSelection = Set<String>.from(widget.selectedPaths);
       if (isSelected) {
         newSelection.remove(item.path);
@@ -462,7 +467,14 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
 
               return GestureDetector(
                 onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); }, 
-                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); },
+                onLongPressStart: (details) { 
+                  if (desktopState.gestureHapticFeedback) {
+                    HapticFeedback.lightImpact();
+                  }
+                  widget.onMultiSelectToggled(true); 
+                  widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); 
+                  widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); 
+                },
                 onTap: () => _handleItemTap(item, isSelected),
                 child: Container(
                   decoration: BoxDecoration(color: isSelected ? hoverColor : Colors.transparent, borderRadius: BorderRadius.circular(4), border: Border.all(color: isSelected ? borderColor : Colors.transparent, width: 1.0)),
@@ -496,7 +508,14 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
 
               return GestureDetector(
                 onSecondaryTapDown: (details) { widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); }, 
-                onLongPressStart: (details) { widget.onMultiSelectToggled(true); widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); },
+                onLongPressStart: (details) { 
+                  if (desktopState.gestureHapticFeedback) {
+                    HapticFeedback.lightImpact();
+                  }
+                  widget.onMultiSelectToggled(true); 
+                  widget.onSelectionChanged(Set.from(widget.selectedPaths)..add(item.path)); 
+                  widget.onContextMenu(details.globalPosition, item.isDir ? 'folder' : 'file', name, null); 
+                },
                 onTap: () => _handleItemTap(item, isSelected),
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 2), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),

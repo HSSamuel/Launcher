@@ -21,7 +21,6 @@ class WidgetBoard extends StatefulWidget {
 }
 
 class _WidgetBoardState extends State<WidgetBoard> {
-  // Static cache variables persist across opens to prevent rate limiting
   static String _weatherLocation = "Loading...";
   static String _weatherTemp = "--";
   static String _weatherDesc = "Fetching weather...";
@@ -147,7 +146,6 @@ class _WidgetBoardState extends State<WidgetBoard> {
   }
 
   Future<void> _fetchLiveWeatherData() async {
-    // 30-minute cooldown cache to protect against BigDataCloud & Open-Meteo rate limits
     if (_lastWeatherFetch != null && DateTime.now().difference(_lastWeatherFetch!).inMinutes < 30) {
       if (mounted) setState(() {});
       return;
@@ -186,11 +184,19 @@ class _WidgetBoardState extends State<WidgetBoard> {
         return;
       }
 
-      // Enforced timeout to prevent thread hangs on weak GPS reception
-      Position pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 6),
-      );
+      Position? pos;
+      try {
+        pos = await Geolocator.getLastKnownPosition();
+      } catch (_) {}
+      
+      final now = DateTime.now();
+      
+      if (pos == null || (pos.timestamp != null && now.difference(pos.timestamp!).inHours > 1)) {
+        pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 6),
+        );
+      }
       
       final url = 'https://api.open-meteo.com/v1/forecast?latitude=${pos.latitude}&longitude=${pos.longitude}&current=temperature_2m,weather_code';
       
