@@ -10,46 +10,7 @@ import '../../states/system_state.dart';
 import '../../services/native_bridge.dart';
 
 class StartMenuContext {
-  static void showAccessibilityPrompt(BuildContext context, bool isDark) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
-      title: Text(
-        'Accessibility Service Required', 
-        style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)
-      ),
-      content: SingleChildScrollView(
-        child: Text(
-          "Win11 PC Launcher uses the AccessibilityService API to enable core launcher functionalities without requiring root access. Specifically, this allows you to:\n\n"
-          "• Open the system Power Menu\n"
-          "• Expand the Notification Panel\n"
-          "• Access Recent Apps / Task View\n\n"
-          "Privacy Promise: This permission is used strictly for system navigation. We do not collect, monitor, store, or share any personal data, screen content, or keystrokes.\n\n"
-          "To proceed:\n"
-          "1. Tap 'Go to Settings'\n"
-          "2. Select 'Downloaded Apps'\n"
-          "3. Turn ON 'Win11 PC Launcher'", 
-          style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4)
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx), 
-          child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))
-        ),
-        TextButton(
-          onPressed: () { 
-            Navigator.pop(ctx); 
-            NativeBridge.instance.openSettings('accessibility'); 
-          }, 
-          child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold))
-        ),
-      ],
-    ),
-  );
-}
-
+  
   static PopupMenuItem<String> buildCompactMenuItem(String value, IconData icon, String label, Color textColor, {Color? iconColor}) {
     return PopupMenuItem<String>(
       value: value,
@@ -75,7 +36,7 @@ class StartMenuContext {
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
 
-    final safeY = math.max(0.0, position.dy - 160);
+    final safeY = math.max(0.0, position.dy - 100);
 
     showMenu<String>(
       context: context,
@@ -85,28 +46,16 @@ class StartMenuContext {
       items: <PopupMenuEntry<String>>[
         buildCompactMenuItem('change_launcher', Icons.home_outlined, 'Change Launcher', textColor),
         buildCompactMenuItem('sleep', Icons.bedtime_outlined, 'Sleep', textColor),
-        buildCompactMenuItem('shutdown', Icons.power_settings_new, 'Shut down', textColor),
-        buildCompactMenuItem('restart', Icons.restart_alt, 'Restart', textColor),
       ],
-    ).then((value) async {
+    ).then((value) {
       if (value == null) return;
       onOverlaysClosed();
       
-      switch (value) {
-        case 'change_launcher':
-          NativeBridge.instance.openSettings('home');
-          break;
-        case 'sleep':
-          NativeBridge.instance.lockScreen(); 
-          onPowerTapped();
-          break;
-        case 'shutdown':
-        case 'restart':
-          final success = await NativeBridge.instance.showPowerDialog(); 
-          if (!success && context.mounted) { 
-            showAccessibilityPrompt(context, isDark); 
-          }
-          break;
+      if (value == 'change_launcher') {
+        NativeBridge.instance.openSettings('home');
+      } else if (value == 'sleep') {
+        NativeBridge.instance.lockScreen(); 
+        onPowerTapped();
       }
     });
   }

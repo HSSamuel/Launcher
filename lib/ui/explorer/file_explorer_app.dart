@@ -493,8 +493,12 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     bool isGranted = false;
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt >= 30) {
-        isGranted = await Permission.manageExternalStorage.isGranted;
+      if (androidInfo.version.sdkInt >= 33) {
+        final photos = await Permission.photos.status;
+        final videos = await Permission.videos.status;
+        final audio = await Permission.audio.status;
+        // Android 14+ introduces isLimited for partial photo access
+        isGranted = photos.isGranted || photos.isLimited || videos.isGranted || audio.isGranted;
       } else {
         isGranted = await Permission.storage.isGranted;
       }
@@ -535,11 +539,11 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           children: [
             const Icon(Icons.folder_special, color: Colors.blueAccent),
             const SizedBox(width: 12),
-            Text('All Files Access Required', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('Storage Access Required', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         content: Text(
-          'To provide a complete desktop experience, Win11 PC Launcher includes a built-in File Explorer ("This PC").\n\nThe launcher requires "All Files Access" to allow you to browse, manage, rename, and delete media and non-media documents (such as PDFs, Word files, and ZIP archives) across your device\'s internal storage.\n\nTap "Continue" to grant this permission in Android Settings.',
+          'To provide a complete desktop experience, Win11 PC Launcher includes a built-in File Explorer ("This PC").\n\nThe launcher requires standard Storage/Media permissions to index and manage files inside your Downloads, Documents, and Media folders.\n\nTap "Continue" to grant this permission.',
           style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -572,22 +576,40 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     bool isGranted = false;
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt >= 30) {
-        var status = await Permission.manageExternalStorage.status;
-        if (!status.isGranted) {
-          status = await Permission.manageExternalStorage.request();
-        }
-        isGranted = status.isGranted;
+      
+      if (androidInfo.version.sdkInt >= 33) {
+        // Request all simultaneously so Android bundles them into one OS prompt
+        final statuses = await [
+          Permission.photos,
+          Permission.videos,
+          Permission.audio
+        ].request();
+        
+        final photos = statuses[Permission.photos];
+        final videos = statuses[Permission.videos];
+        final audio = statuses[Permission.audio];
+
+        isGranted = (photos?.isGranted == true || photos?.isLimited == true) || 
+                    (videos?.isGranted == true) || 
+                    (audio?.isGranted == true);
       } else {
         final status = await Permission.storage.request();
         isGranted = status.isGranted;
       }
+    } else {
+      isGranted = true;
     }
-    if (isGranted) {
-      if (mounted) setState(() => _hasPermission = true);
-      return true;
+    
+    if (isGranted && mounted) {
+      setState(() => _hasPermission = true);
+    } else if (!isGranted && mounted) {
+       // If permanently denied, route them to app settings to break the loop
+       ScaffoldMessenger.of(context).showSnackBar(
+         const SnackBar(content: Text('Please enable Media permissions in Android Settings.'))
+       );
+       openAppSettings();
     }
-    return false;
+    return isGranted;
   }
 
   void _prewarmLibraries() async {

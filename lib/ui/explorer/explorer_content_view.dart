@@ -415,19 +415,35 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.folder_off_outlined, size: 48, color: widget.isDark ? Colors.white24 : Colors.black26),
+            Icon(Icons.security, size: 54, color: widget.isDark ? Colors.white24 : Colors.black26),
             const SizedBox(height: 16),
-            Text("Folder is empty or files are hidden by Android.", style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54)),
-            const SizedBox(height: 16),
+            Text(
+              "Protected by Android Scoped Storage", 
+              style: TextStyle(
+                color: widget.isDark ? Colors.white : Colors.black87, 
+                fontSize: 14, 
+                fontWeight: FontWeight.bold
+              )
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Non-media documents (PDFs, DOCX, ZIPs)\nare secured by the OS and cannot be previewed here.", 
+              textAlign: TextAlign.center,
+              style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54, height: 1.4, fontSize: 12)
+            ),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent, 
                 foregroundColor: Colors.white, 
-                elevation: 0
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))
               ),
+              // Launches the unrestricted native Android File Picker
               onPressed: () => NativeBridge.instance.openSystemDocumentPicker(),
               icon: const Icon(Icons.folder_open, size: 18),
-              label: const Text("Browse System Files"),
+              label: const Text("Open in System Explorer", style: TextStyle(fontWeight: FontWeight.w600)),
             )
           ],
         )

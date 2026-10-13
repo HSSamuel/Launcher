@@ -324,15 +324,11 @@ class HardwareManager(private val activity: Activity) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val subId = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
                 if (subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                    
-                    // 1. Direct Registry Check (Most reliable on Transsion/Tecno dual-SIM)
                     val state = Settings.Global.getInt(activity.contentResolver, "mobile_data$subId", -1)
                     if (state != -1) {
                         isDataOn = (state == 1)
                         resolved = true
                     }
-                    
-                    // 2. TelephonyManager Fallback
                     if (!resolved && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             val tm = activity.getSystemService(Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
@@ -343,7 +339,6 @@ class HardwareManager(private val activity: Activity) {
                 }
             }
 
-            // 3. Global Fallback for older devices (Only used if Dual-SIM logic failed)
             if (!resolved) {
                 isDataOn = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
             }
@@ -670,7 +665,7 @@ class HardwareManager(private val activity: Activity) {
                     useNewTask = false
                     Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                         putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(activity, LauncherAdminReceiver::class.java))
-                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to lock functionality.")
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to securely turn off the screen via gesture.")
                     }
                 }
                 else -> Intent(Settings.ACTION_SETTINGS)
@@ -695,19 +690,6 @@ class HardwareManager(private val activity: Activity) {
 
     fun lockScreen(result: MethodChannel.Result) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                val service = LauncherAccessibilityService.instance
-                if (service != null) {
-                    val success = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
-                    if (success) {
-                        result.safeSuccess(activity, true)
-                        return
-                    }
-                }
-                result.safeSuccess(activity, false)
-                return
-            }
-
             val dpm = activity.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val adminComponent = ComponentName(activity, LauncherAdminReceiver::class.java)
             if (dpm.isAdminActive(adminComponent)) {
@@ -717,7 +699,7 @@ class HardwareManager(private val activity: Activity) {
                 try {
                     val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                         putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to lock functionality.")
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to securely turn off the screen via gesture.")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     activity.startActivity(intent)

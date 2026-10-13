@@ -1,6 +1,7 @@
 package com.samuel.winlauncher
 
 import android.content.BroadcastReceiver
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -49,7 +50,6 @@ class MainActivity: FlutterFragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
         try {
             File(cacheDir, "notif_icons").deleteRecursively()
         } catch (e: Exception) {}
@@ -67,6 +67,19 @@ class MainActivity: FlutterFragmentActivity() {
         hardwareManager.initPersistentReceiver()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        when (level) {
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            ComponentCallbacks2.TRIM_MEMORY_BACKGROUND,
+            ComponentCallbacks2.TRIM_MEMORY_MODERATE,
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                hardwareManager.invalidateAppCache()
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) {
@@ -76,7 +89,6 @@ class MainActivity: FlutterFragmentActivity() {
                 @Suppress("DEPRECATION")
                 intent.getParcelableExtra<android.hardware.usb.UsbDevice>(android.hardware.usb.UsbManager.EXTRA_DEVICE)
             }
-            
             val localIntent = Intent("com.samuel.winlauncher.USB_ATTACHED_LOCAL").apply {
                 putExtra("device", device)
                 `package` = packageName 
@@ -318,12 +330,20 @@ class MainActivity: FlutterFragmentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
                         if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                                data = android.net.Uri.parse("package:$packageName")
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            try {
+                                val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                                result.safeSuccess(this@MainActivity, true)
+                            } catch (e: Exception) {
+                                val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = android.net.Uri.parse("package:$packageName")
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(fallback)
+                                result.safeSuccess(this@MainActivity, false)
                             }
-                            startActivity(intent)
-                            result.safeSuccess(this@MainActivity, true)
                         } else {
                             result.safeSuccess(this@MainActivity, false)
                         }
@@ -333,30 +353,28 @@ class MainActivity: FlutterFragmentActivity() {
                 }
                 
                 "optimizeSystem" -> {
-    activityScope.launch {
-        try {
-            var freedBytes = 0L
-            
-            // CRITICAL FIX: Use cacheDir directly since we are inside MainActivity
-            cacheDir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("icons_") || file.name == "notif_icons") {
-                    val size = if (file.isDirectory) file.walkTopDown().sumOf { it.length() } else file.length()
-                    freedBytes += size
-                    file.deleteRecursively()
+                    activityScope.launch {
+                        try {
+                            var freedBytes = 0L
+                            
+                            cacheDir.listFiles()?.forEach { file ->
+                                if (file.name.startsWith("icons_") || file.name == "notif_icons") {
+                                    val size = if (file.isDirectory) file.walkTopDown().sumOf { it.length() } else file.length()
+                                    freedBytes += size
+                                    file.deleteRecursively()
+                                }
+                            }
+                            
+                            System.gc()
+                            Runtime.getRuntime().gc()
+                            
+                            val freedMb = (freedBytes / (1024 * 1024)).toInt().coerceAtLeast(0)
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to freedMb))
+                        } catch (e: Exception) {
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+                        }
+                    }
                 }
-            }
-            
-            System.gc()
-            Runtime.getRuntime().gc()
-            
-            val freedMb = (freedBytes / (1024 * 1024)).toInt().coerceAtLeast(0)
-            // "signaled" kept at 0 to avoid breaking Dart contract
-            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to freedMb))
-        } catch (e: Exception) {
-            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
-        }
-    }
-}
 
                 "setNativeWallpaper" -> {
                     val path = call.argument<String>("path")
@@ -393,22 +411,8 @@ class MainActivity: FlutterFragmentActivity() {
                 "getDisks" -> hardwareManager.getDisks(result)
                 "setStatusBarColor" -> hardwareManager.setStatusBarColor(call, result)
                 
-                "showPowerDialog" -> { 
-                    val service = LauncherAccessibilityService.instance
-                    if (service != null) {
-                        result.success(service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG))
-                    } else {
-                        result.success(false) 
-                    }
-                }
-                "toggleRecents" -> { 
-                    val service = LauncherAccessibilityService.instance
-                    if (service != null) {
-                        result.success(service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS))
-                    } else {
-                        result.success(false) 
-                    }
-                }
+                "showPowerDialog" -> result.success(false) 
+                "toggleRecents" -> result.success(false) 
                 
                 "getActiveNotifications" -> notificationManager.getActiveNotifications(result)
                 "triggerNotificationAction" -> notificationManager.triggerNotificationAction(call, result)
@@ -432,17 +436,15 @@ class MainActivity: FlutterFragmentActivity() {
 
                 "openSystemDocumentPicker" -> {
                     try {
-                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "*/*"
+                        val intent = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_APP_FILES)
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         startActivity(intent)
                         result.success(true)
                     } catch (e: Exception) {
                         try {
-                            val fallback = Intent(Intent.ACTION_GET_CONTENT).apply {
-                                type = "*/*"
+                            val fallback = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             startActivity(fallback)

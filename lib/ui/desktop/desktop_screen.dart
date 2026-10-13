@@ -35,6 +35,7 @@ import 'desktop_context_menu.dart';
 import 'search_overlay.dart'; 
 import 'win11_toast.dart';
 import 'desktop_services.dart';
+import 'task_view_overlay.dart';
 
 class DesktopScreen extends StatefulWidget {
   const DesktopScreen({Key? key}) : super(key: key);
@@ -57,9 +58,10 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   bool _isQuickSettingsOpen = false;
   bool _isNotificationCenterOpen = false;
   bool _isContextMenuOpen = false;
+  bool _isTaskViewOpen = false;
 
   bool get _isAnyOverlayOpen => 
-      _isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen;
+      _isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen || _isTaskViewOpen;
 
   Offset _contextMenuPos = Offset.zero;
   String _contextMenuType = 'desktop';
@@ -809,6 +811,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       _isWidgetBoardOpen = false; 
       _isQuickSettingsOpen = false; 
       _isNotificationCenterOpen = false; 
+      _isTaskViewOpen = false;
     });
   }
 
@@ -818,6 +821,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       _isQuickSettingsOpen = overlay == 'quick' ? !_isQuickSettingsOpen : false;
       _isWidgetBoardOpen = false;
       _isContextMenuOpen = false;
+      _isTaskViewOpen = false;
 
       if (overlay == 'notification') {
         _isNotificationCenterOpen = !_isNotificationCenterOpen;
@@ -826,22 +830,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
         _isNotificationCenterOpen = false;
       }
     });
-  }
-
-  void _showAccessibilityPrompt(String featureName, String explanation) {
-    final isDark = context.read<ThemeState>().isDarkMode;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
-        title: Text('Accessibility Required', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
-        content: Text("To use $featureName, Android requires Accessibility permissions.\n\n$explanation\n\n1. Tap 'Go to Settings'\n2. Select 'Downloaded Apps'\n3. Turn ON 'Win11 PC Launcher'", style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 14)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54))),
-          TextButton(onPressed: () { Navigator.pop(ctx); NativeBridge.instance.openSettings('accessibility'); }, child: const Text('Go to Settings', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold))),
-        ],
-      ),
-    );
   }
 
   void _handleGestureAction(String action) async {
@@ -856,11 +844,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     else if (action == 'Task View') {
       _closeOverlays();
       if (!ProGatekeeper.checkAccess(context, featureName: 'Recent Task View')) return;
-
-      bool success = await NativeBridge.instance.toggleRecents();
-      if (!success && mounted) {
-        _showAccessibilityPrompt('Recent Apps', 'Win11 PC Launcher needs Accessibility Service to safely open your recent apps menu without root access.');
-      }
+      setState(() => _isTaskViewOpen = true);
     }
     else if (action == 'Widget Board') setState(() { _closeOverlays(); _isWidgetBoardOpen = true; });
     else if (action == 'Device Notification Bar') { try { await NativeBridge.instance.expandNotificationPanel(); } catch (e) { debugPrint("Failed to expand native panel: $e"); } }
@@ -918,9 +902,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
             backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
             title: Text('Enable Screen Lock', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
             content: Text(
-              'To lock the screen with a gesture, please enable the required system permission:\n\n'
-              '• Accessibility (Recommended): Preserves Fingerprint/Face unlock on Android 9+.\n'
-              '• Device Admin: Recommended for Android 8 and below.',
+              'To lock the screen with a gesture, please enable Device Admin permission. This is strictly used to turn off the screen.',
               style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4),
             ),
             actions: [
@@ -934,13 +916,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                   NativeBridge.instance.openSettings('admin');
                 },
                 child: const Text('Device Admin', style: TextStyle(color: Colors.blueAccent)),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  NativeBridge.instance.openSettings('accessibility');
-                },
-                child: const Text('Accessibility', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1084,7 +1059,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
           if (_isLocked || _isBooting) return;
-          if (_isStartMenuOpen || _isQuickSettingsOpen || _isNotificationCenterOpen || _isWidgetBoardOpen || _isContextMenuOpen) {
+          if (_isAnyOverlayOpen) {
             _closeOverlays();
             return;
           }
@@ -1238,6 +1213,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                           explorerKey: _explorerKey, 
                           onCloseOverlays: _closeOverlays
                         ),
+                      ),
+                    ),
+
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 150),
+                      opacity: _isTaskViewOpen ? 1.0 : 0.0,
+                      child: IgnorePointer(
+                        ignoring: !_isTaskViewOpen,
+                        child: TaskViewOverlay(onClose: _closeOverlays),
                       ),
                     ),
 
@@ -1409,14 +1393,9 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                                 onStartToggled: () => _toggleOverlay('start'), 
                                 onQuickSettingsToggled: () => _toggleOverlay('quick'), 
                                 onNotificationCenterToggled: () => _toggleOverlay('notification'),
-                                onTaskViewToggled: () async {
+                                onTaskViewToggled: () {
                                   _closeOverlays();
-                                  if (!ProGatekeeper.checkAccess(context, featureName: 'Recent Task View')) return;
-  
-                                  bool success = await NativeBridge.instance.toggleRecents();
-                                  if (!success && mounted) {
-                                    _showAccessibilityPrompt('Recent Apps', 'Win11 PC Launcher needs Accessibility Service to safely open your recent apps menu without root access.');
-                                  }
+                                  setState(() => _isTaskViewOpen = true);
                                 }, 
                                 onOverlaysClosed: _closeOverlays, 
                                 batteryLevel: _batteryLevel.value, 
