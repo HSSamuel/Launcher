@@ -78,7 +78,7 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
   
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // PERFECT FIX: Removed edgeToEdge call to prevent Android Window Inset thrashing on unlock
     _lockoutTimer?.cancel();
     _hwSub?.cancel();
     _bounceController.dispose(); 
@@ -269,27 +269,18 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _proceedToDesktop() async {
-    bool unlocked = await NativeBridge.instance.dismissSystemLock();
-    if (!unlocked) {
-      if (mounted) setState(() => _isSigningIn = false);
-      return;
-    }
-
-    if (!mounted) return;
+  void _proceedToDesktop() {
+    FocusManager.instance.primaryFocus?.unfocus();
     context.read<DesktopState>().applySystemUI();
 
-    if (widget.onUnlocked != null) {
-      widget.onUnlocked!();
-    } else {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const DesktopScreen(),
-          transitionDuration: Duration.zero,
-          reverseTransitionDuration: Duration.zero,
-        ),
-      );
-    }
+    // PERFECT FIX: Do the heavy JNI call asynchronously so it doesn't freeze the cross-fade animation
+    NativeBridge.instance.dismissSystemLock().then((unlocked) {
+      if (!unlocked && mounted) {
+        setState(() => _isSigningIn = false);
+      } else if (unlocked && mounted && widget.onUnlocked != null) {
+        widget.onUnlocked!();
+      }
+    });
   }
 
   void _handleSwipeUp() async {

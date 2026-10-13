@@ -21,6 +21,18 @@ class MonetizationState extends ChangeNotifier {
   bool _isPurchasePending = false;
   bool get isPurchasePending => _isPurchasePending;
 
+  bool _hasAttemptedLoad = false;
+  bool get hasAttemptedLoad => _hasAttemptedLoad;
+
+  String get proPrice {
+    if (_products.isEmpty) return '';
+    try {
+      return _products.firstWhere((p) => p.id == _proProductId).price;
+    } catch (_) {
+      return '';
+    }
+  }
+
   MonetizationState() {
     _initOfflineState();
     _initializeStore();
@@ -54,15 +66,22 @@ class MonetizationState extends ChangeNotifier {
   Future<void> _loadProducts() async {
     _isStoreAvailable = await _iap.isAvailable();
     if (!_isStoreAvailable) {
+      _hasAttemptedLoad = true;
       notifyListeners();
       return;
     }
 
-    final ProductDetailsResponse response = await _iap.queryProductDetails({_proProductId});
-    if (response.error == null) {
-      _products = response.productDetails;
+    try {
+      final ProductDetailsResponse response = await _iap.queryProductDetails({_proProductId});
+      if (response.error == null) {
+        _products = response.productDetails;
+      }
+    } catch (e) {
+      debugPrint("Error querying product details: $e");
+    } finally {
+      _hasAttemptedLoad = true;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   Future<void> buyProUpgrade() async {

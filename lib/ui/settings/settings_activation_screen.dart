@@ -349,7 +349,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              monetization.products.first.price,
+                              monetization.proPrice,
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blueAccent),
                             ),
                             monetization.isPurchasePending

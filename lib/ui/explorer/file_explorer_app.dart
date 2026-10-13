@@ -244,8 +244,8 @@ class FileExplorerApp extends StatefulWidget {
 }
 
 class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObserver {
-  final Map<String, List<FileItem>> _globalLibraryCache = {};
-  final Map<String, DateTime> _globalLibrarySyncTime = {};
+  static final Map<String, List<FileItem>> _globalLibraryCache = {};
+  static final Map<String, DateTime> _globalLibrarySyncTime = {};
 
   AppsState? _appsState;
   DesktopState? _desktopState;
@@ -415,8 +415,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     _searchController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _restoreTransparentStatusBar();
-    _globalLibraryCache.clear();
-    _globalLibrarySyncTime.clear();
     super.dispose();
   }
 

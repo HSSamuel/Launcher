@@ -191,12 +191,12 @@ class ThemesScreen extends StatelessWidget {
               subtitle: Text('Follow device settings', style: TextStyle(color: subTextColor, fontSize: 11)),
               trailing: themeState.syncWithSystemTheme ? Icon(Icons.check, color: accent) : null,
               onTap: () { 
-                bool sysDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
-                if (sysDark && !isPro) {
+                if (!isPro) {
                   Navigator.pop(ctx);
                   ProGatekeeper.checkAccess(context, featureName: 'Dark Theme (via OS Sync)');
                   return;
                 }
+                bool sysDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
                 Navigator.pop(ctx);
                 themeState.setDarkMode(sysDark, syncWithSystem: true); 
               },

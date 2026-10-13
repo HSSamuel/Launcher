@@ -459,7 +459,6 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
     final textColor = isDark ? Colors.white : Colors.black87;
     final subColor = isDark ? Colors.white70 : Colors.black54;
 
-    // Retain the circular GPU Monitor untouched
     if (item.widgetType == 'system_monitor') {
       return Center(
         child: _LiveSystemMonitorWidget(
@@ -1184,23 +1183,35 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
     if (_isOptimizing) return;
     setState(() => _isOptimizing = true);
     
-    final result = await NativeBridge.instance.optimizeSystem();
-    final freedMb = result['freedMb'] ?? 0;
-    final signaled = result['signaled'] ?? 0;
+    // 1. Flutter Image Cache Flush
+    final int beforeBytes = PaintingBinding.instance.imageCache.currentSizeBytes;
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
     
-    await Future.delayed(const Duration(milliseconds: 300));
+    // 2. Clear pre-warmed memory icon caches
+    LazyAppIcon.globalIconCache.clear();
+    
+    final int flutterFreedMb = (beforeBytes / (1024 * 1024)).round();
+
+    // 3. Native File System Cache Flush
+    final result = await NativeBridge.instance.optimizeSystem();
+    final nativeFreedMb = result['freedMb'] ?? 0;
+    
+    final totalFreedMb = flutterFreedMb + nativeFreedMb;
+    
+    await Future.delayed(const Duration(milliseconds: 600)); 
     
     if (mounted) {
       setState(() => _isOptimizing = false);
       ScaffoldMessenger.of(context).clearSnackBars();
       
-      String message = freedMb > 0 
-          ? 'Optimization complete. Signaled $signaled apps and freed $freedMb MB of RAM.'
-          : 'System is already running optimally. Flushed memory cache.';
+      String message = totalFreedMb > 0 
+          ? 'Optimization complete. Recovered $totalFreedMb MB of memory.'
+          : 'System is running optimally. Memory cache flushed.';
           
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(message),
-        backgroundColor: freedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
+        backgroundColor: totalFreedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         duration: const Duration(seconds: 3),
@@ -1216,15 +1227,15 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
           child: FittedBox(
             fit: BoxFit.contain,
             child: SizedBox(
-              width: 200.0,
-              height: 222.0, 
+              width: 220.0,
+              height: 240.0, 
               child: Stack(
                 clipBehavior: Clip.none, 
                 alignment: Alignment.topCenter,
                 children: [
                   Container(
-                    width: 200.0,
-                    height: 200.0,
+                    width: 220.0,
+                    height: 220.0,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: widget.isDark ? const Color(0xFF1E1E1E).withOpacity(0.92) : Colors.white.withOpacity(0.92),
@@ -1239,9 +1250,9 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                     ),
                   ),
                   Positioned(
-                    top: 12.0, 
+                    top: 0.0, 
                     child: CustomPaint(
-                      size: const Size(170.0, 170.0),
+                      size: const Size(220.0, 220.0),
                       painter: _CircularGpuGaugePainter(
                         percent: _ramPercent / 100.0,
                         strokeWidth: 10.0,
@@ -1257,7 +1268,7 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                         Text(
                           'GPU Optimization',
                           style: TextStyle(
-                            fontSize: 14.0,
+                            fontSize: 16.0,
                             fontWeight: FontWeight.bold,
                             color: widget.textColor,
                           ),
@@ -1272,23 +1283,23 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                             height: 1.05,
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 12),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Temp', style: TextStyle(fontSize: 11.0, color: widget.subColor)),
-                                Text('${_tempValue.toInt()}°C', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                                Text('Temp', style: TextStyle(fontSize: 13.0, color: widget.subColor)),
+                                Text('${_tempValue.toInt()}°C', style: TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold, color: widget.textColor)),
                               ],
                             ),
                             const SizedBox(width: 24),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Fan', style: TextStyle(fontSize: 11.0, color: widget.subColor)),
-                                Text('${_fanRpm.toInt()} RPM', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                                Text('Fan', style: TextStyle(fontSize: 13.0, color: widget.subColor)),
+                                Text('${_fanRpm.toInt()} RPM', style: TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold, color: widget.textColor)),
                               ],
                             ),
                           ],
@@ -1299,15 +1310,15 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                   Positioned(
                     bottom: 0, 
                     child: SizedBox(
-                      width: 150.0,
-                      height: 44.0,
+                      width: 130.0,
+                      height: 40.0,
                       child: ElevatedButton(
                         onPressed: _isOptimizing ? null : _runOptimization,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF4285F4), 
                           foregroundColor: Colors.white,
                           padding: EdgeInsets.zero,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22.0)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.0)),
                           elevation: 6,
                           shadowColor: const Color(0xFF4285F4).withOpacity(0.5),
                         ),
@@ -1316,9 +1327,9 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.rocket_launch, size: 17.0),
+                                  const Icon(Icons.rocket_launch, size: 16.0),
                                   const SizedBox(width: 8),
-                                  const Text('Optimize', style: TextStyle(fontSize: 15.0, fontWeight: FontWeight.w700)),
+                                  const Text('Optimize', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.w700)),
                                 ],
                               ),
                       ),
@@ -1348,7 +1359,7 @@ class _CircularGpuGaugePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2;
+    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
 
     final paintTrack = Paint()
       ..color = trackColor
@@ -1360,7 +1371,7 @@ class _CircularGpuGaugePainter extends CustomPainter {
       ..shader = const SweepGradient(
         colors: [Colors.blueAccent, Colors.cyanAccent, Colors.greenAccent],
         stops: [0.0, 0.6, 1.0],
-        transform: GradientRotation(math.pi), 
+        transform: GradientRotation(math.pi * 0.75), 
       ).createShader(Rect.fromCircle(center: center, radius: radius))
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
@@ -1368,16 +1379,16 @@ class _CircularGpuGaugePainter extends CustomPainter {
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      math.pi, 
-      math.pi, 
+      math.pi * 0.75, 
+      math.pi * 1.5, 
       false,
       paintTrack,
     );
 
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      math.pi, 
-      math.pi * percent.clamp(0.0, 1.0),
+      math.pi * 0.75, 
+      (math.pi * 1.5) * percent.clamp(0.0, 1.0),
       false,
       paintProgress,
     );

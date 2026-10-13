@@ -113,7 +113,7 @@ class _QuickSettingsState extends State<QuickSettings> {
           } else if (rawIcon is Uint8List) {
             _cachedMediaBg = ResizeImage(MemoryImage(rawIcon), width: 160, height: 160);
           } else if (rawIcon is List) {
-            _cachedMediaBg = ResizeImage(MemoryImage(Uint8List.fromList(rawIcon.map((e) => e as int).toList())), width: 160, height: 160);
+            _cachedMediaBg = ResizeImage(MemoryImage(Uint8List.fromList(rawIcon.map((e) => (e as num).toInt()).toList())), width: 160, height: 160);
           }
         } catch (e) {
           debugPrint('Media artwork parse error: $e');
@@ -182,7 +182,8 @@ class _QuickSettingsState extends State<QuickSettings> {
   }
 
   Widget _buildTile(String key, bool isDark, Color accentColor, Color primaryText, Color inactiveTileBg, {bool isEditMode = false, bool isHidden = false}) {
-    bool isActive = widget.settingsState[key] ?? false;
+    // Guarantees Dark Theme reflects true launcher state regardless of any hardware broadcast delay
+    bool isActive = key == 'Dark Theme' ? isDark : (widget.settingsState[key] ?? false);
     
     Color bgColor = isEditMode ? inactiveTileBg : (isActive ? accentColor : inactiveTileBg);
     Color activeContentColor = accentColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;

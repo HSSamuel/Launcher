@@ -85,11 +85,9 @@ class AppsState extends ChangeNotifier {
     final entry = '$pkg|${DateTime.now().millisecondsSinceEpoch}';
     final prefs = await SharedPreferences.getInstance();
     
-    // 1. Purge the package from BOTH lists to guarantee mutual exclusivity
     recentlyAddedApps.removeWhere((e) => e.split('|')[0] == pkg);
     recentlyUpdatedApps.removeWhere((e) => e.split('|')[0] == pkg);
     
-    // 2. Insert into the correct designated list
     if (isUpdate) {
       recentlyUpdatedApps.insert(0, entry);
       if (recentlyUpdatedApps.length > 6) {
@@ -102,7 +100,6 @@ class AppsState extends ChangeNotifier {
       }
     }
     
-    // 3. Persist the cleaned states to disk
     await prefs.setStringList('recentlyAddedApps', recentlyAddedApps);
     await prefs.setStringList('recentlyUpdatedApps', recentlyUpdatedApps);
     
@@ -130,7 +127,6 @@ class AppsState extends ChangeNotifier {
   Future<void> injectAndSyncApp(String pkg, String label) async {
     if (kIsWeb) return;
     try {
-      // Give the OS an extra second to finalize the APK extraction and manifest indexing
       await Future.delayed(const Duration(milliseconds: 2500));
       
       AppInfo? fetchedInfo;
@@ -154,7 +150,6 @@ class AppsState extends ChangeNotifier {
       
       appMap[pkg] = fetchedInfo;
       
-      // Pre-populate the LazyAppIcon memory cache to prevent the "Green Android" fallback
       if (fetchedInfo.icon != null) {
         LazyAppIcon.globalIconCache[pkg] = fetchedInfo.icon!;
         LazyAppIcon.failedFetches.remove(pkg);
@@ -568,9 +563,9 @@ class AppsState extends ChangeNotifier {
         await prefs.setBool('hasInitializedPins', true);
       }
       
-      final allPackages = installedApps.map((e) => e.packageName!).toList();
+      final visiblePkgs = {...pinnedStart, ...recentApps, ...lockedApps}.toList();
       Future.microtask(() {
-        LazyAppIcon.prewarmIcons(allPackages);
+        LazyAppIcon.prewarmIcons(visiblePkgs);
       });
       
       isLoadingApps = false;
@@ -637,8 +632,6 @@ class AppsState extends ChangeNotifier {
     }
   }
 
-  // CRITICAL FIX: Ensure 'this_pc' and 'recycle_bin' are correctly translated to 'explorer' 
-  // uniformly across the app to prevent empty ghost windows from launching.
   void openApp(String appId) {
     String resolvedId = appId;
     if (appId == 'this_pc' || appId == 'my_files') {

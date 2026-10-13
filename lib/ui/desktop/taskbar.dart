@@ -241,10 +241,11 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
         Tooltip(
           message: 'Quick Settings\nBattery: ${widget.batteryLevel}% ${isCharging ? '(Charging)' : ''}',
           child: InkWell(
-            onTap: () {
+            onTapDown: (_) {
               _triggerHaptic();
               widget.onQuickSettingsToggled();
             },
+            onTap: () {}, // Empty to allow visual ripple effect without double firing
             borderRadius: BorderRadius.circular(4),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0), 
@@ -264,10 +265,11 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
         ),
 
         InkWell(
-          onTap: () {
+          onTapDown: (_) {
             _triggerHaptic();
             widget.onNotificationCenterToggled();
           },
+          onTap: () {},
           borderRadius: BorderRadius.circular(4),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -289,13 +291,14 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
         ),
         
         InkWell(
-          onTap: () {
+          onTapDown: (_) {
              _triggerHaptic();
              for (var app in appsState.windowStack) { 
                appsState.minimizeApp(app); 
              }
              widget.onOverlaysClosed();
           },
+          onTap: () {},
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Container(width: 2, height: double.infinity, color: isDark ? Colors.white24 : Colors.black26),

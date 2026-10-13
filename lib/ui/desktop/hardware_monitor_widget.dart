@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../states/theme_state.dart';
 import '../../services/native_bridge.dart';
+import '../../services/lazy_app_icon.dart'; // Added for cache flush
 
 class HardwareMonitorWidget extends StatefulWidget {
   const HardwareMonitorWidget({Key? key}) : super(key: key);
@@ -27,7 +28,6 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
   void initState() {
     super.initState();
     _startPolling();
-    // Center the widget dynamically on first load
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         setState(() {
@@ -49,7 +49,6 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
             setState(() {
               _ramPercent = ramPct;
               _tempValue = temp;
-              // Simulate Fan RPM to match the visual context of the requested UI
               _fanRpm = (1000.0 + (temp * 40.0)).clamp(0.0, 3200.0);
             });
           }
@@ -68,23 +67,35 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
     if (_isOptimizing) return;
     setState(() => _isOptimizing = true);
     
-    final result = await NativeBridge.instance.optimizeSystem();
-    final freedMb = result['freedMb'] ?? 0;
-    final signaled = result['signaled'] ?? 0;
+    // 1. Flutter Image Cache Flush
+    final int beforeBytes = PaintingBinding.instance.imageCache.currentSizeBytes;
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
     
-    await Future.delayed(const Duration(milliseconds: 300));
+    // 2. Clear pre-warmed memory icon caches
+    LazyAppIcon.globalIconCache.clear();
+    
+    final int flutterFreedMb = (beforeBytes / (1024 * 1024)).round();
+
+    // 3. Native File System Cache Flush
+    final result = await NativeBridge.instance.optimizeSystem();
+    final nativeFreedMb = result['freedMb'] ?? 0;
+    
+    final totalFreedMb = flutterFreedMb + nativeFreedMb;
+    
+    await Future.delayed(const Duration(milliseconds: 600)); 
     
     if (mounted) {
       setState(() => _isOptimizing = false);
       ScaffoldMessenger.of(context).clearSnackBars();
       
-      String message = freedMb > 0 
-          ? 'Optimization complete. Signaled $signaled apps and freed $freedMb MB of RAM.'
-          : 'System is already running optimally. Flushed memory cache.';
+      String message = totalFreedMb > 0 
+          ? 'Optimization complete. Recovered $totalFreedMb MB of memory.'
+          : 'System is running optimally. Memory cache flushed.';
           
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(message),
-        backgroundColor: freedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
+        backgroundColor: totalFreedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         duration: const Duration(seconds: 3),
@@ -110,52 +121,58 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
         },
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Compute diameter dynamically to preserve a circular shape
-            final double diameter = 220.0; // Fixed size based on original requirements, but responsive internally
+            final double diameter = 220.0; 
             
-            // Responsive typography formulas maintaining standard defaults while scaling cleanly
-            final double titleFontSize = (diameter * 0.065).clamp(10.0, 18.0);
+            // Scaled up typography constraints
+            final double titleFontSize = (diameter * 0.075).clamp(12.0, 20.0);
             final double percentFontSize = (diameter * 0.22).clamp(24.0, 56.0);
-            final double metricLabelFontSize = (diameter * 0.052).clamp(9.0, 14.0);
-            final double metricValueFontSize = (diameter * 0.065).clamp(10.0, 16.0);
+            final double metricLabelFontSize = (diameter * 0.06).clamp(11.0, 16.0);
+            final double metricValueFontSize = (diameter * 0.08).clamp(14.0, 22.0);
             final double buttonHeight = (diameter * 0.15).clamp(26.0, 40.0);
             final double buttonWidth = (diameter * 0.52).clamp(80.0, 130.0);
             final double buttonFontSize = (diameter * 0.058).clamp(10.0, 14.0);
             final double arcStrokeWidth = (diameter * 0.05).clamp(5.0, 12.0);
 
-            return Container(
+            return SizedBox(
               width: diameter,
-              height: diameter,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: isDark ? const Color(0xFF1E1E1E).withOpacity(0.90) : Colors.white.withOpacity(0.90),
-                border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300, width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
+              height: diameter + (buttonHeight / 2),
               child: Stack(
-                alignment: Alignment.center,
+                alignment: Alignment.topCenter,
                 children: [
-                  // Custom Curved Progress Arc
-                  CustomPaint(
-                    size: Size(diameter * 0.82, diameter * 0.82),
-                    painter: _CircularGpuGaugePainter(
-                      percent: _ramPercent / 100.0,
-                      strokeWidth: arcStrokeWidth,
-                      trackColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+                  Container(
+                    width: diameter,
+                    height: diameter,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isDark ? const Color(0xFF1E1E1E).withOpacity(0.90) : Colors.white.withOpacity(0.90),
+                      border: Border.all(color: isDark ? Colors.white24 : Colors.grey.shade300, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(isDark ? 0.35 : 0.12),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  // Arc is perfectly scaled to circle's outer edge bounds
+                  Positioned(
+                    top: 0,
+                    child: CustomPaint(
+                      size: Size(diameter, diameter),
+                      painter: _CircularGpuGaugePainter(
+                        percent: _ramPercent / 100.0,
+                        strokeWidth: arcStrokeWidth,
+                        trackColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
+                      ),
                     ),
                   ),
 
-                  // Foreground Content
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox(height: diameter * 0.05),
+                      SizedBox(height: diameter * 0.08),
                       Text(
                         'GPU Optimization',
                         style: TextStyle(
@@ -174,7 +191,7 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
                           height: 1.05,
                         ),
                       ),
-                      SizedBox(height: diameter * 0.02),
+                      SizedBox(height: diameter * 0.03),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -193,13 +210,12 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
                           ),
                         ],
                       ),
-                      SizedBox(height: diameter * 0.08),
+                      SizedBox(height: diameter * 0.12),
                     ],
                   ),
 
-                  // Optimize Action Pill
                   Positioned(
-                    bottom: diameter * 0.07,
+                    bottom: 0,
                     child: SizedBox(
                       width: buttonWidth,
                       height: buttonHeight,
@@ -250,16 +266,15 @@ class _CircularGpuGaugePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2;
+    // Exact circle bounds inside stroke
+    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
 
-    // Background Inactive Track
     final paintTrack = Paint()
       ..color = trackColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    // Active Sweep Gradient Track
     final paintProgress = Paint()
       ..shader = const SweepGradient(
         colors: [Colors.blueAccent, Colors.tealAccent, Colors.greenAccent],
@@ -270,7 +285,6 @@ class _CircularGpuGaugePainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    // 270-degree sweep arc
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       math.pi * 0.75,
@@ -279,7 +293,6 @@ class _CircularGpuGaugePainter extends CustomPainter {
       paintTrack,
     );
 
-    // Dynamic Progress Arc
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       math.pi * 0.75,

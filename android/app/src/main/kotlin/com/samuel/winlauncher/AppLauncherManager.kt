@@ -361,13 +361,16 @@ class AppLauncherManager(private val activity: Activity) {
 
     private fun getBitmapFromDrawable(drawable: Drawable, targetSize: Int = 144): Bitmap {
         return try {
+            if (drawable is android.graphics.drawable.BitmapDrawable && drawable.bitmap != null) {
+                return Bitmap.createScaledBitmap(drawable.bitmap, targetSize, targetSize, true)
+            }
             val bitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
-            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.setBounds(0, 0, targetSize, targetSize)
             drawable.draw(canvas)
             bitmap
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create bitmap from drawable, returning empty fallback.", e)
+            Log.e(TAG, "Failed to render drawable to bitmap", e)
             Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         }
     }

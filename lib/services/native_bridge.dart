@@ -22,6 +22,16 @@ class NativeBridge {
     debugPrint("NativeBridge Error [$method]: $e");
   }
 
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    if (kIsWeb) return false;
+    try {
+      return await _channel.invokeMethod('requestIgnoreBatteryOptimizations') ?? false;
+    } catch (e) {
+      _logError('requestIgnoreBatteryOptimizations', e);
+      return false;
+    }
+  }
+
   Future<void> setNativeWallpaper(String path) async {
     if (kIsWeb) return;
     try {

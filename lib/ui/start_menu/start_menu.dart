@@ -76,6 +76,64 @@ class _StartMenuState extends State<StartMenu> {
     }
   }
 
+  void _buildAlphabetCache(AppsState appsState, DesktopState desktopState) {
+    if (_lastAppCount == appsState.installedApps.length && _cachedFlattenedList.isNotEmpty) return;
+    
+    _lastAppCount = appsState.installedApps.length;
+    _cachedFlattenedList = [];
+    _cachedLetterOffsets = {};
+    double currentOffset = 0.0;
+
+    final double scale = desktopState.desktopIconScale.clamp(0.6, 1.8);
+    final double itemHeight = math.max(48.0, 52.0 * scale);
+
+    final recentAddedApps = appsState.recentlyAddedApps
+        .map((e) => e.split('|')[0])
+        .where((pkg) => !appsState.hiddenApps.contains(pkg) && appsState.appMap.containsKey(pkg))
+        .map((pkg) => appsState.appMap[pkg]!)
+        .take(6).toList();
+
+    final recentUpdatedApps = appsState.recentlyUpdatedApps
+        .map((e) => e.split('|')[0])
+        .where((pkg) => !appsState.hiddenApps.contains(pkg) && appsState.appMap.containsKey(pkg))
+        .map((pkg) => appsState.appMap[pkg]!)
+        .take(6).toList();
+
+    if (desktopState.showRecentlyAdded) {
+      if (recentAddedApps.isNotEmpty) {
+        _cachedFlattenedList.add({'type': 'header', 'text': 'Recently added'});
+        currentOffset += 32.0; 
+        for (var app in recentAddedApps) {
+          _cachedFlattenedList.add({'type': 'app', 'data': app});
+          currentOffset += itemHeight;
+        }
+      }
+      if (recentUpdatedApps.isNotEmpty) {
+        _cachedFlattenedList.add({'type': 'header', 'text': 'Recently updated'});
+        currentOffset += 32.0; 
+        for (var app in recentUpdatedApps) {
+          _cachedFlattenedList.add({'type': 'app', 'data': app});
+          currentOffset += itemHeight;
+        }
+      }
+    }
+
+    for (var letter in appsState.precomputedAlphabetKeys) {
+      final group = appsState.precomputedAlphabetGroups[letter] ?? [];
+      if (group.isNotEmpty) {
+        _cachedLetterOffsets[letter] = currentOffset;
+        _cachedFlattenedList.add({'type': 'letter', 'text': letter});
+        currentOffset += 42.0; // matched to _buildLetterHeader height
+        
+        for (var app in group) {
+          _cachedFlattenedList.add({'type': 'app', 'data': app});
+          currentOffset += itemHeight;
+        }
+      }
+    }
+    _cachedFlattenedList.add({'type': 'footer', 'height': 8.0});
+  }
+
   void _launchApp(String packageName, AppsState appsState, SystemState systemState) {
     appsState.launchNativeApp(packageName, systemState: systemState);
   }
@@ -709,70 +767,10 @@ class _StartMenuState extends State<StartMenu> {
       }
     }
     
-    final List<AppInfo> recentAddedApps = [];
-    for (final entry in appsState.recentlyAddedApps) {
-      if (recentAddedApps.length >= 6) break;
-      final pkg = entry.split('|')[0];
-      if (!appsState.hiddenApps.contains(pkg) && appsState.appMap.containsKey(pkg)) {
-        recentAddedApps.add(appsState.appMap[pkg]!);
-      }
-    }
-    
-    final List<AppInfo> recentUpdatedApps = [];
-    for (final entry in appsState.recentlyUpdatedApps) {
-      if (recentUpdatedApps.length >= 6) break;
-      final pkg = entry.split('|')[0];
-      if (!appsState.hiddenApps.contains(pkg) && appsState.appMap.containsKey(pkg)) {
-        recentUpdatedApps.add(appsState.appMap[pkg]!);
-      }
-    }
-
     final sortedKeys = appsState.precomputedAlphabetKeys;
-    final groupedApps = appsState.precomputedAlphabetGroups;
 
-    final double scale = desktopState.desktopIconScale.clamp(0.6, 1.8);
-    final double itemHeight = math.max(48.0, 52.0 * scale); 
-    final double fontSize = desktopState.desktopFontSize;
-
-    if ((_viewMode == 'List' || _showAlphabetGrid) && (_lastAppCount != appsState.installedApps.length || _cachedFlattenedList.isEmpty)) {
-      _lastAppCount = appsState.installedApps.length;
-      _cachedFlattenedList = [];
-      _cachedLetterOffsets = {};
-      double currentOffset = 0.0;
-
-      if (desktopState.showRecentlyAdded) {
-        if (recentAddedApps.isNotEmpty) {
-          _cachedFlattenedList.add({'type': 'header', 'text': 'Recently added'});
-          currentOffset += 32.0; 
-          for (var app in recentAddedApps) {
-            _cachedFlattenedList.add({'type': 'app', 'data': app});
-            currentOffset += itemHeight;
-          }
-        }
-        if (recentUpdatedApps.isNotEmpty) {
-          _cachedFlattenedList.add({'type': 'header', 'text': 'Recently updated'});
-          currentOffset += 32.0; 
-          for (var app in recentUpdatedApps) {
-            _cachedFlattenedList.add({'type': 'app', 'data': app});
-            currentOffset += itemHeight;
-          }
-        }
-      }
-
-      for (var letter in sortedKeys) {
-        final group = groupedApps[letter] ?? [];
-        if (group.isNotEmpty) {
-          _cachedLetterOffsets[letter] = currentOffset;
-          _cachedFlattenedList.add({'type': 'letter', 'text': letter});
-          currentOffset += 52.0; 
-          
-          for (var app in group) {
-            _cachedFlattenedList.add({'type': 'app', 'data': app});
-            currentOffset += itemHeight;
-          }
-        }
-      }
-      _cachedFlattenedList.add({'type': 'footer', 'height': 8.0});
+    if (_viewMode == 'List' || _showAlphabetGrid) {
+      _buildAlphabetCache(appsState, desktopState);
     }
 
     return Material(
@@ -834,8 +832,8 @@ class _StartMenuState extends State<StartMenu> {
                                 builder: (ctx) => Material(
                                   type: MaterialType.transparency,
                                   child: ListTile(
-                                    leading: _buildAppIcon(app, 32 * scale, themeState, appsState),
-                                    title: Text(app.name ?? 'Unknown', style: TextStyle(color: textColor, fontSize: fontSize)),
+                                    leading: _buildAppIcon(app, 32 * desktopState.desktopIconScale.clamp(0.6, 1.8), themeState, appsState),
+                                    title: Text(app.name ?? 'Unknown', style: TextStyle(color: textColor, fontSize: desktopState.desktopFontSize)),
                                     onTap: () => _launchApp(app.packageName!, appsState, systemState),
                                     onLongPress: () {
                                       if (!ctx.mounted) return;
@@ -1064,7 +1062,7 @@ class _StartMenuState extends State<StartMenu> {
                                         final item = _cachedFlattenedList[index];
                                         
                                         if (item['type'] == 'header') {
-                                          return _buildTextHeader(item['text'], textColor, fontSize);
+                                          return _buildTextHeader(item['text'], textColor, desktopState.desktopFontSize);
                                         } else if (item['type'] == 'letter') {
                                           return _buildLetterHeader(item['text'], textColor, themeState.currentAccentColor);
                                         } else if (item['type'] == 'app') {

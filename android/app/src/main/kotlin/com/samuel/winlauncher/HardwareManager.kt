@@ -64,7 +64,6 @@ class HardwareManager(private val activity: Activity) {
     private var lastTxBytes: Long = 0
     private var isTorchOn = false
 
-    // NEW: Callback to notify MainActivity when hardware states change outside normal intents
     var onHardwareChangedListener: (() -> Unit)? = null
 
     companion object {
@@ -90,7 +89,6 @@ class HardwareManager(private val activity: Activity) {
             torchCallback = object : CameraManager.TorchCallback() {
                 override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
                     isTorchOn = enabled
-                    // Trigger instant broadcast to Flutter
                     onHardwareChangedListener?.invoke() 
                 }
             }
@@ -295,23 +293,7 @@ class HardwareManager(private val activity: Activity) {
         val states = mutableMapOf<String, Any>()
         
         runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val hasPermission = ContextCompat.checkSelfPermission(
-                    activity,
-                    android.Manifest.permission.BLUETOOTH_CONNECT
-                ) == PackageManager.PERMISSION_GRANTED
-
-                if (hasPermission) {
-                    val btManager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
-                    states["Bluetooth"] = btManager?.adapter?.isEnabled == true
-                } else {
-                    states["Bluetooth"] = false
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val btAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
-                states["Bluetooth"] = btAdapter?.isEnabled == true
-            }
+            states["Bluetooth"] = Settings.Global.getInt(activity.contentResolver, Settings.Global.BLUETOOTH_ON, 0) == 1
         }.onFailure { states["Bluetooth"] = false }
 
         runCatching {
@@ -336,7 +318,37 @@ class HardwareManager(private val activity: Activity) {
         }.onFailure { states["Airplane mode"] = false }
 
         runCatching {
-            states["Data"] = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
+            var isDataOn = false
+            var resolved = false
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val subId = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
+                if (subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    
+                    // 1. Direct Registry Check (Most reliable on Transsion/Tecno dual-SIM)
+                    val state = Settings.Global.getInt(activity.contentResolver, "mobile_data$subId", -1)
+                    if (state != -1) {
+                        isDataOn = (state == 1)
+                        resolved = true
+                    }
+                    
+                    // 2. TelephonyManager Fallback
+                    if (!resolved && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        try {
+                            val tm = activity.getSystemService(Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
+                            isDataOn = tm.createForSubscriptionId(subId).isDataEnabled
+                            resolved = true
+                        } catch (e: Exception) {}
+                    }
+                }
+            }
+
+            // 3. Global Fallback for older devices (Only used if Dual-SIM logic failed)
+            if (!resolved) {
+                isDataOn = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
+            }
+
+            states["Data"] = isDataOn
         }.onFailure { states["Data"] = false }
 
         runCatching {
@@ -368,7 +380,6 @@ class HardwareManager(private val activity: Activity) {
             states["sys_brightness"] = (brightnessInt / 255.0).coerceIn(0.0, 1.0)
         }.onFailure { states["Brightness"] = false; states["sys_brightness"] = 0.5 }
 
-        // Fetch real-time battery status directly from the sticky intent for instant synchronization
         runCatching {
             val batteryIntent = activity.applicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -693,6 +704,8 @@ class HardwareManager(private val activity: Activity) {
                         return
                     }
                 }
+                result.safeSuccess(activity, false)
+                return
             }
 
             val dpm = activity.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager

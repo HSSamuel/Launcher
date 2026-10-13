@@ -24,6 +24,7 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
   bool _adminGranted = false;
   bool _writeSettingsGranted = false;
   bool _isSyncing = false;
+  bool _isVaultDialogOpen = false;
 
   @override
   void initState() {
@@ -42,6 +43,11 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _syncNativePermissions();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_isVaultDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _isVaultDialogOpen = false;
+      }
     }
   }
 
@@ -69,45 +75,31 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
     final pkg = app.packageName;
     if (pkg == null) return Icon(Icons.android, size: size, color: Colors.green);
 
+    Widget fallback = LazyAppIcon(packageName: pkg, size: size);
+
     if (themeState.customAppIcons.containsKey(pkg)) {
-      final file = File(themeState.customAppIcons[pkg]!);
-      if (file.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.22),
-          child: Image.file(
-            file,
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            cacheWidth: (size * 2).toInt().clamp(48, 144),
-            cacheHeight: (size * 2).toInt().clamp(48, 144),
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
-          ),
-        );
-      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.22),
+        child: Image.file(
+          File(themeState.customAppIcons[pkg]!),
+          width: size, height: size, fit: BoxFit.contain, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      );
     }
 
     if (themeState.cachedIconsPath != null) {
-      final iconFile = File('${themeState.cachedIconsPath}/$pkg.png');
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.22),
-          child: Image.file(
-            iconFile,
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            cacheWidth: (size * 2).toInt().clamp(48, 144),
-            cacheHeight: (size * 2).toInt().clamp(48, 144),
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
-          ),
-        );
-      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.22),
+        child: Image.file(
+          File('${themeState.cachedIconsPath}/$pkg.png'),
+          width: size, height: size, fit: BoxFit.contain, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      );
     }
 
-    return LazyAppIcon(packageName: pkg, size: size);
+    return fallback;
   }
 
   void _openWithDisclosure(String type, String title, String disclosure) async {
@@ -144,24 +136,26 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
     
     final Set<String> localSelectedCache = isLock ? appsState.lockedApps.toSet() : appsState.hiddenApps.toSet();
 
+    _isVaultDialogOpen = true;
+
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            title: Text(title, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
-            content: SizedBox(
-              width: 320,
-              height: 400,
-              child: ListView.builder(
-                physics: const BouncingScrollPhysics(),
-                itemCount: appsState.installedApps.length,
-                itemBuilder: (context, index) {
-                  final app = appsState.installedApps[index];
-                  if (app.packageName == null) return const SizedBox.shrink();
-                  
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        title: Text(title, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: 320,
+          height: 400,
+          child: ListView.builder(
+            physics: const BouncingScrollPhysics(),
+            itemCount: appsState.installedApps.length,
+            itemBuilder: (context, index) {
+              final app = appsState.installedApps[index];
+              if (app.packageName == null) return const SizedBox.shrink();
+              
+              return StatefulBuilder(
+                builder: (context, setTileState) {
                   final isChecked = localSelectedCache.contains(app.packageName);
                   return CheckboxListTile(
                     dense: true,
@@ -174,7 +168,7 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                     value: isChecked,
                     activeColor: themeState.currentAccentColor,
                     onChanged: (val) {
-                      setDialogState(() {
+                      setTileState(() {
                         if (val == true) {
                           localSelectedCache.add(app.packageName!);
                         } else {
@@ -183,32 +177,34 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                       });
                     },
                   );
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  final originalSet = isLock ? appsState.lockedApps.toSet() : appsState.hiddenApps.toSet();
-                  
-                  final itemsToAdd = localSelectedCache.difference(originalSet);
-                  final itemsToRemove = originalSet.difference(localSelectedCache);
-                  
-                  if (isLock) {
-                    appsState.batchUpdateAppVisibility(toLock: itemsToAdd, toUnlock: itemsToRemove, toHide: {}, toUnhide: {});
-                  } else {
-                    appsState.batchUpdateAppVisibility(toLock: {}, toUnlock: {}, toHide: itemsToAdd, toUnhide: itemsToRemove);
-                  }
-                  
-                  Navigator.pop(ctx);
-                }, 
-                child: Text('Done', style: TextStyle(color: themeState.currentAccentColor, fontWeight: FontWeight.bold))
-              ),
-            ],
-          );
-        }
-      ),
-    );
+                }
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              final originalSet = isLock ? appsState.lockedApps.toSet() : appsState.hiddenApps.toSet();
+              
+              final itemsToAdd = localSelectedCache.difference(originalSet);
+              final itemsToRemove = originalSet.difference(localSelectedCache);
+              
+              if (isLock) {
+                appsState.batchUpdateAppVisibility(toLock: itemsToAdd, toUnlock: itemsToRemove, toHide: {}, toUnhide: {});
+              } else {
+                appsState.batchUpdateAppVisibility(toLock: {}, toUnlock: {}, toHide: itemsToAdd, toUnhide: itemsToRemove);
+              }
+              
+              Navigator.pop(ctx);
+            }, 
+            child: Text('Done', style: TextStyle(color: themeState.currentAccentColor, fontWeight: FontWeight.bold))
+          ),
+        ],
+      )
+    ).then((_) {
+      _isVaultDialogOpen = false;
+    });
   }
 
   Widget _buildPermissionCard({

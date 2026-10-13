@@ -15,7 +15,7 @@ import '../../states/apps_state.dart';
 import '../../states/theme_state.dart';
 import '../../services/native_bridge.dart';
 
-import 'browser_screens.dart' hide BrowserDownloadsScreen;
+import 'browser_screens.dart';
 import 'browser_downloads.dart';
 
 class BrowserApp extends StatefulWidget {
@@ -248,7 +248,12 @@ class _BrowserAppState extends State<BrowserApp> with SingleTickerProviderStateM
             counter++;
           }
           final file = File(newPath);
-          await file.writeAsBytes(base64Decode(split.last));
+          
+          if (mimeStr.contains(';base64')) {
+            await file.writeAsBytes(base64Decode(split.last));
+          } else {
+            await file.writeAsString(Uri.decodeComponent(split.last));
+          }
           
           bool success = await NativeBridge.instance.saveToDownloads(file.path, fileName);
           if (await file.exists()) await file.delete();
@@ -262,16 +267,30 @@ class _BrowserAppState extends State<BrowserApp> with SingleTickerProviderStateM
       if (url.startsWith('blob:')) {
         if (_tabs.isNotEmpty) {
           final activeTab = _tabs[_activeTabIndex];
-          await activeTab.controller?.evaluateJavascript(source: '''
-            (function() {
-              var a = document.createElement("a");
-              a.href = "$url";
-              a.download = "$fileName";
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-            })();
+          final dynamic base64DataUrl = await activeTab.controller?.evaluateJavascript(source: '''
+            (async function() {
+              try {
+                const res = await fetch("$url");
+                const blob = await res.blob();
+                return await new Promise((resolve) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.onerror = () => resolve(null);
+                  reader.readAsDataURL(blob);
+                });
+              } catch (e) {
+                return null;
+              }
+            })()
           ''');
+
+          if (base64DataUrl is String && base64DataUrl.isNotEmpty) {
+            await _downloadMedia(base64DataUrl, suggestedName: suggestedName);
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to read blob data.')));
+            }
+          }
         }
         return;
       }

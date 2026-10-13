@@ -67,45 +67,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
     final pkg = app.packageName;
     if (pkg == null) return Icon(Icons.android, size: size, color: Colors.green);
 
+    Widget fallback = LazyAppIcon(packageName: pkg, size: size);
+
     if (themeState.customAppIcons.containsKey(pkg)) {
-      final file = File(themeState.customAppIcons[pkg]!);
-      if (file.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.22),
-          child: Image.file(
-            file,
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            cacheWidth: (size * 2).toInt().clamp(48, 144),
-            cacheHeight: (size * 2).toInt().clamp(48, 144),
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
-          ),
-        );
-      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.22),
+        child: Image.file(
+          File(themeState.customAppIcons[pkg]!),
+          width: size, height: size, fit: BoxFit.contain, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      );
     }
 
     if (themeState.cachedIconsPath != null) {
-      final iconFile = File('${themeState.cachedIconsPath}/$pkg.png');
-      if (iconFile.existsSync()) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(size * 0.22),
-          child: Image.file(
-            iconFile,
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            cacheWidth: (size * 2).toInt().clamp(48, 144),
-            cacheHeight: (size * 2).toInt().clamp(48, 144),
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: pkg, size: size),
-          ),
-        );
-      }
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.22),
+        child: Image.file(
+          File('${themeState.cachedIconsPath}/$pkg.png'),
+          width: size, height: size, fit: BoxFit.contain, gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      );
     }
 
-    return LazyAppIcon(packageName: pkg, size: size);
+    return fallback;
   }
 
   void _showAppExclusionDialog(BuildContext context, SystemState systemState, AppsState appsState, ThemeState themeState) {

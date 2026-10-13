@@ -113,7 +113,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   Timer? _calendarDelayTimer;
   Timer? _updateCheckTimer;
 
-  // Track listener registration specifically so we can detach cleanly
   VoidCallback? _notificationCountsUpdater;
 
   @override
@@ -123,6 +122,8 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.addObserver(this); 
     
     if (!kIsWeb) {
+      _quickSettings.value['Dark Theme'] = context.read<ThemeState>().isDarkMode;
+
       NativeBridge.instance.isDeviceLocked().then((isSystemLocked) {
         if (isSystemLocked && mounted) {
           setState(() => _isLocked = true);
@@ -253,6 +254,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     final prefs = await SharedPreferences.getInstance();
     final hasPromptedHome = prefs.getBool('hasPromptedForDefault') ?? false;
     final hasPromptedNotif = prefs.getBool('hasPromptedForNotifAccess') ?? false;
+    final hasPromptedBattery = prefs.getBool('hasPromptedForBattery') ?? false;
 
     if (!hasPromptedHome) {
       await prefs.setBool('hasPromptedForDefault', true);
@@ -294,6 +296,14 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
         }
       }
     }
+
+    if (!hasPromptedBattery) {
+      await prefs.setBool('hasPromptedForBattery', true);
+      await Future.delayed(const Duration(milliseconds: 1000));
+      if (mounted) {
+        await NativeBridge.instance.requestIgnoreBatteryOptimizations();
+      }
+    }
   }
 
   void _fetchActualHardwareState() async {
@@ -301,11 +311,18 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     if (mounted) {
       final updatedSettings = Map<String, bool>.from(_quickSettings.value);
       initialState.forEach((key, value) { 
+        if (key == 'Dark Theme') return;
+
         if (value is bool && !_recentlyToggledHardware.contains(key)) {
           updatedSettings[key] = value; 
         }
       });
-      if (initialState.containsKey('sys_brightness') && initialState['sys_brightness'] is double) _brightness.value = initialState['sys_brightness'];
+
+      updatedSettings['Dark Theme'] = context.read<ThemeState>().isDarkMode;
+
+      if (initialState.containsKey('sys_brightness') && initialState['sys_brightness'] is double) {
+        _brightness.value = initialState['sys_brightness'];
+      }
       
       _quickSettings.value = updatedSettings;
     }
@@ -387,13 +404,20 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
 
     _fetchActualHardwareState();
     
-    // Subscribe to background hardware events
     _hwSub = NativeBridge.instance.hardwareStateStream.listen((event) {
       if (!mounted) return;
       final data = Map<String, dynamic>.from(event);
       
       if (data['screen_off'] == true) {
         final systemState = context.read<SystemState>();
+
+        if (systemState.isPinSet) {
+          setState(() {
+            _closeOverlays();
+            _isLocked = true;
+          });
+        }
+
         NativeBridge.instance.isDeviceLocked().then((isSystemLocked) {
           if (isSystemLocked || systemState.isPinSet) {
             _lockDesktop();
@@ -411,11 +435,15 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       
       final updatedSettings = Map<String, bool>.from(_quickSettings.value);
       data.forEach((key, value) { 
-        // Only apply background state updates if we haven't actively toggled it within the last 4 seconds
+        if (key == 'Dark Theme') return;
+
         if (value is bool && !_recentlyToggledHardware.contains(key)) { 
           updatedSettings[key] = value; 
         } 
       });
+
+      updatedSettings['Dark Theme'] = context.read<ThemeState>().isDarkMode;
+
       if (data.containsKey('sys_brightness') && data['sys_brightness'] is double && !_isUserDraggingBrightness) {
         _brightness.value = data['sys_brightness'];
       }
@@ -575,7 +603,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     try {
       _refreshNotifications();
       
-      // Cleanly attach notification listener
       if (_notificationCountsUpdater != null) {
         _realNotifications.removeListener(_notificationCountsUpdater!);
       }
@@ -680,10 +707,12 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
   void _handleHardwareToggle(String key) async {
     final appsState = context.read<AppsState>();
     final themeState = context.read<ThemeState>();
-    bool currentVal = _quickSettings.value[key] ?? false;
+
+    bool currentVal = key == 'Dark Theme' 
+        ? themeState.isDarkMode 
+        : (_quickSettings.value[key] ?? false);
     bool newVal = !currentVal;
 
-    // Handle direct app launches (No state to toggle)
     if (key == 'Calculator') { appsState.openApp('calculator'); return; }
     if (key == 'Storage') { NativeBridge.instance.toggleHardware('Storage', true); return; }
     if (key == 'ChatGPT') { final success = await NativeBridge.instance.launchApp('com.openai.chatgpt'); if (!success) _showToast('ChatGPT app not installed'); return; }
@@ -746,17 +775,12 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       return;
     }
 
-    // Flashlight is tracked securely natively, so we just invoke the bridge and let it broadcast the new state
     if (key == 'Flash') {
       NativeBridge.instance.toggleHardware('Flash', newVal);
       _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
       return;
     } 
 
-    // CRITICAL FIX: Distinguish between Silent Toggles and Intent Toggles
-    // If an action opens a System UI Panel (like Wi-Fi on Android 10+, Hotspot, Airplane Mode),
-    // we MUST NOT optimistically update the tile color. We must wait for the OS 
-    // BroadcastReceiver to confirm the hardware actually changed state.
     final intentKeys = [
       'Data', 'Airplane mode', 'Hotspot', 'Location', 'Battery saver', 
       'Accessibility', 'Screen Cast', 'Eye Care', 'Users & Account', 'Wi-Fi', 'Bluetooth'
@@ -764,7 +788,6 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
     
     NativeBridge.instance.toggleHardware(key, newVal);
     
-    // Only instantaneously update tiles that do not require explicit user confirmation via System Intents
     if (!intentKeys.contains(key)) {
        _quickSettings.value = Map.from(_quickSettings.value)..[key] = newVal;
        
@@ -888,7 +911,40 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
       if (locked && mounted) {
         _lockDesktop();
       } else if (mounted) {
-        _showToast('Device Admin permission required to turn off screen');
+        final isDark = context.read<ThemeState>().isDarkMode;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: isDark ? const Color(0xFF2B2B2B) : Colors.white,
+            title: Text('Enable Screen Lock', style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 16, fontWeight: FontWeight.bold)),
+            content: Text(
+              'To lock the screen with a gesture, please enable the required system permission:\n\n'
+              '• Accessibility (Recommended): Preserves Fingerprint/Face unlock on Android 9+.\n'
+              '• Device Admin: Recommended for Android 8 and below.',
+              style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  NativeBridge.instance.openSettings('admin');
+                },
+                child: const Text('Device Admin', style: TextStyle(color: Colors.blueAccent)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  NativeBridge.instance.openSettings('accessibility');
+                },
+                child: const Text('Accessibility', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+        );
       }
     }
     else if (action == 'Launch Assistant') {
@@ -1138,51 +1194,61 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       ),
                     ),
   
-                    Offstage(
-                      offstage: _isLocked || _isBooting,
-                      child: DesktopWorkspace(
-                        taskbarHeight: currentTaskbarHeight, 
-                        safeAreaTop: safeAreaTop, 
-                        currentDesktopPage: _currentDesktopPage, 
-                        pageController: _pageController,
-                        onPageChanged: (i) => setState(() => _currentDesktopPage = i),
-                        resizingWidgetId: _resizingWidgetId, onExitResizeMode: () => setState(() => _resizingWidgetId = null),
-                        movingWidgetId: _movingWidgetId, onExitMoveMode: () => setState(() => _movingWidgetId = null),
-                        onCloseOverlays: _closeOverlays, 
-                        onDoubleTap: () => _handleGestureAction(context.read<DesktopState>().gestureDoubleTapAction), 
-                        explorerKey: _explorerKey, 
-                        onContextMenu: (pos, type, targetId, targetName, openAction) { 
-                          setState(() { 
-                            _closeOverlays(); 
-                            _isContextMenuOpen = true; 
-                            _contextMenuPos = pos; 
-                            _contextMenuType = type; 
-                            _contextTargetId = targetId;
-                            _contextTargetName = targetName; 
-                            _contextOpenAction = openAction; 
-                          }); 
-                        },
+                    AnimatedOpacity(
+                      opacity: (_isLocked || _isBooting) ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      child: IgnorePointer(
+                        ignoring: _isLocked || _isBooting,
+                        child: DesktopWorkspace(
+                          taskbarHeight: currentTaskbarHeight, 
+                          safeAreaTop: safeAreaTop, 
+                          currentDesktopPage: _currentDesktopPage, 
+                          pageController: _pageController,
+                          onPageChanged: (i) => setState(() => _currentDesktopPage = i),
+                          resizingWidgetId: _resizingWidgetId, onExitResizeMode: () => setState(() => _resizingWidgetId = null),
+                          movingWidgetId: _movingWidgetId, onExitMoveMode: () => setState(() => _movingWidgetId = null),
+                          onCloseOverlays: _closeOverlays, 
+                          onDoubleTap: () => _handleGestureAction(context.read<DesktopState>().gestureDoubleTapAction), 
+                          explorerKey: _explorerKey, 
+                          onContextMenu: (pos, type, targetId, targetName, openAction) { 
+                            setState(() { 
+                              _closeOverlays(); 
+                              _isContextMenuOpen = true; 
+                              _contextMenuPos = pos; 
+                              _contextMenuType = type; 
+                              _contextTargetId = targetId;
+                              _contextTargetName = targetName; 
+                              _contextOpenAction = openAction; 
+                            }); 
+                          },
+                        ),
                       ),
                     ),
 
-                    Offstage(
-                      offstage: _isLocked || _isBooting,
-                      child: WindowManager(
-                        taskbarHeight: currentTaskbarHeight,
-                        safeAreaBottom: safeAreaBottom,
-                        explorerKey: _explorerKey, 
-                        onCloseOverlays: _closeOverlays
+                    AnimatedOpacity(
+                      opacity: (_isLocked || _isBooting) ? 0.0 : 1.0,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      child: IgnorePointer(
+                        ignoring: _isLocked || _isBooting,
+                        child: WindowManager(
+                          taskbarHeight: currentTaskbarHeight,
+                          safeAreaBottom: safeAreaBottom,
+                          explorerKey: _explorerKey, 
+                          onCloseOverlays: _closeOverlays
+                        ),
                       ),
                     ),
 
                     AnimatedPositioned(
-                      duration: const Duration(milliseconds: 250),
+                      duration: const Duration(milliseconds: 120),
                       curve: Curves.easeOutCubic,
                       bottom: (_isStartMenuOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       left: startMenuLeft, 
                       width: startMenuWidth,
                       child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
+                        duration: const Duration(milliseconds: 80),
                         opacity: (_isStartMenuOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
                           ignoring: !(_isStartMenuOpen && !_isLocked && !_isBooting),
@@ -1204,13 +1270,13 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     ),
 
                     AnimatedPositioned(
-                      duration: const Duration(milliseconds: 250),
+                      duration: const Duration(milliseconds: 120),
                       curve: Curves.easeOutCubic,
                       bottom: (_isQuickSettingsOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       right: 3.0, 
                       width: 270.0,
                       child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
+                        duration: const Duration(milliseconds: 80),
                         opacity: (_isQuickSettingsOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
                           ignoring: !(_isQuickSettingsOpen && !_isLocked && !_isBooting),
@@ -1268,12 +1334,12 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                     ),
 
                     AnimatedPositioned(
-                      duration: const Duration(milliseconds: 250),
+                      duration: const Duration(milliseconds: 120),
                       curve: Curves.easeOutCubic,
                       bottom: (_isNotificationCenterOpen && !_isLocked && !_isBooting) ? overlayBottomTarget + 2 : -(maxOverlayHeight + 150),
                       right: 3.0,
                       child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 200),
+                        duration: const Duration(milliseconds: 80),
                         opacity: (_isNotificationCenterOpen && !_isLocked && !_isBooting) ? 1.0 : 0.0,
                         child: IgnorePointer(
                           ignoring: !(_isNotificationCenterOpen && !_isLocked && !_isBooting),
@@ -1303,7 +1369,7 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
 
                     if (_activeToasts.isNotEmpty && !_isLocked && !_isBooting)
                       AnimatedPositioned(
-                        duration: const Duration(milliseconds: 160),
+                        duration: const Duration(milliseconds: 140),
                         curve: const Cubic(0.05, 0.7, 0.1, 1.0),
                         bottom: overlayBottomTarget + 12, 
                         right: 4,
@@ -1329,29 +1395,34 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       left: 0, 
                       right: 0, 
                       height: currentTaskbarHeight,
-                      child: Offstage(
-                        offstage: _isLocked || _isBooting,
-                        child: _buildOverlayBlocker(
-                          child: AnimatedBuilder(
-                            animation: Listenable.merge([_batteryLevel, _isCharging, _unreadNotifications]),
-                            builder: (context, child) => Win11Taskbar(
-                              isStartMenuOpen: _isStartMenuOpen, 
-                              onStartToggled: () => _toggleOverlay('start'), 
-                              onQuickSettingsToggled: () => _toggleOverlay('quick'), 
-                              onNotificationCenterToggled: () => _toggleOverlay('notification'),
-                              onTaskViewToggled: () async {
-                                _closeOverlays();
-                                if (!ProGatekeeper.checkAccess(context, featureName: 'Recent Task View')) return;
-
-                                bool success = await NativeBridge.instance.toggleRecents();
-                                if (!success && mounted) {
-                                  _showAccessibilityPrompt('Recent Apps', 'Win11 PC Launcher needs Accessibility Service to safely open your recent apps menu without root access.');
-                                }
-                              }, 
-                              onOverlaysClosed: _closeOverlays, 
-                              batteryLevel: _batteryLevel.value, 
-                              batteryState: _isCharging.value ? BatteryState.charging : BatteryState.discharging, 
-                              unreadNotifications: _unreadNotifications.value,
+                      child: AnimatedOpacity(
+                        opacity: (_isLocked || _isBooting) ? 0.0 : 1.0,
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeOutCubic,
+                        child: IgnorePointer(
+                          ignoring: _isLocked || _isBooting,
+                          child: _buildOverlayBlocker(
+                            child: AnimatedBuilder(
+                              animation: Listenable.merge([_batteryLevel, _isCharging, _unreadNotifications]),
+                              builder: (context, child) => Win11Taskbar(
+                                isStartMenuOpen: _isStartMenuOpen, 
+                                onStartToggled: () => _toggleOverlay('start'), 
+                                onQuickSettingsToggled: () => _toggleOverlay('quick'), 
+                                onNotificationCenterToggled: () => _toggleOverlay('notification'),
+                                onTaskViewToggled: () async {
+                                  _closeOverlays();
+                                  if (!ProGatekeeper.checkAccess(context, featureName: 'Recent Task View')) return;
+  
+                                  bool success = await NativeBridge.instance.toggleRecents();
+                                  if (!success && mounted) {
+                                    _showAccessibilityPrompt('Recent Apps', 'Win11 PC Launcher needs Accessibility Service to safely open your recent apps menu without root access.');
+                                  }
+                                }, 
+                                onOverlaysClosed: _closeOverlays, 
+                                batteryLevel: _batteryLevel.value, 
+                                batteryState: _isCharging.value ? BatteryState.charging : BatteryState.discharging, 
+                                unreadNotifications: _unreadNotifications.value,
+                              ),
                             ),
                           ),
                         ),
@@ -1388,18 +1459,25 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                       ),
                     ),
 
-                    if (_isLocked && !_isBooting)
-                      Positioned.fill(
-                        child: RepaintBoundary(
-                          child: LockScreen(
-                            onUnlocked: () {
-                              setState(() {
-                                _isLocked = false;
-                              });
-                            },
-                          ),
-                        ),
+                    Positioned.fill(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        switchOutCurve: Curves.easeOutCubic,
+                        transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+                        child: (_isLocked && !_isBooting)
+                            ? RepaintBoundary(
+                                key: const ValueKey('lock_screen'),
+                                child: LockScreen(
+                                  onUnlocked: () {
+                                    setState(() {
+                                      _isLocked = false;
+                                    });
+                                  },
+                                ),
+                              )
+                            : const SizedBox.shrink(key: ValueKey('unlocked')),
                       ),
+                    ),
                       
                     if (_isBooting)
                       Positioned.fill(

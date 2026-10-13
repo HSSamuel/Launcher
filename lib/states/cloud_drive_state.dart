@@ -17,7 +17,6 @@ class CloudDriveState extends ChangeNotifier {
   String activeProvider = '';
   String? driveErrorMessage;
 
-  // Google Drive uses a stack array to track breadcrumbs by unique folder IDs
   List<Map<String, String>> gDrivePathStack = [];
 
   String get currentFolderId => gDrivePathStack.isNotEmpty ? gDrivePathStack.last['id']! : 'root';
@@ -35,7 +34,6 @@ class CloudDriveState extends ChangeNotifier {
     }).catchError((_) {});
   }
 
-  /// Connects to Google Drive. Returns null on success, or a descriptive error message on failure.
   Future<String?> connectGoogleDrive() async {
     try {
       isLoading = true;
@@ -49,7 +47,6 @@ class CloudDriveState extends ChangeNotifier {
         return "Sign-in was cancelled.";
       }
 
-      // Verify and request scopes explicitly if required by the device
       try {
         final hasScope = await _googleSignIn.canAccessScopes([drive.DriveApi.driveScope]);
         if (!hasScope) {
@@ -76,21 +73,27 @@ class CloudDriveState extends ChangeNotifier {
       notifyListeners();
 
       await openDrive('gdrive', folderId: 'root');
-      return null; // Success
+      return null;
     } catch (e, stack) {
       debugPrint("Google Auth Error: $e\n$stack");
       isLoading = false;
       notifyListeners();
 
-      final err = e.toString();
-      if (err.contains('10') || err.contains('DEVELOPER_ERROR')) {
+      final err = e.toString().toLowerCase();
+      
+      if (err.contains('network_error') || err.contains('socketexception') || err.contains('failed host lookup')) {
+        return "Network error: Please check your internet connection and try again.";
+      } else if (err.contains('10') || err.contains('developer_error')) {
         return "Developer Error (10): Ensure your SHA-1 key and package name (com.samuel.winlauncher) are added to Google Cloud Console.";
       } else if (err.contains('12500')) {
         return "OAuth Error (12500): Check that OAuth consent screen is configured and support email is set in Google Cloud.";
-      } else if (err.contains('access_denied') || err.contains('Access denied')) {
+      } else if (err.contains('access_denied')) {
         return "Access denied: If your Google Cloud project is in 'Testing' mode, add your email as a Test User.";
+      } else if (err.contains('sign_in_canceled') || err.contains('canceled')) {
+        return "Sign-in was cancelled.";
       }
-      return "Google Sign-in failed: ${err.replaceFirst('PlatformException(', '').replaceAll(')', '')}";
+      
+      return "Google Sign-in failed. Please ensure you have an active internet connection.";
     }
   }
 
@@ -119,7 +122,7 @@ class CloudDriveState extends ChangeNotifier {
 
     if (provider == 'gdrive') {
       if (folderId == null || folderId == 'root' || folderId.isEmpty) {
-        gDrivePathStack = []; // Reset to root
+        gDrivePathStack = []; 
       } else {
         if (isBack) {
           int idx = gDrivePathStack.indexWhere((e) => e['id'] == folderId);
@@ -213,9 +216,7 @@ class CloudDriveState extends ChangeNotifier {
         final saveFile = File('${tempDir.path}/$sanitizedName');
 
         final sink = saveFile.openWrite();
-        await media.stream.forEach((List<int> chunk) {
-          sink.add(chunk);
-        });
+        await sink.addStream(media.stream);
         await sink.flush();
         await sink.close();
 

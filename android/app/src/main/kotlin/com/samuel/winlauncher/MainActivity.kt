@@ -15,7 +15,6 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
-import io.flutter.embedding.android.FlutterActivityLaunchConfigs.BackgroundMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
@@ -48,10 +47,6 @@ class MainActivity: FlutterFragmentActivity() {
 
     private val activityScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    override fun getBackgroundMode(): BackgroundMode {
-        return BackgroundMode.transparent
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -66,17 +61,6 @@ class MainActivity: FlutterFragmentActivity() {
             val params = window.attributes
             params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             window.attributes = params
-        }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-            )
         }
         
         widgetEngine.onCreate()
@@ -330,45 +314,49 @@ class MainActivity: FlutterFragmentActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
-                "optimizeSystem" -> {
-                    activityScope.launch {
-                        try {
-                            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-                            val pm = packageManager
-                            
-                            val memInfoBefore = android.app.ActivityManager.MemoryInfo()
-                            am.getMemoryInfo(memInfoBefore)
-                            val availBefore = memInfoBefore.availMem
-                            
-                            val mainIntent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
-                            val apps = pm.queryIntentActivities(mainIntent, 0)
-                            
-                            var signaledApps = 0
-                            for (resolveInfo in apps) {
-                                val pkg = resolveInfo.activityInfo.packageName
-                                if (pkg != packageName) {
-                                    am.killBackgroundProcesses(pkg)
-                                    signaledApps++
-                                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = android.net.Uri.parse("package:$packageName")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
-                            
-                            System.gc()
-                            Runtime.getRuntime().gc()
-                            
-                            kotlinx.coroutines.delay(800)
-                            
-                            val memInfoAfter = android.app.ActivityManager.MemoryInfo()
-                            am.getMemoryInfo(memInfoAfter)
-                            val availAfter = memInfoAfter.availMem
-                            
-                            val freedMb = ((availAfter - availBefore) / (1024 * 1024)).coerceAtLeast(0)
-                            
-                            result.safeSuccess(this@MainActivity, mapOf("signaled" to signaledApps, "freedMb" to freedMb.toInt()))
-                        } catch (e: Exception) {
-                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+                            startActivity(intent)
+                            result.safeSuccess(this@MainActivity, true)
+                        } else {
+                            result.safeSuccess(this@MainActivity, false)
                         }
+                    } else {
+                        result.safeSuccess(this@MainActivity, false)
                     }
                 }
+                
+                "optimizeSystem" -> {
+    activityScope.launch {
+        try {
+            var freedBytes = 0L
+            
+            // CRITICAL FIX: Use cacheDir directly since we are inside MainActivity
+            cacheDir.listFiles()?.forEach { file ->
+                if (file.name.startsWith("icons_") || file.name == "notif_icons") {
+                    val size = if (file.isDirectory) file.walkTopDown().sumOf { it.length() } else file.length()
+                    freedBytes += size
+                    file.deleteRecursively()
+                }
+            }
+            
+            System.gc()
+            Runtime.getRuntime().gc()
+            
+            val freedMb = (freedBytes / (1024 * 1024)).toInt().coerceAtLeast(0)
+            // "signaled" kept at 0 to avoid breaking Dart contract
+            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to freedMb))
+        } catch (e: Exception) {
+            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+        }
+    }
+}
 
                 "setNativeWallpaper" -> {
                     val path = call.argument<String>("path")
@@ -378,7 +366,9 @@ class MainActivity: FlutterFragmentActivity() {
                                 val wallpaperManager = android.app.WallpaperManager.getInstance(applicationContext)
                                 val file = File(path)
                                 if (file.exists()) {
-                                    wallpaperManager.setStream(file.inputStream())
+                                    file.inputStream().use { stream ->
+                                        wallpaperManager.setStream(stream)
+                                    }
                                 }
                             }
                             result.safeSuccess(this@MainActivity, true)

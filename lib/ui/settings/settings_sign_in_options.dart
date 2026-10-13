@@ -131,7 +131,7 @@ class _SignInOptionsScreenState extends State<SignInOptionsScreen> {
                           await systemState.setNewPin(input);
                           
                           if (ctx.mounted) Navigator.pop(ctx);
-                          if (!mounted) return; // CRITICAL FIX
+                          if (!mounted) return;
                           _checkPinStatus();
                         } else {
                           setDialogState(() {
