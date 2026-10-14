@@ -14,7 +14,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   List<DesktopItemModel> desktopItems = [];
 
   String taskbarAlignment = 'left';
-  String taskbarColorStyle = 'default'; // Moved to global state
+  String taskbarColorStyle = 'default';
   bool showRecentlyAdded = true;
   bool showMostUsed = true;
   bool showRecommended = true;
@@ -78,6 +78,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   bool showTaskbarSystemMonitor = false;
 
   bool keepOverlaysAliveNextPause = false;
+  bool isRecycleBinFull = false;
 
   Timer? _saveDebouncer;
 
@@ -135,6 +136,36 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.top]);
     } else {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+  }
+
+  Future<void> checkRecycleBinStatus() async {
+    String rootPath = '/storage/emulated/0';
+    try {
+      final extDir = await getExternalStorageDirectory();
+      if (extDir != null) rootPath = extDir.path.split('/Android')[0];
+    } catch (_) {}
+    
+    final binDir = Directory('$rootPath/.Win11RecycleBin');
+    bool hasFiles = false;
+    
+    // Check existence asynchronously
+    if (await binDir.exists()) {
+      try {
+        // Use async 'list()' instead of 'listSync()' to prevent frame drops
+        await for (var entity in binDir.list(followLinks: false)) {
+          final name = entity.path.split('/').last;
+          if (name != '.nomedia' && name != '.recycle_index.json') {
+            hasFiles = true;
+            break; // Stop searching as soon as we find one valid deleted file
+          }
+        }
+      } catch (_) {}
+    }
+    
+    if (isRecycleBinFull != hasFiles) {
+      isRecycleBinFull = hasFiles;
+      notifyListeners();
     }
   }
 
@@ -687,7 +718,6 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
   
-  // NEW: Set the taskbar color style globally
   Future<void> setTaskbarColorStyle(String style) async {
     taskbarColorStyle = style;
     final prefs = await SharedPreferences.getInstance();
@@ -709,7 +739,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _loadState() async {
     final prefs = await SharedPreferences.getInstance();
     taskbarAlignment = prefs.getString('taskbarAlignment') ?? 'left';
-    taskbarColorStyle = prefs.getString('taskbarColorStyle') ?? 'default'; // Load the globally tracked theme
+    taskbarColorStyle = prefs.getString('taskbarColorStyle') ?? 'default'; 
     showRecentlyAdded = prefs.getBool('showRecentlyAdded') ?? true;
     showMostUsed = prefs.getBool('showMostUsed') ?? true;
     showRecommended = prefs.getBool('showRecommended') ?? true;
@@ -794,6 +824,7 @@ class DesktopState extends ChangeNotifier with WidgetsBindingObserver {
     
     applySystemUI();
     applyOrientationLock();
+    checkRecycleBinStatus();
     notifyListeners();
   }
 }

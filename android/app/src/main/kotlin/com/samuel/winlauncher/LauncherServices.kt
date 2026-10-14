@@ -1,5 +1,6 @@
 package com.samuel.winlauncher
 
+import android.accessibilityservice.AccessibilityService
 import android.app.Notification
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
@@ -18,6 +19,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import android.util.LruCache
+import android.view.accessibility.AccessibilityEvent
 import io.flutter.plugin.common.EventChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +36,7 @@ class LauncherNotificationService : NotificationListenerService() {
     companion object {
         private const val TAG = "Win11NotifService"
         
+        // Memory Fix: Cache to prevent persistent SSD disk I/O queries and large ARGB allocations on high-frequency metadata drops
         private val artworkCache = LruCache<String, String>(20)
         
         @Volatile
@@ -241,7 +244,7 @@ class LauncherNotificationService : NotificationListenerService() {
             try {
                 extractNotificationData(sbn)?.let { data ->
                     Handler(Looper.getMainLooper()).post {
-                        try { eventSink?.success(data) } catch (e: Exception) {}
+                        eventSink?.success(data)
                     }
                 }
             } catch (e: Exception) {
@@ -290,9 +293,38 @@ class LauncherNotificationService : NotificationListenerService() {
             }
             
             Handler(Looper.getMainLooper()).post {
-                try { eventSink?.success(mapOf("key" to sbn.key, "removed" to true)) } catch (e: Exception) {}
+                eventSink?.success(mapOf("key" to sbn.key, "removed" to true))
             }
         }
+    }
+}
+
+class LauncherAccessibilityService : AccessibilityService() {
+    companion object {
+        var instance: LauncherAccessibilityService? = null
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) {
+            instance = null
+        }
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        if (instance == this) {
+            instance = null
+        }
+        return super.onUnbind(intent)
     }
 }
 

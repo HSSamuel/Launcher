@@ -121,64 +121,66 @@ class HardwareManager(private val activity: Activity) {
         cachedApps = null
     }
 
-    fun registerUsbChannel(messenger: BinaryMessenger) {
-        try {
-            EventChannel(messenger, "win_launcher/usb_events").setStreamHandler(
-                object : EventChannel.StreamHandler {
-                    private var usbReceiver: BroadcastReceiver? = null
-                    
-                    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                        usbReceiver = object : BroadcastReceiver() {
-                            override fun onReceive(context: Context, intent: Intent) {
-                                when (intent.action) {
-                                    UsbManager.ACTION_USB_DEVICE_ATTACHED,
-                                    "com.samuel.winlauncher.USB_ATTACHED_LOCAL" -> {
-                                        val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                                                ?: intent.getParcelableExtra("device", UsbDevice::class.java)
-                                        } else {
-                                            @Suppress("DEPRECATION")
-                                            intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
-                                                ?: intent.getParcelableExtra<UsbDevice>("device")
-                                        }
-                                                  
-                                        val isMassStorage = device?.deviceClass == 8 || (0 until (device?.interfaceCount ?: 0)).any { idx ->
-                                            device?.getInterface(idx)?.interfaceClass == 8
-                                        }
+    // In HardwareManager.kt -> registerUsbChannel
+fun registerUsbChannel(messenger: BinaryMessenger) {
+    try {
+        EventChannel(messenger, "win_launcher/usb_events").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                private var storageReceiver: BroadcastReceiver? = null
 
-                                        if (isMassStorage) {
-                                            try {
-                                                events?.success(mapOf(
-                                                    "type" to "USB_ATTACHED",
-                                                    "deviceName" to (device?.productName ?: "USB Drive")
-                                                ))
-                                            } catch (e: Exception) {}
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    storageReceiver = object : BroadcastReceiver() {
+                        override fun onReceive(context: Context, intent: Intent) {
+                            when (intent.action) {
+                                Intent.ACTION_MEDIA_MOUNTED -> {
+                                    val mountUri = intent.data
+                                    val mountPath = mountUri?.path ?: ""
+                                    
+                                    // Query volume label
+                                    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+                                    var label = "USB Drive"
+                                    
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && sm != null) {
+                                        val volume = sm.storageVolumes.firstOrNull { it.isRemovable && it.state == Environment.MEDIA_MOUNTED }
+                                        if (volume != null) {
+                                            label = volume.getDescription(context)
                                         }
                                     }
-                                    UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                                        try { events?.success(mapOf("type" to "USB_DETACHED")) } catch (e: Exception) {}
-                                    }
+
+                                    events?.success(mapOf(
+                                        "type" to "USB_ATTACHED",
+                                        "deviceName" to label,
+                                        "path" to mountPath
+                                    ))
+                                }
+                                Intent.ACTION_MEDIA_UNMOUNTED,
+                                Intent.ACTION_MEDIA_REMOVED,
+                                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                                    events?.success(mapOf("type" to "USB_DETACHED"))
                                 }
                             }
                         }
-                        val filter = IntentFilter().apply {
-                            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
-                            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
-                            addAction("com.samuel.winlauncher.USB_ATTACHED_LOCAL")
-                        }
-                        activity.registerSystemReceiver(usbReceiver, filter, exported = false)
                     }
 
-                    override fun onCancel(arguments: Any?) {
-                        usbReceiver?.let { activity.unregisterReceiver(it) }
-                        usbReceiver = null
+                    val filter = IntentFilter().apply {
+                        addAction(Intent.ACTION_MEDIA_MOUNTED)
+                        addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+                        addAction(Intent.ACTION_MEDIA_REMOVED)
+                        addDataScheme("file")
                     }
+                    activity.registerSystemReceiver(storageReceiver, filter, exported = true)
                 }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize USB event channel", e)
-        }
+
+                override fun onCancel(arguments: Any?) {
+                    storageReceiver?.let { activity.unregisterReceiver(it) }
+                    storageReceiver = null
+                }
+            }
+        )
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to initialize USB event channel", e)
     }
+}
 
     fun getSystemPerformanceStats(result: MethodChannel.Result) {
         scope.launch {
@@ -324,11 +326,15 @@ class HardwareManager(private val activity: Activity) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val subId = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
                 if (subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                    
+                    // 1. Direct Registry Check (Most reliable on Transsion/Tecno dual-SIM)
                     val state = Settings.Global.getInt(activity.contentResolver, "mobile_data$subId", -1)
                     if (state != -1) {
                         isDataOn = (state == 1)
                         resolved = true
                     }
+                    
+                    // 2. TelephonyManager Fallback
                     if (!resolved && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             val tm = activity.getSystemService(Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
@@ -339,6 +345,7 @@ class HardwareManager(private val activity: Activity) {
                 }
             }
 
+            // 3. Global Fallback for older devices (Only used if Dual-SIM logic failed)
             if (!resolved) {
                 isDataOn = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
             }
@@ -665,7 +672,7 @@ class HardwareManager(private val activity: Activity) {
                     useNewTask = false
                     Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                         putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, ComponentName(activity, LauncherAdminReceiver::class.java))
-                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to securely turn off the screen via gesture.")
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to lock functionality.")
                     }
                 }
                 else -> Intent(Settings.ACTION_SETTINGS)
@@ -690,6 +697,19 @@ class HardwareManager(private val activity: Activity) {
 
     fun lockScreen(result: MethodChannel.Result) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val service = LauncherAccessibilityService.instance
+                if (service != null) {
+                    val success = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                    if (success) {
+                        result.safeSuccess(activity, true)
+                        return
+                    }
+                }
+                result.safeSuccess(activity, false)
+                return
+            }
+
             val dpm = activity.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val adminComponent = ComponentName(activity, LauncherAdminReceiver::class.java)
             if (dpm.isAdminActive(adminComponent)) {
@@ -699,7 +719,7 @@ class HardwareManager(private val activity: Activity) {
                 try {
                     val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                         putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to securely turn off the screen via gesture.")
+                        putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to enable double tap to lock functionality.")
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     activity.startActivity(intent)

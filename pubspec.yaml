@@ -2,7 +2,7 @@ name: win11_pc_launcher
 description: A customization launcher inspired by desktop interfaces.
 publish_to: 'none'
 
-version: 1.5.0+4
+version: 2.0.0+1
 
 environment:
   sdk: '^3.0.0'

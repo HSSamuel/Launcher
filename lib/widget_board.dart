@@ -194,7 +194,7 @@ class _WidgetBoardState extends State<WidgetBoard> {
       if (pos == null || (pos.timestamp != null && now.difference(pos.timestamp!).inHours > 1)) {
         pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 6),
+          timeLimit: const Duration(seconds: 15),
         );
       }
       

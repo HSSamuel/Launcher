@@ -786,24 +786,15 @@ class _AppSearchOverlayState extends State<AppSearchOverlay> {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
       bool storageGranted = false;
 
-      // Android 13+ (API 33+)
-      if (androidInfo.version.sdkInt >= 33) {
-        final photos = await Permission.photos.status;
-        final videos = await Permission.videos.status;
-        
-        if (!photos.isGranted || !videos.isGranted) {
-           await [Permission.photos, Permission.videos, Permission.audio].request();
-        }
-        
-        final checkPhotos = await Permission.photos.status;
-        storageGranted = checkPhotos.isGranted;
-      } 
-      // Android 10-12
-      else {
-        var status = await Permission.storage.status;
+      if (androidInfo.version.sdkInt >= 30) {
+        // Restore MANAGE_EXTERNAL_STORAGE to allow File Explorer indexing for documents
+        var status = await Permission.manageExternalStorage.status;
         if (!status.isGranted) {
-          status = await Permission.storage.request();
+          status = await Permission.manageExternalStorage.request();
         }
+        storageGranted = status.isGranted;
+      } else {
+        final status = await Permission.storage.request();
         storageGranted = status.isGranted;
       }
 

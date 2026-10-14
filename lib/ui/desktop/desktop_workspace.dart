@@ -35,11 +35,12 @@ class FastScrollPhysics extends PageScrollPhysics {
     return FastScrollPhysics(parent: buildParent(ancestor));
   }
 
+  // ULTRA-FAST PHYSICS: Extremely low mass, hyper-stiffness, and overdamped to snap instantly with zero bounce.
   @override
   SpringDescription get spring => const SpringDescription(
-        mass: 0.18,
-        stiffness: 900.0,
-        damping: 24.0,
+        mass: 0.05,
+        stiffness: 2500.0,
+        damping: 25.0,
       );
 }
 
@@ -374,7 +375,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
     );
   }
 
-  Widget _getDesktopIconWidget(DesktopItemModel item, AppsState appsState, ThemeState themeState, double iconScale) {
+  Widget _getDesktopIconWidget(DesktopItemModel item, AppsState appsState, ThemeState themeState, DesktopState desktopState, double iconScale) {
     Widget? iconChild;
     bool isSystem = item.type == 'system';
     bool leaveUncircled = false;
@@ -396,7 +397,10 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
       if (item.id == 'browser') { asset = 'edge'; leaveUncircled = true; }
       else if (item.id == 'calculator') { asset = 'calculator'; leaveUncircled = true; }
       else if (item.id == 'settings') { asset = 'settings'; leaveUncircled = true; }
-      else if (item.id == 'recycle_bin') { asset = 'recycle'; leaveUncircled = true; }
+      else if (item.id == 'recycle_bin') { 
+        asset = desktopState.isRecycleBinFull ? 'recycle_full' : 'recycle'; 
+        leaveUncircled = true; 
+      }
       else if (item.id == 'this_pc' || item.id == 'my_files') { asset = 'folder'; leaveUncircled = true; }
       iconChild = Image.asset('assets/icons/$asset.png', fit: BoxFit.contain);
     } else if (item.type == 'app' && item.package != null) {
@@ -538,7 +542,8 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
         final pointerX = localPos.dx + (itemWidth / 2);
 
         final now = DateTime.now();
-        if (now.difference(_lastPageTurn).inMilliseconds > 500) {
+        // Sped up from 500ms to 350ms to allow ultra-fast edge swiping
+        if (now.difference(_lastPageTurn).inMilliseconds > 350) {
           if (pointerX > screenWidth - 20) {
             if (pageIndex == desktopState.desktopPages - 1) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -546,10 +551,10 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
               });
             }
             _lastPageTurn = now;
-            widget.pageController.nextPage(duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+            widget.pageController.nextPage(duration: const Duration(milliseconds: 100), curve: Curves.easeOutQuart);
           } else if (pointerX < 20 && pageIndex > 0) {
             _lastPageTurn = now;
-            widget.pageController.previousPage(duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
+            widget.pageController.previousPage(duration: const Duration(milliseconds: 100), curve: Curves.easeOutQuart);
           }
         }
         return true;
@@ -683,7 +688,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
               } else {
                 content = DesktopIcon(
                   itemData: item,
-                  customIcon: _getDesktopIconWidget(item, appsState, themeState, desktopState.desktopIconScale),
+                  customIcon: _getDesktopIconWidget(item, appsState, themeState, desktopState, desktopState.desktopIconScale),
                   label: item.label,
                   cellWidth: cellWidth,
                   onTap: () async {
@@ -1210,11 +1215,16 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
           : 'System is running optimally. Memory cache flushed.';
           
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(message),
+        content: Text(message, textAlign: TextAlign.center),
         backgroundColor: totalFreedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         duration: const Duration(seconds: 3),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
       ));
     }
   }
@@ -1227,15 +1237,17 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
           child: FittedBox(
             fit: BoxFit.contain,
             child: SizedBox(
-              width: 220.0,
-              height: 240.0, 
+              // Increased overall bounds
+              width: 240.0,
+              height: 260.0, 
               child: Stack(
                 clipBehavior: Clip.none, 
                 alignment: Alignment.topCenter,
                 children: [
                   Container(
-                    width: 220.0,
-                    height: 220.0,
+                    // Increased circle diameter
+                    width: 240.0,
+                    height: 240.0,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: widget.isDark ? const Color(0xFF1E1E1E).withOpacity(0.92) : Colors.white.withOpacity(0.92),
@@ -1252,7 +1264,8 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                   Positioned(
                     top: 0.0, 
                     child: CustomPaint(
-                      size: const Size(220.0, 220.0),
+                      // Matched custom paint to new diameter
+                      size: const Size(240.0, 240.0),
                       painter: _CircularGpuGaugePainter(
                         percent: _ramPercent / 100.0,
                         strokeWidth: 10.0,
@@ -1261,14 +1274,14 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                     ),
                   ),
                   Positioned(
-                    top: 40.0, 
+                    top: 45.0, 
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         Text(
                           'GPU Optimization',
                           style: TextStyle(
-                            fontSize: 16.0,
+                            fontSize: 18.0, // Increased from 16.0
                             fontWeight: FontWeight.bold,
                             color: widget.textColor,
                           ),
@@ -1277,29 +1290,29 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                         Text(
                           '${_ramPercent.toInt()}%',
                           style: TextStyle(
-                            fontSize: 52.0,
+                            fontSize: 60.0, // Increased from 52.0
                             fontWeight: FontWeight.w900,
                             color: widget.textColor,
                             height: 1.05,
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Temp', style: TextStyle(fontSize: 13.0, color: widget.subColor)),
-                                Text('${_tempValue.toInt()}°C', style: TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                                Text('Temp', style: TextStyle(fontSize: 15.0, color: widget.subColor)), // Increased from 13.0
+                                Text('${_tempValue.toInt()}°C', style: TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold, color: widget.textColor)), // Increased from 16.0
                               ],
                             ),
                             const SizedBox(width: 24),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Fan', style: TextStyle(fontSize: 13.0, color: widget.subColor)),
-                                Text('${_fanRpm.toInt()} RPM', style: TextStyle(fontSize: 16.0, fontWeight: FontWeight.bold, color: widget.textColor)),
+                                Text('Fan', style: TextStyle(fontSize: 15.0, color: widget.subColor)), // Increased from 13.0
+                                Text('${_fanRpm.toInt()} RPM', style: TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold, color: widget.textColor)), // Increased from 16.0
                               ],
                             ),
                           ],
@@ -1310,15 +1323,15 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                   Positioned(
                     bottom: 0, 
                     child: SizedBox(
-                      width: 130.0,
-                      height: 40.0,
+                      width: 140.0, // Increased to fit larger text
+                      height: 44.0,
                       child: ElevatedButton(
                         onPressed: _isOptimizing ? null : _runOptimization,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF4285F4), 
                           foregroundColor: Colors.white,
                           padding: EdgeInsets.zero,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.0)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22.0)),
                           elevation: 6,
                           shadowColor: const Color(0xFF4285F4).withOpacity(0.5),
                         ),
@@ -1327,9 +1340,9 @@ class _LiveSystemMonitorWidgetState extends State<_LiveSystemMonitorWidget> {
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.rocket_launch, size: 16.0),
+                                  const Icon(Icons.rocket_launch, size: 18.0),
                                   const SizedBox(width: 8),
-                                  const Text('Optimize', style: TextStyle(fontSize: 14.0, fontWeight: FontWeight.w700)),
+                                  const Text('Optimize', style: TextStyle(fontSize: 16.0, fontWeight: FontWeight.w700)), // Increased from 14.0
                                 ],
                               ),
                       ),

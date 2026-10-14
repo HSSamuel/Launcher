@@ -16,6 +16,25 @@ import '../../services/native_bridge.dart';
 import '../../services/lazy_app_icon.dart';
 import 'ui/shared/acrylic_container.dart';
 
+class UltraFastScrollPhysics extends BouncingScrollPhysics {
+  const UltraFastScrollPhysics({ScrollPhysics? parent}) : super(parent: parent);
+
+  @override
+  UltraFastScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return UltraFastScrollPhysics(parent: buildParent(ancestor));
+  }
+
+  @override
+  double frictionFactor(double overscrollFraction) => 0.015;
+
+  @override
+  SpringDescription get spring => const SpringDescription(
+        mass: 0.08,
+        stiffness: 450.0,
+        damping: 18.0,
+      );
+}
+
 Map<String, List<String>> _processCalendarEventsIsolate(List<Map<String, dynamic>> rawEvents) {
   final Map<String, List<String>> grouped = {};
   for (var item in rawEvents) {
@@ -1160,7 +1179,7 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
               border: Border.all(color: borderCol, width: 1),
               child: CustomScrollView(
                 shrinkWrap: true,
-                physics: const BouncingScrollPhysics(),
+                physics: const UltraFastScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
                     child: _buildNotificationHeader(isDark, primaryText, borderCol, cardBg, totalVisibleCount, groupedNotifications.keys.toList(), allEventKeys),
@@ -1178,9 +1197,14 @@ class _NotificationCenterPanelState extends State<NotificationCenterPanel> with 
                         (context, index) {
                           final pkg = groupedNotifications.keys.elementAt(index);
                           final events = groupedNotifications[pkg]!;
-                          return _buildGroupedNotificationSection(pkg, events, isDark, primaryText, secText, borderCol, cardBg, themeState, appsState);
+                          return RepaintBoundary(
+                            key: ValueKey('group_$pkg'),
+                            child: _buildGroupedNotificationSection(pkg, events, isDark, primaryText, secText, borderCol, cardBg, themeState, appsState),
+                          );
                         },
                         childCount: groupedNotifications.keys.length,
+                        addRepaintBoundaries: true,
+                        addAutomaticKeepAlives: true,
                       ),
                     ),
                   const SliverToBoxAdapter(child: SizedBox(height: 8)),

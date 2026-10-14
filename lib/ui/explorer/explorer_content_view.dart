@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/file_item.dart';
 import '../../states/apps_state.dart';
@@ -163,7 +163,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
       color: Colors.transparent,
       child: InkWell(
         onTap: () {
-          if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+          if (context.read<DesktopState>().mouseSound) {
+            NativeBridge.instance.playSound('mouse');
+          }
           widget.onNavigate(path);
         },
         borderRadius: BorderRadius.circular(4),
@@ -234,7 +236,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: () {
-                      if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+                      if (context.read<DesktopState>().mouseSound) {
+                        NativeBridge.instance.playSound('delete');
+                      }
                       widget.onNavigate(path);
                     },
                     child: SizedBox(
@@ -287,7 +291,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
-                  if (context.read<DesktopState>().mouseSound) SystemSound.play(SystemSoundType.click);
+                  if (context.read<DesktopState>().mouseSound) {
+                    NativeBridge.instance.playSound('delete');
+                  }
                   widget.onNavigate(widget.rootPath);
                 },
                 child: SizedBox(
@@ -322,7 +328,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
 
   void _handleItemTap(FileItem item, bool isSelected) {
     final desktopState = context.read<DesktopState>();
-    if (desktopState.mouseSound) SystemSound.play(SystemSoundType.click);
+    if (desktopState.mouseSound) {
+      NativeBridge.instance.playSound('delete');
+    }
     
     if (widget.isMultiSelectMode) {
       if (desktopState.gestureHapticFeedback) {
@@ -415,35 +423,19 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.security, size: 54, color: widget.isDark ? Colors.white24 : Colors.black26),
+            Icon(Icons.folder_off_outlined, size: 48, color: widget.isDark ? Colors.white24 : Colors.black26),
             const SizedBox(height: 16),
-            Text(
-              "Protected by Android Scoped Storage", 
-              style: TextStyle(
-                color: widget.isDark ? Colors.white : Colors.black87, 
-                fontSize: 14, 
-                fontWeight: FontWeight.bold
-              )
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Non-media documents (PDFs, DOCX, ZIPs)\nare secured by the OS and cannot be previewed here.", 
-              textAlign: TextAlign.center,
-              style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54, height: 1.4, fontSize: 12)
-            ),
-            const SizedBox(height: 20),
+            Text("Folder is empty or files are hidden by Android.", style: TextStyle(color: widget.isDark ? Colors.white54 : Colors.black54)),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blueAccent, 
                 foregroundColor: Colors.white, 
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))
+                elevation: 0
               ),
-              // Launches the unrestricted native Android File Picker
               onPressed: () => NativeBridge.instance.openSystemDocumentPicker(),
               icon: const Icon(Icons.folder_open, size: 18),
-              label: const Text("Open in System Explorer", style: TextStyle(fontWeight: FontWeight.w600)),
+              label: const Text("Browse System Files"),
             )
           ],
         )

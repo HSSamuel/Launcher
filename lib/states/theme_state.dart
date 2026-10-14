@@ -48,7 +48,7 @@ class ThemeState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   double get activePanelOpacity {
-    if (!transparencyEffects) return isDarkMode ? 0.96 : 0.98;
+    if (!transparencyEffects) return 1.0;
     return isLegacyDevice ? (isDarkMode ? 0.88 : 0.92) : (isDarkMode ? 0.70 : 0.85);
   }
 

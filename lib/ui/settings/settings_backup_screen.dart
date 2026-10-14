@@ -49,14 +49,22 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
   void _showToast(String message, {bool isError = false}) {
     if (!mounted) return;
+    
+    final screenHeight = MediaQuery.of(context).size.height;
+    
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontSize: 13, color: Colors.white)),
+        content: Text(message, style: const TextStyle(fontSize: 13, color: Colors.white), textAlign: TextAlign.center),
         backgroundColor: isError ? Colors.redAccent : Colors.green.shade600,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
       ),
     );
   }
@@ -65,8 +73,13 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
     setState(() => _isProcessing = true);
     try {
       final zipBytes = await BackupService.instance.generateBackupArchive();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final fileName = 'Win11Launcher_Backup_$timestamp.zip';
+      
+      // NEW: Format date as DD-MM-YYYY
+      final now = DateTime.now();
+      final day = now.day.toString().padLeft(2, '0');
+      final month = now.month.toString().padLeft(2, '0');
+      final year = now.year.toString();
+      final fileName = 'Win11Launcher_Backup_$day-$month-$year.zip';
 
       final tempDir = await getTemporaryDirectory();
       final tempFile = File('${tempDir.path}/$fileName');

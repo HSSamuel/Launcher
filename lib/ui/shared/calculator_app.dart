@@ -72,16 +72,25 @@ class _CalculatorAppState extends State<CalculatorApp> {
   }
 
   void _showToast(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      )
-    );
-  }
+  if (!mounted) return;
+  
+  final screenHeight = MediaQuery.of(context).size.height;
+  
+  ScaffoldMessenger.of(context).clearSnackBars();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
+      duration: const Duration(seconds: 2), 
+      behavior: SnackBarBehavior.floating, 
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      margin: EdgeInsets.only(
+        bottom: screenHeight / 2 - 24,
+        left: 32,
+        right: 32,
+      ),
+    )
+  );
+}
 
   Future<void> _loadCachedRates() async {
     final prefs = await SharedPreferences.getInstance();

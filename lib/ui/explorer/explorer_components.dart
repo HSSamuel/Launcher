@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../states/desktop_state.dart';
 import '../../states/theme_state.dart';
 import '../../states/apps_state.dart';
+import '../../states/cloud_drive_state.dart';
+import '../../services/native_bridge.dart';
 import '../shared/acrylic_container.dart';
 
 class ExplorerTitleBar extends StatelessWidget {
@@ -276,7 +280,6 @@ class ExplorerAddressBar extends StatelessWidget {
   final Function(String) onNavigate;
   final List<Map<String, dynamic>> disks;
   
-  // FIX: Cloud Drive Parameters correctly fully included
   final bool isViewingCloud;
   final List<Map<String, String>> cloudPathStack;
   final String cloudProvider;
@@ -292,19 +295,26 @@ class ExplorerAddressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeState = context.watch<ThemeState>();
+    final desktopState = context.read<DesktopState>();
     final accent = themeState.currentAccentColor;
     final btnStyle = IconButton.styleFrom(padding: const EdgeInsets.all(2), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap);
     final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
     final inputBg = isDark ? const Color(0xFF2D2D2D) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
     
+    void playNavSound() {
+      if (desktopState.mouseSound) {
+        NativeBridge.instance.playSound('mouse');
+      }
+    }
+
     List<Widget> breadcrumbs = [];
 
     if (isViewingCloud) {
       breadcrumbs.add(Container(width: 12, height: 10, color: accent));
       breadcrumbs.add(const SizedBox(width: 4));
       breadcrumbs.add(InkWell(
-        onTap: () => onCloudNavigate?.call('root', 'Google Drive', true),
+        onTap: () { playNavSound(); onCloudNavigate?.call('root', 'Google Drive', true); },
         child: Text(cloudProvider == 'gdrive' ? 'GOOGLE DRIVE' : cloudProvider.toUpperCase(), style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
       ));
       
@@ -313,14 +323,14 @@ class ExplorerAddressBar extends StatelessWidget {
         breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
         breadcrumbs.add(const SizedBox(width: 2));
         breadcrumbs.add(InkWell(
-          onTap: () => onCloudNavigate?.call(folder['id']!, folder['name']!, true), 
+          onTap: () { playNavSound(); onCloudNavigate?.call(folder['id']!, folder['name']!, true); }, 
           child: Text(folder['name']!, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
         ));
       }
     } else {
       breadcrumbs.add(Container(width: 12, height: 10, color: accent));
       breadcrumbs.add(const SizedBox(width: 4));
-      breadcrumbs.add(InkWell(onTap: onGoHome, child: Text('This PC', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+      breadcrumbs.add(InkWell(onTap: () { playNavSound(); onGoHome(); }, child: Text('This PC', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
       breadcrumbs.add(const SizedBox(width: 2));
       breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
 
@@ -328,7 +338,7 @@ class ExplorerAddressBar extends StatelessWidget {
         if (currentPath.contains('.Win11RecycleBin')) {
           breadcrumbs.add(const SizedBox(width: 2));
           breadcrumbs.add(InkWell(
-            onTap: () => onNavigate(currentPath), 
+            onTap: () { playNavSound(); onNavigate(currentPath); }, 
             child: Text('Recycle Bin', style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))
           ));
           breadcrumbs.add(const SizedBox(width: 2));
@@ -348,7 +358,7 @@ class ExplorerAddressBar extends StatelessWidget {
           final diskLabel = activeDisk != null ? (activeDisk['label'] as String) : 'Local Disk (C:)';
 
           breadcrumbs.add(const SizedBox(width: 2));
-          breadcrumbs.add(InkWell(onTap: () => onNavigate(basePath), child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+          breadcrumbs.add(InkWell(onTap: () { playNavSound(); onNavigate(basePath); }, child: Text(diskLabel, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
           breadcrumbs.add(const SizedBox(width: 2));
           breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
 
@@ -360,7 +370,7 @@ class ExplorerAddressBar extends StatelessWidget {
             cumulativePath += '/$folder';
             final targetPath = cumulativePath;
             breadcrumbs.add(const SizedBox(width: 2));
-            breadcrumbs.add(InkWell(onTap: () => onNavigate(targetPath), child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
+            breadcrumbs.add(InkWell(onTap: () { playNavSound(); onNavigate(targetPath); }, child: Text(folder, style: TextStyle(fontSize: 11, color: textColor, fontWeight: FontWeight.w600))));
             breadcrumbs.add(const SizedBox(width: 2));
             breadcrumbs.add(Icon(Icons.chevron_right, size: 14, color: textColor));
           }
@@ -373,7 +383,7 @@ class ExplorerAddressBar extends StatelessWidget {
       decoration: BoxDecoration(border: Border(bottom: BorderSide(color: isDark ? Colors.white12 : Colors.grey.shade200))),
       child: Row(
         children: [
-          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: pathHistory.isEmpty && !isViewingCloud ? null : onGoBack, style: btnStyle), const SizedBox(width: 2),
+          IconButton(icon: Icon(Icons.arrow_back, size: 18, color: textColor), onPressed: pathHistory.isEmpty && !isViewingCloud ? null : () { playNavSound(); onGoBack(); }, style: btnStyle), const SizedBox(width: 2),
           IconButton(icon: Icon(Icons.arrow_forward, size: 18, color: isDark ? Colors.white30 : Colors.black38), onPressed: null, style: btnStyle), const SizedBox(width: 4),
           Expanded(
             flex: 7,
@@ -433,7 +443,6 @@ class ExplorerSidebar extends StatefulWidget {
   final Function(String) onNavigate;
   final List<Map<String, dynamic>> disks;
   
-  // FIX: Cloud Drive Parameters correctly fully included
   final bool isViewingCloud;
   final VoidCallback? onGoogleDriveTap;
 
@@ -452,6 +461,12 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
   bool _isQuickAccessExpanded = true;
   bool _isThisPCExpanded = true;
 
+  void _playNavSound() {
+    if (context.read<DesktopState>().mouseSound) {
+      NativeBridge.instance.playSound('delete');
+    }
+  }
+
   bool _isSelected(String? category, String path) {
     if (widget.isViewingCloud) return false;
     if (widget.isAtHome && category == null && path == 'home') return true;
@@ -468,7 +483,11 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
     return Material(
       color: isSelected ? selectedBg : Colors.transparent,
       child: InkWell(
-        onTap: onTap ?? onToggle,
+        onTap: () {
+          _playNavSound();
+          if (onTap != null) onTap();
+          else onToggle();
+        },
         child: Stack(
           children: [
             Row(
@@ -506,7 +525,11 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
     return Material(
       color: isSelected ? selectedBg : Colors.transparent,
       child: InkWell(
-        onTap: onTap, hoverColor: hoverColor,
+        onTap: () {
+          _playNavSound();
+          if (onTap != null) onTap();
+        }, 
+        hoverColor: hoverColor,
         child: Stack(
           children: [
             Padding(
@@ -536,7 +559,10 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap, 
+        onTap: () {
+          _playNavSound();
+          if (onTap != null) onTap();
+        }, 
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6), 
           child: Row(children: [const SizedBox(width: 16), Icon(icon, color: color, size: 16), const SizedBox(width: 8), Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: textColor), overflow: TextOverflow.ellipsis))])
@@ -545,30 +571,113 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
     );
   }
 
-  Widget _buildCloudSidebarItem(String label, IconData icon, Color color, bool isSelected, VoidCallback? onTap) {
+  Widget _buildCloudSidebarItem({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback? onTap,
+  }) {
+    final cloudState = context.watch<CloudDriveState>();
+    final isConnected = cloudState.isGoogleDriveConnected;
     final textColor = widget.isDark ? Colors.white70 : Colors.grey.shade700;
     final selectedBg = widget.isDark ? Colors.white12 : Colors.blue.withOpacity(0.12);
+
     return Material(
       color: isSelected ? selectedBg : Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          _playNavSound();
+          if (onTap != null) onTap();
+        },
         child: Stack(
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Row(
                 children: [
-                  const SizedBox(width: 16), 
-                  Icon(icon, color: color, size: 16), 
-                  const SizedBox(width: 8), 
-                  Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: textColor, fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal), overflow: TextOverflow.ellipsis))
-                ]
-              )
+                  const SizedBox(width: 16),
+                  Icon(icon, color: color, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: textColor,
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (isConnected && cloudState.currentUserEmail != null)
+                          Text(
+                            cloudState.currentUserEmail!,
+                            style: const TextStyle(fontSize: 9.5, color: Colors.blueAccent),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (isConnected)
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert, size: 14, color: textColor),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      color: widget.isDark ? const Color(0xFF2B2B2B) : Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                      onSelected: (val) async {
+                        if (val == 'switch') {
+                          await cloudState.switchGoogleAccount();
+                        } else if (val == 'disconnect') {
+                          await cloudState.disconnectDrive('gdrive');
+                          widget.onGoHome();
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        const PopupMenuItem(
+                          value: 'switch',
+                          height: 32,
+                          child: Row(
+                            children: [
+                              Icon(Icons.switch_account, size: 16, color: Colors.blueAccent),
+                              SizedBox(width: 8),
+                              Text('Switch Account', style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'disconnect',
+                          height: 32,
+                          child: Row(
+                            children: [
+                              Icon(Icons.logout, size: 16, color: Colors.redAccent),
+                              SizedBox(width: 8),
+                              Text('Sign Out', style: TextStyle(fontSize: 12, color: Colors.redAccent)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
             if (isSelected)
-              Positioned(left: 0, top: 4, bottom: 4, child: Container(width: 3, decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(3)))),
+              Positioned(
+                left: 0,
+                top: 4,
+                bottom: 4,
+                child: Container(
+                  width: 3,
+                  decoration: BoxDecoration(color: Colors.blueAccent, borderRadius: BorderRadius.circular(3)),
+                ),
+              ),
           ],
-        )
+        ),
       ),
     );
   }
@@ -620,7 +729,10 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
                       return Material(
                         color: isSelected ? (widget.isDark ? Colors.white12 : Colors.blue.withOpacity(0.12)) : Colors.transparent, 
                         child: InkWell(
-                          onTap: () => widget.onNavigate(path), 
+                          onTap: () {
+                            _playNavSound();
+                            widget.onNavigate(path);
+                          }, 
                           child: Stack(
                             children: [
                               Padding(
@@ -668,7 +780,10 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
                       return Material(
                         color: isSelected ? (widget.isDark ? Colors.white12 : Colors.blue.withOpacity(0.12)) : Colors.transparent, 
                         child: InkWell(
-                          onTap: () => widget.onNavigate(widget.rootPath), 
+                          onTap: () {
+                            _playNavSound();
+                            widget.onNavigate(widget.rootPath);
+                          }, 
                           child: Stack(
                             children: [
                               Padding(
@@ -701,7 +816,14 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
             padding: EdgeInsets.only(top: 16, bottom: 4, left: 16),
             child: Align(alignment: Alignment.centerLeft, child: Text('Network Drives', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey))),
           ),
-          _buildCloudSidebarItem('Google Drive', Icons.add_to_drive, Colors.green, widget.isViewingCloud, widget.onGoogleDriveTap),
+          _buildCloudSidebarItem(
+            context: context,
+            label: 'Google Drive',
+            icon: Icons.add_to_drive,
+            color: Colors.green,
+            isSelected: widget.isViewingCloud,
+            onTap: widget.onGoogleDriveTap,
+          ),
         ],
       ),
     );

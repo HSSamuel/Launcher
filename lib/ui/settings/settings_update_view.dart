@@ -58,14 +58,22 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
       } else {
          if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Launcher is up to date!'), behavior: SnackBarBehavior.floating),
+            SnackBar(
+              content: const Text('Launcher is up to date!', textAlign: TextAlign.center), 
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+            ),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not reach Google Play. Check your connection.'), behavior: SnackBarBehavior.floating),
+          SnackBar(
+            content: const Text('Could not reach Google Play. Check your connection.', textAlign: TextAlign.center), 
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+          ),
         );
       }
     } finally {

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:installed_apps/app_info.dart';
 
 import '../../states/system_state.dart';
@@ -571,8 +572,15 @@ class _AboutScreenState extends State<AboutScreen> {
           TextButton(
             onPressed: () async {
               Navigator.pop(ctx);
+              
+              // Clear standard preferences
               final prefs = await SharedPreferences.getInstance();
               await prefs.clear();
+              
+              // CRITICAL FIX: Changed 'const' to 'final'
+              final storage = FlutterSecureStorage();
+              await storage.deleteAll();
+              
               if (mounted) SystemNavigator.pop();
             }, 
             child: const Text('Reset', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))

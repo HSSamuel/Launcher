@@ -51,6 +51,7 @@ class SoundManager(private val context: Context) {
             soundIds["startup"] = loadSound(loader.getLookupKeyForAsset("assets/sounds/startup.mp3"))
             soundIds["recycle"] = loadSound(loader.getLookupKeyForAsset("assets/sounds/recycle.mp3"))
             soundIds["error"]   = loadSound(loader.getLookupKeyForAsset("assets/sounds/error.mp3"))
+            soundIds["mouse"]  = loadSound(loader.getLookupKeyForAsset("assets/sounds/mouse.mp3"))
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load sound assets. Ensure assets/sounds/ directory exists.", e)
         }

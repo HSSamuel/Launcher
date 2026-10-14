@@ -21,6 +21,11 @@ class CloudDriveState extends ChangeNotifier {
 
   String get currentFolderId => gDrivePathStack.isNotEmpty ? gDrivePathStack.last['id']! : 'root';
 
+  // Expose active account details
+  String? get currentUserEmail => _googleSignIn.currentUser?.email;
+  String? get currentUserName => _googleSignIn.currentUser?.displayName;
+  String? get currentUserPhotoUrl => _googleSignIn.currentUser?.photoUrl;
+
   CloudDriveState() {
     _googleSignIn.onCurrentUserChanged.listen((GoogleSignInAccount? account) {
       isGoogleDriveConnected = account != null;
@@ -80,7 +85,6 @@ class CloudDriveState extends ChangeNotifier {
       notifyListeners();
 
       final err = e.toString().toLowerCase();
-      
       if (err.contains('network_error') || err.contains('socketexception') || err.contains('failed host lookup')) {
         return "Network error: Please check your internet connection and try again.";
       } else if (err.contains('10') || err.contains('developer_error')) {
@@ -92,9 +96,14 @@ class CloudDriveState extends ChangeNotifier {
       } else if (err.contains('sign_in_canceled') || err.contains('canceled')) {
         return "Sign-in was cancelled.";
       }
-      
       return "Google Sign-in failed. Please ensure you have an active internet connection.";
     }
+  }
+
+  // Revoke token and clear session so Android displays the account picker
+  Future<String?> switchGoogleAccount() async {
+    await disconnectDrive('gdrive');
+    return await connectGoogleDrive();
   }
 
   Future<void> disconnectDrive(String provider) async {

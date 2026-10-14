@@ -86,22 +86,26 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
     await Future.delayed(const Duration(milliseconds: 600)); 
     
     if (mounted) {
-      setState(() => _isOptimizing = false);
-      ScaffoldMessenger.of(context).clearSnackBars();
+  setState(() => _isOptimizing = false);
+  ScaffoldMessenger.of(context).clearSnackBars();
+  
+  String message = totalFreedMb > 0 
+      ? 'Optimization complete. Recovered $totalFreedMb MB of memory.'
+      : 'System is running optimally. Memory cache flushed.';
       
-      String message = totalFreedMb > 0 
-          ? 'Optimization complete. Recovered $totalFreedMb MB of memory.'
-          : 'System is running optimally. Memory cache flushed.';
-          
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(message),
-        backgroundColor: totalFreedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        duration: const Duration(seconds: 3),
-      ));
-    }
-  }
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(message, textAlign: TextAlign.center),
+    backgroundColor: totalFreedMb > 0 ? Colors.green.shade700 : Colors.blueGrey.shade700,
+    behavior: SnackBarBehavior.floating,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    duration: const Duration(seconds: 3),
+    margin: EdgeInsets.only(
+      bottom: MediaQuery.of(context).size.height / 2 - 24,
+      left: 32,
+      right: 32,
+    ),
+  ));
+}
 
   @override
   Widget build(BuildContext context) {
@@ -121,16 +125,17 @@ class _HardwareMonitorWidgetState extends State<HardwareMonitorWidget> {
         },
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final double diameter = 220.0; 
+            // 1. Increased base diameter from 220.0 to 240.0
+            final double diameter = 240.0; 
             
-            // Scaled up typography constraints
-            final double titleFontSize = (diameter * 0.075).clamp(12.0, 20.0);
-            final double percentFontSize = (diameter * 0.22).clamp(24.0, 56.0);
-            final double metricLabelFontSize = (diameter * 0.06).clamp(11.0, 16.0);
-            final double metricValueFontSize = (diameter * 0.08).clamp(14.0, 22.0);
-            final double buttonHeight = (diameter * 0.15).clamp(26.0, 40.0);
-            final double buttonWidth = (diameter * 0.52).clamp(80.0, 130.0);
-            final double buttonFontSize = (diameter * 0.058).clamp(10.0, 14.0);
+            // 2. Scaled up all typography multipliers and max constraints
+            final double titleFontSize = (diameter * 0.085).clamp(14.0, 22.0);
+            final double percentFontSize = (diameter * 0.25).clamp(28.0, 64.0);
+            final double metricLabelFontSize = (diameter * 0.07).clamp(13.0, 18.0);
+            final double metricValueFontSize = (diameter * 0.09).clamp(16.0, 24.0);
+            final double buttonHeight = (diameter * 0.16).clamp(30.0, 44.0);
+            final double buttonWidth = (diameter * 0.55).clamp(100.0, 140.0);
+            final double buttonFontSize = (diameter * 0.065).clamp(12.0, 16.0);
             final double arcStrokeWidth = (diameter * 0.05).clamp(5.0, 12.0);
 
             return SizedBox(

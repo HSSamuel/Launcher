@@ -786,108 +786,110 @@ class _BrowserAppState extends State<BrowserApp> with SingleTickerProviderStateM
         _buildTabBar(isDark),
         _buildOmniboxToolbar(activeTab, isDark),
         Expanded(
-          child: activeTab.hasError
-              ? _buildErrorScreen(activeTab)
-              : InAppWebView(
-                  key: ValueKey(activeTab.id),
-                  gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                    Factory<VerticalDragGestureRecognizer>(() => VerticalDragGestureRecognizer()),
-                    Factory<HorizontalDragGestureRecognizer>(() => HorizontalDragGestureRecognizer()),
-                    Factory<ScaleGestureRecognizer>(() => ScaleGestureRecognizer()),
-                    Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
-                    Factory<LongPressGestureRecognizer>(() => LongPressGestureRecognizer()),
-                  },
-                  
-                  initialUrlRequest: URLRequest(url: WebUri(activeTab.url)),
-                  initialSettings: InAppWebViewSettings(
-                    useShouldOverrideUrlLoading: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                    allowsInlineMediaPlayback: true,
-                    supportZoom: true,
-                    builtInZoomControls: true,
-                    displayZoomControls: false,
-                    incognito: activeTab.isIncognito,
-                    userAgent: activeTab.isDesktopMode ? _desktopUserAgent : "",
+          child: IndexedStack(
+            index: _activeTabIndex,
+            children: _tabs.map((tab) {
+              if (tab.hasError) return _buildErrorScreen(tab);
+              
+              return InAppWebView(
+                key: ValueKey(tab.id),
+                gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                  Factory<OneSequenceGestureRecognizer>(
+                    () => EagerGestureRecognizer(),
                   ),
-                  onWebViewCreated: (controller) {
-                    activeTab.controller = controller;
-                  },
-                  onLoadStart: (controller, url) {
-                    if (!mounted) return;
-                    setState(() {
-                      activeTab.isLoading = true;
-                      activeTab.hasError = false;
-                      activeTab.progress = 0.05;
-                      activeTab.url = url.toString();
-                    });
-                    if (!activeTab.url.startsWith('data:') && activeTab.url.isNotEmpty) {
-                      activeTab.urlController.text = activeTab.url;
+                },
+                initialUrlRequest: URLRequest(url: WebUri(tab.url)),
+                initialSettings: InAppWebViewSettings(
+                  useShouldOverrideUrlLoading: true,
+                  mediaPlaybackRequiresUserGesture: false,
+                  allowsInlineMediaPlayback: true,
+                  supportZoom: true,
+                  builtInZoomControls: true,
+                  displayZoomControls: false,
+                  incognito: tab.isIncognito,
+                  userAgent: tab.isDesktopMode ? _desktopUserAgent : "",
+                ),
+                onWebViewCreated: (controller) {
+                  tab.controller = controller;
+                },
+                onLoadStart: (controller, url) {
+                  if (!mounted) return;
+                  setState(() {
+                    tab.isLoading = true;
+                    tab.hasError = false;
+                    tab.progress = 0.05;
+                    tab.url = url.toString();
+                  });
+                  if (!tab.url.startsWith('data:') && tab.url.isNotEmpty) {
+                    tab.urlController.text = tab.url;
+                  }
+                  _updateNavigationButtons(tab);
+                },
+                onProgressChanged: (controller, progress) {
+                  if (!mounted) return;
+                  setState(() { tab.progress = progress / 100.0; });
+                },
+                onLoadStop: (controller, url) async {
+                  if (!mounted) return;
+                  final title = await controller.getTitle();
+                  
+                  setState(() {
+                    tab.isLoading = false;
+                    tab.progress = 1.0;
+                    tab.url = url.toString();
+                    if (title != null && title.trim().isNotEmpty) {
+                      tab.title = title.trim();
                     }
-                    _updateNavigationButtons(activeTab);
-                  },
-                  onProgressChanged: (controller, progress) {
-                    if (!mounted) return;
-                    setState(() { activeTab.progress = progress / 100.0; });
-                  },
-                  onLoadStop: (controller, url) async {
-                    if (!mounted) return;
-                    final title = await controller.getTitle();
-                    
-                    setState(() {
-                      activeTab.isLoading = false;
-                      activeTab.progress = 1.0;
-                      activeTab.url = url.toString();
-                      if (title != null && title.trim().isNotEmpty) {
-                        activeTab.title = title.trim();
-                      }
-                    });
-                    _updateNavigationButtons(activeTab);
+                  });
+                  _updateNavigationButtons(tab);
 
-                    if (!activeTab.url.startsWith('data:') && activeTab.url != 'about:blank') {
-                      _addToHistory(activeTab, activeTab.url, title ?? activeTab.url);
+                  if (!tab.url.startsWith('data:') && tab.url != 'about:blank') {
+                    _addToHistory(tab, tab.url, title ?? tab.url);
+                  }
+                },
+                onReceivedError: (controller, request, error) {
+                  if (request.isForMainFrame ?? false) {
+                    if (error.description.contains('ERR_ABORTED') || error.description.contains('net::ERR_CACHE_MISS')) return;
+                    if (mounted) {
+                      setState(() {
+                        tab.isLoading = false;
+                        tab.hasError = true;
+                        tab.errorMessage = error.description;
+                      });
                     }
-                  },
-                  onReceivedError: (controller, request, error) {
-                    if (request.isForMainFrame ?? false) {
-                      if (error.description.contains('ERR_ABORTED') || error.description.contains('net::ERR_CACHE_MISS')) return;
-                      if (mounted) {
-                        setState(() {
-                          activeTab.isLoading = false;
-                          activeTab.hasError = true;
-                          activeTab.errorMessage = error.description;
-                        });
-                      }
-                    }
-                  },
-                  shouldOverrideUrlLoading: (controller, navigationAction) async {
-                    final url = navigationAction.request.url.toString();
-                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                      final now = DateTime.now();
-                      if (activeTab.lastIntentLaunch != null && now.difference(activeTab.lastIntentLaunch!).inSeconds < 2) {
-                        return NavigationActionPolicy.CANCEL;
-                      }
-                      activeTab.lastIntentLaunch = now;
-                      
-                      if (url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('market:')) {
-                         bool success = await NativeBridge.instance.launchApp(url); 
-                         if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No application found to handle this link.')));
-                      } else {
-                         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unsafe or unsupported link blocked for security.')));
-                      }
+                  }
+                },
+                shouldOverrideUrlLoading: (controller, navigationAction) async {
+                  final url = navigationAction.request.url.toString();
+                  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    final now = DateTime.now();
+                    if (tab.lastIntentLaunch != null && now.difference(tab.lastIntentLaunch!).inSeconds < 2) {
                       return NavigationActionPolicy.CANCEL;
                     }
-                    return NavigationActionPolicy.ALLOW;
-                  },
-                  onDownloadStartRequest: (controller, downloadRequest) {
-                    _downloadMedia(downloadRequest.url.toString(), suggestedName: downloadRequest.suggestedFilename);
-                  },
-                  onEnterFullscreen: (controller) {
-                    final appsState = context.read<AppsState>();
-                    if (!appsState.maximizedApps.contains('browser')) {
-                      appsState.toggleMaximizeApp('browser');
+                    tab.lastIntentLaunch = now;
+                    
+                    if (url.startsWith('mailto:') || url.startsWith('tel:') || url.startsWith('market:')) {
+                       bool success = await NativeBridge.instance.launchApp(url); 
+                       if (!success && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No application found to handle this link.')));
+                    } else {
+                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unsafe or unsupported link blocked for security.')));
                     }
-                  },
-                ),
+                    return NavigationActionPolicy.CANCEL;
+                  }
+                  return NavigationActionPolicy.ALLOW;
+                },
+                onDownloadStartRequest: (controller, downloadRequest) {
+                  _downloadMedia(downloadRequest.url.toString(), suggestedName: downloadRequest.suggestedFilename);
+                },
+                onEnterFullscreen: (controller) {
+                  final appsState = context.read<AppsState>();
+                  if (!appsState.maximizedApps.contains('browser')) {
+                    appsState.toggleMaximizeApp('browser');
+                  }
+                },
+              );
+            }).toList(),
+          ),
         ),
       ],
     );

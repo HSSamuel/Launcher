@@ -92,6 +92,9 @@ class MediaManager(private val activity: Activity) {
                         
                         while (cursor.moveToNext()) {
                             val filePath = cursor.getString(dataCol) ?: continue
+                            // CRITICAL FIX: Ensure the MediaStore ghost file actually exists on physical disk
+                            if (!File(filePath).exists()) continue
+
                             val fileName = cursor.getString(nameCol) ?: File(filePath).name
                             
                             if (fileName == ".nomedia" || fileName == ".recycle_index.json") continue
@@ -156,8 +159,12 @@ class MediaManager(private val activity: Activity) {
                     val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                     var count = 0
                     while (cursor.moveToNext() && count < limit) { 
-                        results["Audio"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(dataCol)))
-                        count++ 
+                        val path = cursor.getString(dataCol)
+                        // CRITICAL FIX: Eliminate ghost files from global search results
+                        if (path != null && File(path).exists()) {
+                            results["Audio"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to path))
+                            count++ 
+                        }
                     }
                 }
 
@@ -166,8 +173,11 @@ class MediaManager(private val activity: Activity) {
                     val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                     var count = 0
                     while (cursor.moveToNext() && count < limit) { 
-                        results["Images"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(dataCol)))
-                        count++ 
+                        val path = cursor.getString(dataCol)
+                        if (path != null && File(path).exists()) {
+                            results["Images"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to path))
+                            count++ 
+                        }
                     }
                 }
 
@@ -176,8 +186,11 @@ class MediaManager(private val activity: Activity) {
                     val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                     var count = 0
                     while (cursor.moveToNext() && count < limit) { 
-                        results["Video"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(dataCol)))
-                        count++ 
+                        val path = cursor.getString(dataCol)
+                        if (path != null && File(path).exists()) {
+                            results["Video"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to path))
+                            count++ 
+                        }
                     }
                 }
 
@@ -196,8 +209,11 @@ class MediaManager(private val activity: Activity) {
                     val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
                     var count = 0
                     while (cursor.moveToNext() && count < limit) { 
-                        results["Documents"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to cursor.getString(dataCol)))
-                        count++ 
+                        val path = cursor.getString(dataCol)
+                        if (path != null && File(path).exists()) {
+                            results["Documents"]?.add(mapOf("name" to cursor.getString(nameCol), "path" to path))
+                            count++ 
+                        }
                     }
                 }
 
@@ -424,26 +440,22 @@ class MediaManager(private val activity: Activity) {
         }
         val file = File(path)
 
-        // 1. App-specific files (Recycle Bin): Delete directly using standard java.io
         if (path.contains(activity.packageName)) {
             result.safeSuccess(activity, file.deleteRecursively())
             return
         }
 
-        // 2. Android 11+: If All Files Access is granted, delete directly (bypasses popups)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             val deleted = file.deleteRecursively()
             result.safeSuccess(activity, deleted)
             return
         }
 
-        // 3. Android 10 and below: Direct delete works if standard storage permission is held
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             result.safeSuccess(activity, file.deleteRecursively())
             return
         }
 
-        // 4. Fallback for Android 11+ without All Files Access (only works for media)
         try {
             val (uri, isMedia) = getUriAndTypeFromPath(path)
             

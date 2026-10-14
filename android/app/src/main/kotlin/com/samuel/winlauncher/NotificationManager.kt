@@ -155,15 +155,20 @@ class NotificationManager(private val activity: Activity) {
 
     fun expandNotificationPanel(result: MethodChannel.Result) {
         try {
-            @Suppress("WrongConstant")
-            val statusBarService = activity.getSystemService("statusbar")
-            val statusBarManager = Class.forName("android.app.StatusBarManager")
-            val expandMethod = statusBarManager.getMethod("expandNotificationsPanel")
-            expandMethod.invoke(statusBarService)
-            result.success(true)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to expand notifications via reflection", e)
-            result.success(false)
+            val service = LauncherAccessibilityService.instance
+            if (service != null) {
+                val success = service.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                if (success) {
+                    result.success(null)
+                } else {
+                    result.error("EXPAND_PANEL_FAILED", "Accessibility Service could not execute the action.", null)
+                }
+            } else {
+                result.error("ACCESSIBILITY_REQUIRED", "Accessibility Service is not running or enabled.", null)
+            }
+        } catch (e: Exception) { 
+            Log.e(TAG, "Error expanding notification panel", e)
+            result.error("EXPAND_PANEL_FAILED", e.message, null)
         }
     }
 }

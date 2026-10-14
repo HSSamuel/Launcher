@@ -78,13 +78,21 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
   void _showToastSafe(String message) {
     final safeContext = navigatorKey.currentContext;
     if (safeContext == null) return;
+    
+    final screenHeight = MediaQuery.of(safeContext).size.height;
+    
     ScaffoldMessenger.of(safeContext).clearSnackBars();
     ScaffoldMessenger.of(safeContext).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontSize: 13)),
+        content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24, 
+          left: 48,
+          right: 48,
+        ),
       ),
     );
   }
@@ -416,7 +424,6 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     );
   }
 
-  // Tighter padding, thinner fonts, and smaller icons for a crisp desktop feel
   Widget _buildContextMenuItem(String title, IconData? icon, ThemeState themeState, {Color? iconColor, String? shortcut, bool hasSubMenu = false, String? subMenuKey, double subMenuY = 0, VoidCallback? onTap}) {
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
@@ -433,15 +440,14 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), // Reduced padding
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), 
         child: Row(
           children: [
-            if (icon != null) Icon(icon, size: 15, color: iconColor ?? defaultIconColor), // Reduced icon
+            if (icon != null) Icon(icon, size: 15, color: iconColor ?? defaultIconColor), 
             if (icon != null) const SizedBox(width: 10),
             Expanded(
               child: Text(
                 title, 
-                // Removed letterSpacing, dropped weight to w400, reduced size
                 style: TextStyle(fontSize: 12.5, color: textColor, fontWeight: FontWeight.w400)
               )
             ),
@@ -464,7 +470,7 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       },
       hoverColor: isDark ? Colors.white10 : Colors.black.withOpacity(0.05),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), // Reduced padding
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5), 
         child: Row(
           children: [
             if (icon != null || isActive || isDot || isChecked) ...[
@@ -622,10 +628,25 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     } else if (item.type == 'system') {
       menuItems.addAll([
         _buildContextMenuItem('Open', Icons.folder, themeState, iconColor: Colors.amber.shade400, onTap: widget.openAction),
-        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, themeState, onTap: () {
-  NativeBridge.instance.playSound('recycle');
-  _showToastSafe('Recycle Bin emptied');
-}),
+        if (item.id == 'recycle_bin') _buildContextMenuItem('Empty Recycle Bin', Icons.delete_outline, themeState, onTap: () async {
+          NativeBridge.instance.playSound('recycle');
+          
+          String rootPath = '/storage/emulated/0';
+          try {
+            final extDir = await getExternalStorageDirectory();
+            if (extDir != null) rootPath = extDir.path.split('/Android')[0];
+          } catch (_) {}
+          
+          final binDir = Directory('$rootPath/.Win11RecycleBin');
+          if (binDir.existsSync()) {
+            for (var entity in binDir.listSync()) {
+              try { entity.deleteSync(recursive: true); } catch (_) {}
+            }
+          }
+          
+          desktopState.checkRecycleBinStatus();
+          _showToastSafe('Recycle Bin emptied');
+        }),
       ]);
     } else if (item.type == 'widget' || item.type == 'native_widget') {
       menuItems.addAll([
@@ -650,7 +671,10 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
 
     menuItems.addAll([
       _buildContextDivider(themeState),
+      // NEW: Added the ProGatekeeper check to 'Move to next page'
       _buildContextMenuItem('Move to next page', Icons.arrow_forward, themeState, onTap: () {
+        if (!ProGatekeeper.checkAccess(context, featureName: 'Multiple Workspaces')) return;
+
         int newPage = item.page + 1;
         if (newPage >= desktopState.desktopPages) {
           desktopState.addDesktopPage();
@@ -663,6 +687,9 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
       }),
       if (item.page > 0)
         _buildContextMenuItem('Move to previous page', Icons.arrow_back, themeState, onTap: () {
+          // If you wish to mirror the pro-gate strictly to the backwards movement too:
+          if (!ProGatekeeper.checkAccess(context, featureName: 'Multiple Workspaces')) return;
+          
           desktopState.moveItemToPage(item.id, item.page - 1);
           widget.pageController.animateToPage(item.page - 1, duration: const Duration(milliseconds: 10), curve: Curves.easeOut);
           _showToastSafe('Moved to previous page');
@@ -753,7 +780,10 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     final appsState = context.watch<AppsState>();
     
     final isDark = themeState.isDarkMode;
-    final bgColor = isDark ? const Color(0xFF2B2B2B).withOpacity(0.95) : const Color(0xFFF3F3F3).withOpacity(0.95);
+
+    // FIX: Dynamically strip the 0.95 opacity if transparency is disabled
+    final double menuOpacity = themeState.transparencyEffects ? 0.95 : 1.0;
+    final bgColor = isDark ? const Color(0xFF2B2B2B).withOpacity(menuOpacity) : const Color(0xFFF3F3F3).withOpacity(menuOpacity);
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
 
     double menuWidth = 200; 
@@ -761,7 +791,6 @@ class _DesktopContextMenuState extends State<DesktopContextMenu> {
     double dy = widget.position.dy;
     final screenSize = MediaQuery.of(context).size;
 
-    // Dynamic height calculation to ensure it strictly prevents the menu from falling off the bottom edge
     double menuHeight;
     if (widget.menuType == 'desktop') {
       menuHeight = appsState.clipboardPath != null ? 360 : 330;

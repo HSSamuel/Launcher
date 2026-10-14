@@ -34,6 +34,15 @@ List<FileItem> _isolateProcessFiles(Map<String, dynamic> args) {
   final bool showHidden = args['showHidden'] as bool;
 
   List<FileItem> filtered = rawFiles.where((f) {
+    // Dynamically filter out ghost files deleted by external apps
+    try {
+      if (f.isDir) {
+        if (!Directory(f.path).existsSync()) return false;
+      } else {
+        if (!File(f.path).existsSync()) return false;
+      }
+    } catch (_) {}
+
     final name = f.path.split('/').last;
     if (!showHidden && name.startsWith('.')) return false;
     if (query.isNotEmpty && !name.toLowerCase().contains(query)) return false;
@@ -196,7 +205,7 @@ Future<List<String>> _isolateCopyToRecycleBin(Map<String, dynamic> args) async {
         if (entity is File) {
           await entity.copy(dest);
         } else if (entity is Directory) {
-          await _fallbackCopyDir(entity as Directory, Directory(dest));
+          await _fallbackCopyDir(entity, Directory(dest));
         }
         
         deletionIndex[dest.split('/').last] = DateTime.now().millisecondsSinceEpoch;
@@ -342,8 +351,8 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
 
     String statePath = context.read<AppsState>().currentExplorerPath;
     if (statePath == '/storage/emulated/0' && _rootPath != '/storage/emulated/0') {
-       statePath = _rootPath; 
-       context.read<AppsState>().currentExplorerPath = _rootPath;
+      statePath = _rootPath; 
+      context.read<AppsState>().currentExplorerPath = _rootPath;
     }
 
     _currentDir = Directory(statePath);
@@ -484,8 +493,10 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
 
   Future<void> _emptyRecycleBin() async {
     HapticFeedback.lightImpact();
+    NativeBridge.instance.playSound('recycle');
     await compute(_isolateEmptyRecycleBin, _recycleBinPath);
     _loadDirectory(_currentDir);
+    context.read<DesktopState>().checkRecycleBinStatus();
     _showToast('Recycle Bin emptied completely.');
   }
 
@@ -493,12 +504,8 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     bool isGranted = false;
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt >= 33) {
-        final photos = await Permission.photos.status;
-        final videos = await Permission.videos.status;
-        final audio = await Permission.audio.status;
-        // Android 14+ introduces isLimited for partial photo access
-        isGranted = photos.isGranted || photos.isLimited || videos.isGranted || audio.isGranted;
+      if (androidInfo.version.sdkInt >= 30) {
+        isGranted = await Permission.manageExternalStorage.isGranted;
       } else {
         isGranted = await Permission.storage.isGranted;
       }
@@ -539,11 +546,11 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           children: [
             const Icon(Icons.folder_special, color: Colors.blueAccent),
             const SizedBox(width: 12),
-            Text('Storage Access Required', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text('All Files Access Required', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         content: Text(
-          'To provide a complete desktop experience, Win11 PC Launcher includes a built-in File Explorer ("This PC").\n\nThe launcher requires standard Storage/Media permissions to index and manage files inside your Downloads, Documents, and Media folders.\n\nTap "Continue" to grant this permission.',
+          'To provide a complete desktop experience, Win11 PC Launcher includes a built-in File Explorer ("This PC").\n\nThe launcher requires "All Files Access" to allow you to browse, manage, rename, and delete media and non-media documents (such as PDFs, Word files, and ZIP archives) across your device\'s internal storage.\n\nTap "Continue" to grant this permission in Android Settings.',
           style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -576,40 +583,22 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     bool isGranted = false;
     if (Platform.isAndroid) {
       final androidInfo = await DeviceInfoPlugin().androidInfo;
-      
-      if (androidInfo.version.sdkInt >= 33) {
-        // Request all simultaneously so Android bundles them into one OS prompt
-        final statuses = await [
-          Permission.photos,
-          Permission.videos,
-          Permission.audio
-        ].request();
-        
-        final photos = statuses[Permission.photos];
-        final videos = statuses[Permission.videos];
-        final audio = statuses[Permission.audio];
-
-        isGranted = (photos?.isGranted == true || photos?.isLimited == true) || 
-                    (videos?.isGranted == true) || 
-                    (audio?.isGranted == true);
+      if (androidInfo.version.sdkInt >= 30) {
+        var status = await Permission.manageExternalStorage.status;
+        if (!status.isGranted) {
+          status = await Permission.manageExternalStorage.request();
+        }
+        isGranted = status.isGranted;
       } else {
         final status = await Permission.storage.request();
         isGranted = status.isGranted;
       }
-    } else {
-      isGranted = true;
     }
-    
-    if (isGranted && mounted) {
-      setState(() => _hasPermission = true);
-    } else if (!isGranted && mounted) {
-       // If permanently denied, route them to app settings to break the loop
-       ScaffoldMessenger.of(context).showSnackBar(
-         const SnackBar(content: Text('Please enable Media permissions in Android Settings.'))
-       );
-       openAppSettings();
+    if (isGranted) {
+      if (mounted) setState(() => _hasPermission = true);
+      return true;
     }
-    return isGranted;
+    return false;
   }
 
   void _prewarmLibraries() async {
@@ -659,91 +648,93 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
       try { 
         await dir.create(recursive: true); 
       } catch (e) {
-         setState(() => _isProcessingFiles = false);
-         if (mounted) context.read<AppsState>().highlightFileName = null;
-         _showToast("Cannot access or create folder at this path."); 
-         return;
+        setState(() => _isProcessingFiles = false);
+        if (mounted) context.read<AppsState>().highlightFileName = null;
+        _showToast("Cannot access or create folder at this path."); 
+        return;
       }
     }
     await _loadDirectory(dir);
   }
 
   Future<void> _processFilesAsync({bool force = false}) async {
-     if (!mounted) return;
-     final appsState = context.read<AppsState>();
-     final desktopState = context.read<DesktopState>();
-     
-     final query = _searchController.text.toLowerCase();
-     final sortBy = appsState.explorerSortBy;
-     final sortAsc = appsState.explorerSortAscending;
-     final showHidden = desktopState.showHiddenFiles;
-     
-     if (!force && query == _lastQuery && sortBy == _lastSortBy && sortAsc == _lastSortAsc && showHidden == _lastShowHidden) {
-       return;
-     }
-     
-     _lastQuery = query; _lastSortBy = sortBy; _lastSortAsc = sortAsc; _lastShowHidden = showHidden;
-     
-     if (mounted) setState(() => _isProcessingFiles = true);
+    if (!mounted) return;
+    final appsState = context.read<AppsState>();
+    final desktopState = context.read<DesktopState>();
+    
+    final query = _searchController.text.toLowerCase();
+    final sortBy = appsState.explorerSortBy;
+    final sortAsc = appsState.explorerSortAscending;
+    final showHidden = desktopState.showHiddenFiles;
+    
+    if (!force && query == _lastQuery && sortBy == _lastSortBy && sortAsc == _lastSortAsc && showHidden == _lastShowHidden) {
+      return;
+    }
+    
+    _lastQuery = query; _lastSortBy = sortBy; _lastSortAsc = sortAsc; _lastShowHidden = showHidden;
+    
+    if (mounted) setState(() => _isProcessingFiles = true);
 
-     if (_isAtHome) {
-         if (query.isEmpty) {
-             if (mounted) setState(() {
-                 _processedFiles = [];
-                 _isProcessingFiles = false;
-             });
-             return;
-         }
-         try {
-             final media = await NativeBridge.instance.searchMedia(query);
-             List<FileItem> searchResults = [];
-             if (media != null) {
-                 for (var entry in media.entries) {
-                     for (var item in entry.value) {
-                         searchResults.add(FileItem(
-                             path: item['path'],
-                             isDir: false,
-                             size: 0,
-                             modified: DateTime.now(),
-                         ));
-                     }
-                 }
-             }
-             if (mounted) {
-                 setState(() {
-                     _processedFiles = searchResults;
-                     _isProcessingFiles = false;
-                 });
-             }
-         } catch (_) {
-             if (mounted) setState(() { _processedFiles = []; _isProcessingFiles = false; });
-         }
-         return;
-     }
-     
-     try {
-       final result = await compute(_isolateProcessFiles, {
-         'files': _files,
-         'query': query,
-         'sortBy': sortBy,
-         'sortAscending': sortAsc,
-         'showHidden': showHidden,
-       });
-       
-       if (mounted) {
-         setState(() {
-           _processedFiles = result;
-           _isProcessingFiles = false;
-         });
-       }
-     } catch (e) {
-       if (mounted) {
-         setState(() {
-           _processedFiles = _files; 
-           _isProcessingFiles = false;
-         });
-       }
-     }
+    if (_isAtHome) {
+      if (query.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _processedFiles = [];
+            _isProcessingFiles = false;
+          });
+        }
+        return;
+      }
+      try {
+        final media = await NativeBridge.instance.searchMedia(query);
+        List<FileItem> searchResults = [];
+        if (media != null) {
+          for (var entry in media.entries) {
+            for (var item in entry.value) {
+              searchResults.add(FileItem(
+                path: item['path'],
+                isDir: false,
+                size: 0,
+                modified: DateTime.now(),
+              ));
+            }
+          }
+        }
+        if (mounted) {
+          setState(() {
+            _processedFiles = searchResults;
+            _isProcessingFiles = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() { _processedFiles = []; _isProcessingFiles = false; });
+      }
+      return;
+    }
+    
+    try {
+      final result = await compute(_isolateProcessFiles, {
+        'files': _files,
+        'query': query,
+        'sortBy': sortBy,
+        'sortAscending': sortAsc,
+        'showHidden': showHidden,
+      });
+      
+      if (mounted) {
+        setState(() {
+          _processedFiles = result;
+          _isProcessingFiles = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _processedFiles = _files; 
+          _isProcessingFiles = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadSmartLibrary(String category) async {
@@ -772,23 +763,23 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     final isFresh = lastSync != null && DateTime.now().difference(lastSync).inMinutes < 5;
 
     if (!hasCache || !isFresh) {
-       await _fetchLibraryInBackground(category);
+      await _fetchLibraryInBackground(category);
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final highlight = context.read<AppsState>().highlightFileName;
       if (highlight != null && highlight.isNotEmpty) {
-         context.read<AppsState>().highlightFileName = null;
-         setState(() => _activeHighlightName = highlight); 
-         
-         String targetPath = '$_rootPath/$category/$highlight';
-         final matchIdx = _files.indexWhere((f) => f.path.split('/').last == highlight);
-         if (matchIdx != -1) {
-           targetPath = _files[matchIdx].path;
-         }
-         
-         _blinkSelection(targetPath);
+        context.read<AppsState>().highlightFileName = null;
+        setState(() => _activeHighlightName = highlight); 
+        
+        String targetPath = '$_rootPath/$category/$highlight';
+        final matchIdx = _files.indexWhere((f) => f.path.split('/').last == highlight);
+        if (matchIdx != -1) {
+          targetPath = _files[matchIdx].path;
+        }
+        
+        _blinkSelection(targetPath);
       }
     });
   }
@@ -862,16 +853,16 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
           if (!mounted) return;
           final highlight = context.read<AppsState>().highlightFileName;
           if (highlight != null && highlight.isNotEmpty) {
-             context.read<AppsState>().highlightFileName = null;
-             setState(() => _activeHighlightName = highlight);
-             
-             String targetPath = '${dir.path}/$highlight';
-             final matchIdx = _files.indexWhere((f) => f.path.split('/').last == highlight);
-             if (matchIdx != -1) {
-               targetPath = _files[matchIdx].path;
-             }
+            context.read<AppsState>().highlightFileName = null;
+            setState(() => _activeHighlightName = highlight);
+            
+            String targetPath = '${dir.path}/$highlight';
+            final matchIdx = _files.indexWhere((f) => f.path.split('/').last == highlight);
+            if (matchIdx != -1) {
+              targetPath = _files[matchIdx].path;
+            }
 
-             _blinkSelection(targetPath);
+            _blinkSelection(targetPath);
           }
         });
       }
@@ -930,8 +921,24 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   }
 
   void _showToast(String message) {
+    if (!mounted) return;
+    
+    final screenHeight = MediaQuery.of(context).size.height;
+    
     ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message, style: const TextStyle(fontSize: 13)), duration: const Duration(seconds: 2), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
+        duration: const Duration(seconds: 2), 
+        behavior: SnackBarBehavior.floating, 
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
+      )
+    );
   }
 
   Future<void> _consolidateLibraryFiles() async {
@@ -962,8 +969,8 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
 
     _showToast('Syncing files to $_currentLibraryCategory...');
     final Map<String, dynamic> args = {
-       'files': _files.map((f) => f.path).toList(),
-       'targetDirPath': targetDirPath,
+      'files': _files.map((f) => f.path).toList(),
+      'targetDirPath': targetDirPath,
     };
 
     final copied = await compute(_isolateCopyFiles, args);
@@ -1023,11 +1030,11 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
         await entity.rename(newFullPath);
         
         for (int i = 0; i < _pathHistory.length; i++) {
-           if (_pathHistory[i] == entityPath) {
-               _pathHistory[i] = newFullPath;
-           } else if (_pathHistory[i].startsWith('$entityPath/')) {
-               _pathHistory[i] = _pathHistory[i].replaceFirst(entityPath, newFullPath);
-           }
+          if (_pathHistory[i] == entityPath) {
+            _pathHistory[i] = newFullPath;
+          } else if (_pathHistory[i].startsWith('$entityPath/')) {
+            _pathHistory[i] = _pathHistory[i].replaceFirst(entityPath, newFullPath);
+          }
         }
         
         if (!mounted) return;
@@ -1095,6 +1102,9 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     }
 
     if (!mounted) return;
+
+    NativeBridge.instance.playSound('recycle');
+    context.read<DesktopState>().checkRecycleBinStatus();
 
     if (_currentLibraryCategory != null) {
       _globalLibraryCache.remove(_currentLibraryCategory);
@@ -1367,15 +1377,15 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                   : [
                       // Local file options
                       _buildContextMenuItem('Open', Icons.open_in_new, themeState, iconColor: Colors.blueAccent, onTap: () {
-                         if (_selectedPaths.isNotEmpty) {
-                           final targetPath = _selectedPaths.first;
-                           final isDir = Directory(targetPath).existsSync();
-                           if (isDir) {
-                             _loadDirectorySafe(targetPath);
-                           } else {
-                             NativeBridge.instance.openFile(targetPath);
-                           }
-                         }
+                        if (_selectedPaths.isNotEmpty) {
+                          final targetPath = _selectedPaths.first;
+                          final isDir = Directory(targetPath).existsSync();
+                          if (isDir) {
+                            _loadDirectorySafe(targetPath);
+                          } else {
+                            NativeBridge.instance.openFile(targetPath);
+                          }
+                        }
                       }),
                       _buildContextMenuItem('Share', Icons.share_outlined, themeState, onTap: () {
                         if (_selectedPaths.isNotEmpty) NativeBridge.instance.shareFile(_selectedPaths.first);
@@ -1667,18 +1677,18 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     final bool isJumpingToHighlight = appsState.highlightFileName != null && appsState.highlightFileName!.isNotEmpty;
 
     if (_lastSortBy != appsState.explorerSortBy || _lastSortAsc != appsState.explorerSortAscending || _lastShowHidden != desktopState.showHiddenFiles) {
-       Future.microtask(() => _processFilesAsync(force: true));
+      Future.microtask(() => _processFilesAsync(force: true));
     }
 
     List<FileItem> sortedFiles = List.from(_processedFiles);
 
     final highlight = _activeHighlightName;
     if (highlight != null && highlight.isNotEmpty) {
-       final highlightIdx = sortedFiles.indexWhere((f) => f.path.split('/').last == highlight);
-       if (highlightIdx != -1) {
-          final targetItem = sortedFiles.removeAt(highlightIdx);
-          sortedFiles.insert(0, targetItem);
-       }
+      final highlightIdx = sortedFiles.indexWhere((f) => f.path.split('/').last == highlight);
+      if (highlightIdx != -1) {
+        final targetItem = sortedFiles.removeAt(highlightIdx);
+        sortedFiles.insert(0, targetItem);
+      }
     }
 
     final String displayAddress = _currentLibraryCategory != null 
@@ -1784,6 +1794,72 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
                                 icon: const Icon(Icons.sync, size: 14, color: Colors.blueAccent),
                                 label: Text('Sync $_currentLibraryCategory to Folder', style: const TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                               ),
+                            ),
+                          ),
+
+                        // Active Google Drive Account Status Strip
+                        if (_isViewingCloud && context.watch<CloudDriveState>().isGoogleDriveConnected)
+                          Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            color: Colors.blueAccent.withOpacity(0.08),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.cloud_done_outlined, color: Colors.blueAccent, size: 15),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    context.watch<CloudDriveState>().currentUserEmail != null
+                                        ? 'Account: ${context.watch<CloudDriveState>().currentUserEmail}'
+                                        : 'Google Drive Connected',
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white70 : Colors.black87,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    final cloudState = context.read<CloudDriveState>();
+                                    _showToast('Opening Account Chooser...');
+                                    final err = await cloudState.switchGoogleAccount();
+                                    if (err != null && mounted) {
+                                      _showToast(err);
+                                    } else if (mounted) {
+                                      _showToast('Switched to ${cloudState.currentUserEmail ?? "new account"}');
+                                    }
+                                  },
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: Colors.blueAccent.withOpacity(0.15),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                    minimumSize: const Size(0, 24),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(Icons.switch_account, color: Colors.blueAccent, size: 13),
+                                  label: const Text('Switch', style: TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                ),
+                                const SizedBox(width: 6),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    final cloudState = context.read<CloudDriveState>();
+                                    await cloudState.disconnectDrive('gdrive');
+                                    _goHome();
+                                    _showToast('Signed out of Google Drive');
+                                  },
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: Colors.redAccent.withOpacity(0.12),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                    minimumSize: const Size(0, 24),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  icon: const Icon(Icons.logout, color: Colors.redAccent, size: 13),
+                                  label: const Text('Sign Out', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                                ),
+                              ],
                             ),
                           ),
 

@@ -415,7 +415,14 @@ class BrowseThemesScreen extends StatelessWidget {
                 if (theme.isDark && !ProGatekeeper.checkAccess(context, featureName: 'Dark Theme')) return;
 
                 themeState.applyPresetTheme(theme);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Applied ${theme.name} theme!'), behavior: SnackBarBehavior.floating, duration: const Duration(seconds: 2)));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Applied ${theme.name} theme!', textAlign: TextAlign.center), 
+                    behavior: SnackBarBehavior.floating, 
+                    margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+                    duration: const Duration(seconds: 2)
+                  )
+                );
               },
               borderRadius: BorderRadius.circular(10),
               child: Container(
@@ -615,7 +622,15 @@ class BackgroundScreen extends StatelessWidget {
                     final File newWall = File('${dir.path}/custom_wall_${DateTime.now().millisecondsSinceEpoch}.jpg');
                     await File(image.path).copy(newWall.path);
                     themeState.changeWallpaper(newWall.path);
-                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Custom wallpaper applied! Slideshow paused.'), behavior: SnackBarBehavior.floating));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Custom wallpaper applied! Slideshow paused.', textAlign: TextAlign.center), 
+                          behavior: SnackBarBehavior.floating,
+                          margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+                        )
+                      );
+                    }
                   }
                 },
               ),
@@ -1077,7 +1092,13 @@ class TaskbarScreen extends StatelessWidget {
                         child: InkWell(
                           onTap: () {
                             desktopState.setCustomStartIcon(null);
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Restored default Start icon')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text('Restored default Start icon', textAlign: TextAlign.center),
+                                behavior: SnackBarBehavior.floating,
+                                margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+                              )
+                            );
                           },
                           child: const Icon(Icons.restore, color: Colors.redAccent, size: 20),
                         ),

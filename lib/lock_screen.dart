@@ -108,6 +108,10 @@ class _LockScreenState extends State<LockScreen> with TickerProviderStateMixin {
           });
         }
         final diff = lockoutDate.difference(DateTime.now());
+        
+        // CRITICAL FIX: Cancel any existing timer before assigning a new one
+        _lockoutTimer?.cancel();
+        
         _lockoutTimer = Timer(diff, () async {
           await storage.delete(key: 'lockout_until');
           await storage.delete(key: 'failed_attempts');

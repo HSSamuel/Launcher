@@ -42,6 +42,9 @@ class _StartMenuState extends State<StartMenu> {
   bool _isPinnedExpanded = false;
   bool _showAlphabetGrid = false;
 
+  // State variable to hold search results without blocking the build method
+  List<AppInfo> _currentSearchApps = [];
+
   // Memoized cache for the A-Z list to avoid O(N) calculations in build()
   List<Map<String, dynamic>> _cachedFlattenedList = [];
   Map<String, double> _cachedLetterOffsets = {};
@@ -68,8 +71,22 @@ class _StartMenuState extends State<StartMenu> {
       _searchDebounce?.cancel();
       _searchDebounce = Timer(const Duration(milliseconds: 200), () {
         if (!mounted) return;
+        
+        final appsState = context.read<AppsState>();
+        final desktopState = context.read<DesktopState>();
+        
+        List<AppInfo> filtered = [];
+        if (query.isNotEmpty) {
+          filtered = appsState.installedApps.where((app) {
+            if (appsState.hiddenApps.contains(app.packageName)) return false;
+            if (!desktopState.windowsSubsystem) return false;
+            return (app.name ?? '').toLowerCase().contains(query);
+          }).toList();
+        }
+
         setState(() {
           _searchQuery = query;
+          _currentSearchApps = filtered;
           _showAlphabetGrid = false;
         });
       });
@@ -579,8 +596,9 @@ class _StartMenuState extends State<StartMenu> {
                   ),
               ],
             ),
-            content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 260, maxHeight: 500),
+            content: SizedBox(
+              width: 260,
+              height: 340,
               child: apps.isEmpty
                   ? Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24.0),
@@ -593,8 +611,7 @@ class _StartMenuState extends State<StartMenu> {
                       ),
                     )
                   : GridView.builder(
-                      shrinkWrap: true,
-                      physics: const ClampingScrollPhysics(),
+                      physics: const BouncingScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
                         childAspectRatio: 0.75,
@@ -742,22 +759,16 @@ class _StartMenuState extends State<StartMenu> {
     final desktopState = context.watch<DesktopState>();
     final systemState = context.watch<SystemState>();
 
-    List<AppInfo> currentSearchApps = [];
-    if (_searchQuery.isNotEmpty) {
-      currentSearchApps = appsState.installedApps.where((app) {
-        if (appsState.hiddenApps.contains(app.packageName)) return false;
-        if (!desktopState.windowsSubsystem) return false;
-        return (app.name ?? '').toLowerCase().contains(_searchQuery);
-      }).toList();
-    }
-
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final secText = isDark ? Colors.white70 : Colors.grey.shade600;
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
-    final searchBg = isDark ? const Color(0xFF333333).withOpacity(0.6) : Colors.white.withOpacity(0.6);
-    final bottomBarBg = isDark ? const Color(0xFF1E1E1E).withOpacity(0.4) : const Color(0xFFE5E5E5).withOpacity(0.4);
-    final categoryCardBg = isDark ? const Color(0xFF3A3A3A).withOpacity(0.7) : Colors.white.withOpacity(0.7);
+    
+    // Inner elements to the transparency setting
+    final bool useTrans = themeState.transparencyEffects;
+    final searchBg = isDark ? const Color(0xFF333333).withOpacity(useTrans ? 0.6 : 1.0) : Colors.white.withOpacity(useTrans ? 0.6 : 1.0);
+    final bottomBarBg = isDark ? const Color(0xFF1E1E1E).withOpacity(useTrans ? 0.4 : 1.0) : const Color(0xFFE5E5E5).withOpacity(useTrans ? 0.4 : 1.0);
+    final categoryCardBg = isDark ? const Color(0xFF3A3A3A).withOpacity(useTrans ? 0.7 : 1.0) : Colors.white.withOpacity(useTrans ? 0.7 : 1.0);
 
     final List<AppInfo> pinnedApps = [];
     for (final pkg in appsState.pinnedStart) {
@@ -803,7 +814,10 @@ class _StartMenuState extends State<StartMenu> {
                               icon: Icon(Icons.close, size: 16, color: textColor.withOpacity(0.7)),
                               onPressed: () {
                                 _searchController.clear();
-                                setState(() => _searchQuery = '');
+                                setState(() {
+                                  _searchQuery = '';
+                                  _currentSearchApps = [];
+                                });
                                 FocusScope.of(context).unfocus();
                               },
                             )
@@ -824,9 +838,9 @@ class _StartMenuState extends State<StartMenu> {
                     ? RepaintBoundary(
                         child: ListView.builder(
                           physics: const ClampingScrollPhysics(),
-                          itemCount: currentSearchApps.length,
+                          itemCount: _currentSearchApps.length,
                           itemBuilder: (context, index) {
-                            final app = currentSearchApps[index];
+                            final app = _currentSearchApps[index];
                             return RepaintBoundary(
                               child: Builder(
                                 builder: (ctx) => Material(
@@ -1086,13 +1100,13 @@ class _StartMenuState extends State<StartMenu> {
                       ),
               ),
               Container(
-                height: 54,
+                constraints: const BoxConstraints(minHeight: 54),
                 decoration: BoxDecoration(
                   color: bottomBarBg,
                   border: Border(top: BorderSide(color: borderColor)),
                   borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Row(
                   children: [
                     Expanded(
