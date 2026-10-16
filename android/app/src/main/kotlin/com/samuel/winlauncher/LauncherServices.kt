@@ -52,7 +52,8 @@ class LauncherNotificationService : NotificationListenerService() {
         fun extractNotificationData(sbn: StatusBarNotification): Map<String, Any?>? {
             return try {
                 val extras = sbn.notification.extras
-                val title = extras.getCharSequence("android.title")?.toString() ?: ""
+                // Mutable so they can be overridden by MediaMetadata if notification extras are empty
+                var title = extras.getCharSequence("android.title")?.toString() ?: ""
                 var text = extras.getCharSequence("android.text")?.toString() ?: ""
 
                 val messages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -113,6 +114,14 @@ class LauncherNotificationService : NotificationListenerService() {
                             
                             val metadata = controller.metadata
                             if (metadata != null) {
+                                // Extract song and artist info directly from session metadata
+                                val mediaTitle = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
+                                val mediaArtist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST) 
+                                               ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
+
+                                if (!mediaTitle.isNullOrEmpty()) title = mediaTitle
+                                if (!mediaArtist.isNullOrEmpty()) text = mediaArtist
+
                                 val artBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) 
                                              ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
                                 

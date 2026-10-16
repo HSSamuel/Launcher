@@ -2,20 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_calendar/device_calendar.dart';
 import 'package:timezone/timezone.dart' as tz;
-import 'package:new_version_plus/new_version_plus.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:confetti/confetti.dart';
 
 class DesktopServices {
   static String? _extractBirthdayName(String rawTitle) {
     String clean = rawTitle.trim();
 
-    // Strip out common birthday phrases and prefixes/suffixes
     clean = clean.replaceAll(RegExp(r"^(happy\s+)?(birthday|bday|b'day)(\s+to|\s+for|\s+of)?[\s,:\-–—!]*", caseSensitive: false), '');
     clean = clean.replaceAll(RegExp(r"('s)?(\s+\d+(st|nd|rd|th)?)?\s*(birthday|bday|b'day)[!.]*", caseSensitive: false), '');
     clean = clean.replaceAll(RegExp(r'\bhappy\b', caseSensitive: false), '');
     clean = clean.replaceAll(RegExp(r'^[\s,:\-–—!]+|[\s,:\-–—!]+$'), '').trim();
 
-    // CRITICAL FIX: Return null if the string is empty, too short, or literally just the word "birthday"
     if (clean.isEmpty || clean.length < 2 || RegExp(r'^[^a-zA-Z]+$').hasMatch(clean)) {
       return null;
     }
@@ -322,7 +320,6 @@ class DesktopServices {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // CRITICAL FIX: Use integer milliseconds for a bulletproof 24-hour cooldown lock
       final lastPrompt = prefs.getInt('last_update_prompt_time') ?? 0;
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
@@ -330,25 +327,23 @@ class DesktopServices {
         return; 
       }
 
-      final newVersionPlus = NewVersionPlus(androidId: 'com.samuel.winlauncher');
-      final status = await newVersionPlus.getVersionStatus();
+      final AppUpdateInfo updateInfo = await InAppUpdate.checkForUpdate();
 
-      if (status != null && status.canUpdate) {
-        // Lock the prompt for the next 24 hours now that we are showing it
+      if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
         await prefs.setInt('last_update_prompt_time', nowMs);
 
-        final String toastIdStr = 'update_ready_v${status.storeVersion}';
+        final String toastIdStr = 'update_ready_system';
         final updateEvent = {
           'key': 'win11_system_update_ready',
           'package': 'com.samuel.winlauncher', 
           'title': 'System Update Available',
-          'text': 'Win11 PC Launcher v${status.storeVersion} is ready. Tap to download from Google Play.',
+          'text': 'A new version of Win11 PC Launcher is ready. Tap to download from Google Play.',
           'postTime': DateTime.now().millisecondsSinceEpoch,
           'actions': [
             {'title': 'Download Update', 'index': 999}
           ],
           '_isUpdateToast': true,
-          '_updateUrl': status.appStoreLink.isNotEmpty ? status.appStoreLink : 'market://details?id=com.samuel.winlauncher',
+          '_updateUrl': 'market://details?id=com.samuel.winlauncher',
           '_toastId': toastIdStr,
         };
 

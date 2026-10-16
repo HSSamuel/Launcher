@@ -180,17 +180,17 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
   Widget _getRawAppIcon(String windowId, AppsState appsState, bool isDark, ThemeState themeState, double iconSize, Color fallbackColor) {
     if (windowId.contains('.')) {
       if (themeState.cachedIconsPath != null) {
-         if (!appsState.iconCacheStatus.containsKey(windowId)) {
-           appsState.checkIconCacheStatus(windowId, themeState.cachedIconsPath);
-         }
-         
-         if (appsState.iconCacheStatus[windowId] == true) {
-           return Image.file(
-             File('${themeState.cachedIconsPath}/$windowId.png'), 
-             width: iconSize, height: iconSize, gaplessPlayback: true,
-             errorBuilder: (_, __, ___) => LazyAppIcon(packageName: windowId, size: iconSize)
-           );
-         }
+        if (!appsState.iconCacheStatus.containsKey(windowId)) {
+          appsState.checkIconCacheStatus(windowId, themeState.cachedIconsPath);
+        }
+        
+        if (appsState.iconCacheStatus[windowId] == true) {
+          return Image.file(
+            File('${themeState.cachedIconsPath}/$windowId.png'), 
+            width: iconSize, height: iconSize, gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => LazyAppIcon(packageName: windowId, size: iconSize)
+          );
+        }
       }
       
       return LazyAppIcon(packageName: windowId, size: iconSize);
@@ -245,7 +245,7 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
               _triggerHaptic();
               widget.onQuickSettingsToggled();
             },
-            onTap: () {}, // Empty to allow visual ripple effect without double firing
+            onTap: () {}, 
             borderRadius: BorderRadius.circular(4),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0), 
@@ -292,11 +292,11 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
         
         InkWell(
           onTapDown: (_) {
-             _triggerHaptic();
-             for (var app in appsState.windowStack) { 
-               appsState.minimizeApp(app); 
-             }
-             widget.onOverlaysClosed();
+            _triggerHaptic();
+            for (var app in appsState.windowStack) { 
+              appsState.minimizeApp(app); 
+            }
+            widget.onOverlaysClosed();
           },
           onTap: () {},
           child: Padding(
@@ -322,39 +322,51 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
     Color iconColor;
     BorderSide topBorder;
     
-    switch (_taskbarColorStyle) {
-      case 'black':
-        taskbarBgColor = const Color(0xFF000000);
-        iconColor = Colors.white;
-        topBorder = const BorderSide(color: Colors.white12, width: 1.0);
-        break;
-      case 'dark':
-        taskbarBgColor = const Color(0xDD181818); 
-        iconColor = Colors.white;
-        topBorder = const BorderSide(color: Colors.white12, width: 1.0);
-        break;
-      case 'white':
-        taskbarBgColor = const Color(0xFFFFFFFF);
-        iconColor = Colors.black87;
-        topBorder = const BorderSide(color: Colors.black12, width: 1.0);
-        break;
-      case 'light':
-        taskbarBgColor = const Color(0xDDF3F3F3); 
-        iconColor = Colors.black87;
-        topBorder = const BorderSide(color: Colors.black12, width: 1.0);
-        break;
-      case 'transparent':
-        taskbarBgColor = Colors.transparent;
-        iconColor = isDark ? Colors.white : Colors.black87;
-        topBorder = BorderSide.none;
-        break;
-      case 'default':
-      default:
-        final baseColor = isDark ? const Color(0xFF141414) : const Color(0xFFF3F3F3);
-        taskbarBgColor = Color.alphaBlend(accent.withOpacity(isDark ? 0.25 : 0.18), baseColor).withOpacity(1.0);
-        iconColor = isDark ? Colors.white : Colors.black87;
-        topBorder = BorderSide(color: accent.withOpacity(isDark ? 0.6 : 0.4), width: 1.5);
-        break;
+    // CRITICAL FIX: Attempt to parse the string as an integer color value
+    int? customColorValue = int.tryParse(_taskbarColorStyle);
+    
+    if (customColorValue != null) {
+      // Custom solid color selected from the 48-color grid
+      taskbarBgColor = Color(customColorValue);
+      // Automatically detect if the custom color is light or dark so icons remain readable
+      iconColor = taskbarBgColor.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+      topBorder = BorderSide(color: isDark ? Colors.white24 : Colors.black12, width: 1.0);
+    } else {
+      // Legacy predefined string cases
+      switch (_taskbarColorStyle) {
+        case 'black':
+          taskbarBgColor = const Color(0xFF000000);
+          iconColor = Colors.white;
+          topBorder = const BorderSide(color: Colors.white12, width: 1.0);
+          break;
+        case 'dark':
+          taskbarBgColor = const Color(0xDD181818); 
+          iconColor = Colors.white;
+          topBorder = const BorderSide(color: Colors.white12, width: 1.0);
+          break;
+        case 'white':
+          taskbarBgColor = const Color(0xFFFFFFFF);
+          iconColor = Colors.black87;
+          topBorder = const BorderSide(color: Colors.black12, width: 1.0);
+          break;
+        case 'light':
+          taskbarBgColor = const Color(0xDDF3F3F3); 
+          iconColor = Colors.black87;
+          topBorder = const BorderSide(color: Colors.black12, width: 1.0);
+          break;
+        case 'transparent':
+          taskbarBgColor = Colors.transparent;
+          iconColor = isDark ? Colors.white : Colors.black87;
+          topBorder = BorderSide.none;
+          break;
+        case 'default':
+        default:
+          final baseColor = isDark ? const Color(0xFF141414) : const Color(0xFFF3F3F3);
+          taskbarBgColor = Color.alphaBlend(accent.withOpacity(isDark ? 0.25 : 0.18), baseColor).withOpacity(1.0);
+          iconColor = isDark ? Colors.white : Colors.black87;
+          topBorder = BorderSide(color: accent.withOpacity(isDark ? 0.6 : 0.4), width: 1.5);
+          break;
+      }
     }
 
     final double scale = desktopState.taskbarIconScale.clamp(0.6, 1.8);
@@ -418,7 +430,9 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
                         'assets/icons/search.png', 
                         width: iconSize * 0.9, 
                         height: iconSize * 0.9, 
-                        color: _taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null, 
+                        color: customColorValue == null 
+                            ? (_taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null)
+                            : iconColor, // Use dynamic icon color for custom backgrounds
                         errorBuilder: (c, e, s) => Icon(Icons.search, size: iconSize * 0.9, color: iconColor)
                       ),
                     ),
@@ -436,7 +450,9 @@ class _Win11TaskbarState extends State<Win11Taskbar> {
                         'assets/icons/task_view.png', 
                         width: iconSize * 0.9, 
                         height: iconSize * 0.9, 
-                        color: _taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null, 
+                        color: customColorValue == null 
+                            ? (_taskbarColorStyle == 'white' || _taskbarColorStyle == 'light' ? Colors.black87 : null)
+                            : iconColor, // Use dynamic icon color for custom backgrounds 
                         errorBuilder: (c, e, s) => Icon(Icons.filter_none, size: iconSize * 0.8, color: iconColor)
                       ),
                     ),

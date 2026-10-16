@@ -83,13 +83,20 @@ class FileSystemService {
           } else if (entity is File) {
             final dotIdx = name.lastIndexOf('.');
             if (dotIdx != -1) {
-              final ext = name.substring(dotIdx).toLowerCase();
-              if (extensions.contains(ext)) {
-                try {
-                  final stat = entity.statSync();
-                  final signature = '${name}_${stat.size}';
-                  
-                  if (!seenSignatures.contains(signature)) {
+  final ext = name.substring(dotIdx).toLowerCase();
+  if (extensions.contains(ext)) {
+    try {
+      final stat = entity.statSync();
+      
+      // CRITICAL FIX: Skip and purge 0-byte ghost files from library views
+      if (stat.size == 0) {
+        try { entity.deleteSync(); } catch (_) {}
+        continue;
+      }
+
+      final signature = '${name}_${stat.size}';
+      
+      if (!seenSignatures.contains(signature)) {
                     seenSignatures.add(signature);
                     results.add(FileItem(
                       path: entity.path,

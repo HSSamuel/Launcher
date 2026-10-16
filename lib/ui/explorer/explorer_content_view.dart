@@ -236,8 +236,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: () {
+                      // CRITICAL FIX: Changed from 'delete' to 'mouse'
                       if (context.read<DesktopState>().mouseSound) {
-                        NativeBridge.instance.playSound('delete');
+                        NativeBridge.instance.playSound('mouse');
                       }
                       widget.onNavigate(path);
                     },
@@ -291,8 +292,9 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
+                  // CRITICAL FIX: Changed from 'delete' to 'mouse'
                   if (context.read<DesktopState>().mouseSound) {
-                    NativeBridge.instance.playSound('delete');
+                    NativeBridge.instance.playSound('mouse');
                   }
                   widget.onNavigate(widget.rootPath);
                 },
@@ -328,8 +330,10 @@ class _ExplorerContentViewState extends State<ExplorerContentView> {
 
   void _handleItemTap(FileItem item, bool isSelected) {
     final desktopState = context.read<DesktopState>();
+    
+    // CRITICAL FIX: Changed from 'delete' to 'mouse'
     if (desktopState.mouseSound) {
-      NativeBridge.instance.playSound('delete');
+      NativeBridge.instance.playSound('mouse');
     }
     
     if (widget.isMultiSelectMode) {

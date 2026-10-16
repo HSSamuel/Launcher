@@ -152,13 +152,15 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                 errorBuilder: (_, __, ___) => const Icon(Icons.android, size: 13, color: Colors.green),
               );
             }
-            if (themeState.cachedIconsPath != null && a.packageName != null) {
-              return Image.file(
-                File('${themeState.cachedIconsPath}/${a.packageName}.png'),
-                width: 13, height: 13, cacheWidth: 39, cacheHeight: 39, gaplessPlayback: true,
-                errorBuilder: (_, __, ___) => const Icon(Icons.android, size: 13, color: Colors.green),
-              );
-            }
+            // In desktop_workspace.dart -> _buildDesktopFolderIcon
+if (themeState.cachedIconsPath != null && a.packageName != null) {
+  return Image.file(
+    File('${themeState.cachedIconsPath}/${a.packageName}.png'),
+    width: 13, height: 13, cacheWidth: 39, cacheHeight: 39, gaplessPlayback: true,
+    // CRITICAL FIX: Fallback to the real app icon instead of the green Android
+    errorBuilder: (_, __, ___) => LazyAppIcon(packageName: a.packageName!, size: 13), 
+  );
+}
             return a.packageName != null
                 ? LazyAppIcon(packageName: a.packageName!, size: 13)
                 : const Icon(Icons.android, size: 13, color: Colors.green);
@@ -301,12 +303,13 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                                           errorBuilder: (_, __, ___) => const Icon(Icons.android, size: 32, color: Colors.green),
                                         );
                                       } else if (themeState.cachedIconsPath != null && app.packageName != null) {
-                                        appIconWidget = Image.file(
-                                          File('${themeState.cachedIconsPath}/${app.packageName}.png'),
-                                          width: 32, height: 32, cacheWidth: 96, cacheHeight: 96, gaplessPlayback: true,
-                                          errorBuilder: (_, __, ___) => const Icon(Icons.android, size: 32, color: Colors.green),
-                                        );
-                                      } else {
+  appIconWidget = Image.file(
+    File('${themeState.cachedIconsPath}/${app.packageName}.png'),
+    width: 32, height: 32, cacheWidth: 96, cacheHeight: 96, gaplessPlayback: true,
+    // CRITICAL FIX: Fallback to the real app icon instead of the green Android
+    errorBuilder: (_, __, ___) => LazyAppIcon(packageName: app.packageName!, size: 32), 
+  );
+} else {
                                         appIconWidget = app.packageName != null
                                             ? LazyAppIcon(packageName: app.packageName!, size: 32)
                                             : const Icon(Icons.android, size: 32, color: Colors.green);

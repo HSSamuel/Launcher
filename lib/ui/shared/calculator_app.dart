@@ -29,7 +29,6 @@ class _CalculatorAppState extends State<CalculatorApp> {
   bool _showHistory = false;
   final List<Map<String, String>> _history = [];
   
-  // CRITICAL FIX: The memory stack for holding bracket states
   final List<Map<String, dynamic>> _parenStack = [];
 
   String _currentEntry = '0';
@@ -72,25 +71,25 @@ class _CalculatorAppState extends State<CalculatorApp> {
   }
 
   void _showToast(String message) {
-  if (!mounted) return;
-  
-  final screenHeight = MediaQuery.of(context).size.height;
-  
-  ScaffoldMessenger.of(context).clearSnackBars();
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
-      duration: const Duration(seconds: 2), 
-      behavior: SnackBarBehavior.floating, 
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      margin: EdgeInsets.only(
-        bottom: screenHeight / 2 - 24,
-        left: 32,
-        right: 32,
-      ),
-    )
-  );
-}
+    if (!mounted) return;
+    
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
+        duration: const Duration(seconds: 2), 
+        behavior: SnackBarBehavior.floating, 
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
+      )
+    );
+  }
 
   Future<void> _loadCachedRates() async {
     final prefs = await SharedPreferences.getInstance();
@@ -278,7 +277,6 @@ class _CalculatorAppState extends State<CalculatorApp> {
     if (op == 'π') { setState(() { _currentEntry = math.pi.toStringAsFixed(8); _isResult = true; }); return; }
     if (op == 'e') { setState(() { _currentEntry = math.e.toStringAsFixed(8); _isResult = true; }); return; }
 
-    // CRITICAL FIX: Handle +/- as string manipulation to preserve partial decimals
     if (op == '+/-') {
       setState(() {
         if (_currentEntry == '0' || _currentEntry == '0.') return; 
@@ -292,7 +290,6 @@ class _CalculatorAppState extends State<CalculatorApp> {
       return;
     }
 
-    // CRITICAL FIX: Push current state to memory when opening a bracket
     if (op == '(') {
       setState(() {
         _parenStack.add({
@@ -309,15 +306,12 @@ class _CalculatorAppState extends State<CalculatorApp> {
       return;
     }
 
-    // CRITICAL FIX: Calculate inner math and pop previous state on closing bracket
     if (op == ')') {
       setState(() {
         if (_parenStack.isEmpty) return;
         
-        // Calculate whatever is inside the parenthesis first
         if (_operation.isNotEmpty) _calculate();
         
-        // Restore the state from before the '(' was pressed
         final prevState = _parenStack.removeLast();
         double innerResult = double.tryParse(_currentEntry) ?? 0;
 
@@ -329,7 +323,6 @@ class _CalculatorAppState extends State<CalculatorApp> {
         _liveEquation = prevEq.isEmpty ? '(${_formatWithCommas(_currentEntry)})' : '$prevEq (${_formatWithCommas(_currentEntry)})';
         _isResult = true;
         
-        // CRITICAL FIX: Immediately execute the restored outer operation against the inner result
         if (_operation.isNotEmpty) {
            _calculate();
         }
@@ -381,7 +374,6 @@ class _CalculatorAppState extends State<CalculatorApp> {
       _firstOperand = 0; 
       _isResult = false; 
       _currencyAmount = 0; 
-      // CRITICAL FIX: Clear the parenthesis memory stack when resetting the calculator
       _parenStack.clear(); 
     });
   }
@@ -403,14 +395,13 @@ class _CalculatorAppState extends State<CalculatorApp> {
   }
 
   String _formatNumber(double num) {
-  // CRITICAL FIX: Guard against Infinity or Not-a-Number crashes before parsing
-  if (num.isInfinite || num.isNaN) return "Error";
-  
-  if (num == num.toInt()) return num.toInt().toString();
-  String str = num.toString();
-  if (str.length > 12) return num.toStringAsPrecision(10);
-  return str;
-}
+    if (num.isInfinite || num.isNaN) return "Error";
+    
+    if (num == num.toInt()) return num.toInt().toString();
+    String str = num.toString();
+    if (str.length > 12) return num.toStringAsPrecision(10);
+    return str;
+  }
 
   String _formatCurrencyAmount(double num) {
     if (num == 0) return '0';
@@ -422,7 +413,7 @@ class _CalculatorAppState extends State<CalculatorApp> {
   }
 
   String _formatWithCommas(String str) {
-    if (str.isEmpty || str.contains('Invalid') || str.contains('zero')) return str;
+    if (str.isEmpty || str.contains('Invalid') || str.contains('zero') || str.contains('Error')) return str;
     List<String> parts = str.split('.');
     RegExp reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
     String mathFunc(Match match) => '${match[1]},';
@@ -467,6 +458,7 @@ class _CalculatorAppState extends State<CalculatorApp> {
     }
   }
 
+  // CRITICAL FIX: Safe leap-year and rolling month discrepancy calculations
   String _getDateDiffString() {
     DateTime from = _fromDate;
     DateTime to = _toDate;
@@ -478,11 +470,11 @@ class _CalculatorAppState extends State<CalculatorApp> {
     
     if (days < 0) {
       months -= 1;
-      int prevMonth = to.month == 1 ? 12 : to.month - 1;
-      int prevYear = to.month == 1 ? to.year - 1 : to.year;
-      final prevMonthDays = DateTime(prevYear, prevMonth + 1, 0).day;
-      days += prevMonthDays;
+      // Get the exact total days in the month immediately preceding the `to` date
+      final prevMonthDate = DateTime(to.year, to.month, 0); 
+      days += prevMonthDate.day;
     }
+    
     if (months < 0) {
       years -= 1;
       months += 12;
@@ -498,14 +490,14 @@ class _CalculatorAppState extends State<CalculatorApp> {
     if (days > 0) parts.add('$days days');
 
     final totalDays = to.difference(from).inDays;
-return parts.isEmpty 
-    ? 'Same dates\nTotal: 0 days' 
-    : '${parts.join(', ')}\nTotal: $totalDays days';
+    return parts.isEmpty 
+        ? 'Same dates\nTotal: 0 days' 
+        : '${parts.join(', ')}\nTotal:$totalDays days';
   }
 
   String _formatDateFull(DateTime d) {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    return '${d.day} ${months[d.month - 1]} ${d.year}';
+    return '${d.day} ${months[d.month - 1]}${d.year}';
   }
 
   Widget _buildDrawer(Color bgColor, Color displayColor) {
@@ -732,7 +724,10 @@ return parts.isEmpty
         ? _currencyAmount 
         : (_currencyAmount / fromRate) * toRate;
     
-    final lastUpdatedStr = '${_lastRatesUpdate.month}/${_lastRatesUpdate.day}/${_lastRatesUpdate.year} ${_lastRatesUpdate.hour % 12 == 0 ? 12 : _lastRatesUpdate.hour % 12}:${_lastRatesUpdate.minute.toString().padLeft(2, '0')} ${_lastRatesUpdate.hour >= 12 ? 'PM' : 'AM'}';
+    final lastUpdatedStr = '${_lastRatesUpdate.month}/${_lastRatesUpdate.day}/${_lastRatesUpdate.year}${_lastRatesUpdate.hour % 12 == 0 ? 12 : _lastRatesUpdate.hour % 12}:${_lastRatesUpdate.minute.toString().padLeft(2, '0')}${_lastRatesUpdate.hour >= 12 ? 'PM' : 'AM'}';
+    
+    // CRITICAL FIX: Stale Rates evaluation
+    final bool isStale = DateTime.now().difference(_lastRatesUpdate).inHours > 48;
         
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -769,9 +764,12 @@ return parts.isEmpty
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('1 $_fromCurrency = ${(toRate / fromRate).toStringAsFixed(4)} $_toCurrency', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                Text('1 $_fromCurrency = ${(toRate / fromRate).toStringAsFixed(4)}$_toCurrency', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
                 const SizedBox(height: 4),
-                Text('Updated $lastUpdatedStr', style: TextStyle(color: secondaryTextColor, fontSize: 12)),
+                Text(
+                  isStale ? 'Rates may be outdated ($lastUpdatedStr)' : 'Updated$lastUpdatedStr', 
+                  style: TextStyle(color: isStale ? Colors.redAccent : secondaryTextColor, fontSize: 12)
+                ),
                 const SizedBox(height: 8),
                 InkWell(
                   onTap: () {

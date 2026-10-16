@@ -74,7 +74,6 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
     try {
       final zipBytes = await BackupService.instance.generateBackupArchive();
       
-      // NEW: Format date as DD-MM-YYYY
       final now = DateTime.now();
       final day = now.day.toString().padLeft(2, '0');
       final month = now.month.toString().padLeft(2, '0');
@@ -92,8 +91,17 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
       }
 
       if (success) {
+        String downloadPath = '/storage/emulated/0/Download';
+        try {
+          final extDir = await getExternalStorageDirectory();
+          if (extDir != null && extDir.path.contains('/Android')) {
+            final rootPath = extDir.path.substring(0, extDir.path.indexOf('/Android'));
+            downloadPath = '$rootPath/Download';
+          }
+        } catch (_) {}
+
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_lastBackupPathKey, '/storage/emulated/0/Download/$fileName');
+        await prefs.setString(_lastBackupPathKey, '$downloadPath/$fileName');
         _showToast('Backup saved successfully to Downloads folder!');
       } else {
         _showToast('Backup export cancelled or failed.');
@@ -109,8 +117,17 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
     try {
       setState(() => _isProcessing = true);
       
-      // Fetch contents natively from Downloads without triggering MANAGE_EXTERNAL_STORAGE rejection
-      final List<FileItem> downloadFiles = await FileSystemService.getDirectoryContentsNative('/storage/emulated/0/Download');
+      // CRITICAL FIX: Safe path derivation for Downloads to support Scoped Storage
+      String downloadPath = '/storage/emulated/0/Download';
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null && extDir.path.contains('/Android')) {
+          final rootPath = extDir.path.substring(0, extDir.path.indexOf('/Android'));
+          downloadPath = '$rootPath/Download';
+        }
+      } catch (_) {}
+
+      final List<FileItem> downloadFiles = await FileSystemService.getDirectoryContentsNative(downloadPath);
       final zipFiles = downloadFiles.where((f) => !f.isDir && f.path.toLowerCase().endsWith('.zip')).toList();
 
       setState(() => _isProcessing = false);
@@ -122,7 +139,6 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
       final isDark = context.read<ThemeState>().isDarkMode;
       
-      // Native-styled Windows 11 Selection Dialog
       final FileItem? selectedFile = await showDialog<FileItem>(
         context: context,
         builder: (ctx) => AlertDialog(

@@ -196,7 +196,14 @@ class _SignInOptionsScreenState extends State<SignInOptionsScreen> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                   ),
-                  onPressed: () => _showPinSetupDialog(isRemoval: false),
+                  onPressed: () async {
+                    // CRITICAL FIX: Verify existing PIN before allowing overwrite
+                    if (hasPin) {
+                      final authenticated = await systemState.authenticateUser('Enter current PIN to change');
+                      if (!authenticated) return;
+                    }
+                    _showPinSetupDialog(isRemoval: false);
+                  },
                   child: Text(hasPin ? 'Change' : 'Set up', style: const TextStyle(fontSize: 12)),
                 ),
               ],

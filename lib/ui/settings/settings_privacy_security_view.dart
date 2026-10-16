@@ -10,6 +10,7 @@ import '../../services/native_bridge.dart';
 import '../../services/pro_gatekeeper.dart';
 import '../../services/lazy_app_icon.dart';
 import 'settings_widgets.dart';
+import 'settings_sign_in_options.dart'; // NEW IMPORT
 
 class SettingsPrivacySecurityView extends StatefulWidget {
   const SettingsPrivacySecurityView({Key? key}) : super(key: key);
@@ -293,7 +294,16 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                 bool auth = await systemState.authenticateUser('Enter PIN to manage App Lock');
                 if (auth && context.mounted) _showAppSelectionDialog(context, 'App Lock', appsState, themeState, isLock: true);
              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set a PIN on the Lock Screen first.')));
+                // CRITICAL FIX: Route users explicitly to PIN creation rather than stranding them with a toast
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Please configure a PIN in Accounts > Sign-in options first.'),
+                    action: SnackBarAction(
+                      label: 'Set up',
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignInOptionsScreen())),
+                    ),
+                  ),
+                );
              }
           }
         ),
@@ -308,7 +318,15 @@ class _SettingsPrivacySecurityViewState extends State<SettingsPrivacySecurityVie
                 bool auth = await systemState.authenticateUser('Enter PIN to open Vault');
                 if (auth && context.mounted) _showAppSelectionDialog(context, 'Hidden Vault', appsState, themeState, isLock: false);
              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set a PIN on the Lock Screen first.')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Please configure a PIN in Accounts > Sign-in options first.'),
+                    action: SnackBarAction(
+                      label: 'Set up',
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignInOptionsScreen())),
+                    ),
+                  ),
+                );
              }
           }
         ),

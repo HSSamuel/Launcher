@@ -7,8 +7,9 @@ import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sig
 import '../models/cloud_file_model.dart';
 
 class CloudDriveState extends ChangeNotifier {
+  // Scoped exclusively to app-created/opened files to comply with Google Play's Restricted Scopes policy
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: [drive.DriveApi.driveScope],
+    scopes: [drive.DriveApi.driveFileScope],
   );
 
   bool isGoogleDriveConnected = false;
@@ -21,7 +22,6 @@ class CloudDriveState extends ChangeNotifier {
 
   String get currentFolderId => gDrivePathStack.isNotEmpty ? gDrivePathStack.last['id']! : 'root';
 
-  // Expose active account details
   String? get currentUserEmail => _googleSignIn.currentUser?.email;
   String? get currentUserName => _googleSignIn.currentUser?.displayName;
   String? get currentUserPhotoUrl => _googleSignIn.currentUser?.photoUrl;
@@ -53,9 +53,9 @@ class CloudDriveState extends ChangeNotifier {
       }
 
       try {
-        final hasScope = await _googleSignIn.canAccessScopes([drive.DriveApi.driveScope]);
+        final hasScope = await _googleSignIn.canAccessScopes([drive.DriveApi.driveFileScope]);
         if (!hasScope) {
-          final granted = await _googleSignIn.requestScopes([drive.DriveApi.driveScope]);
+          final granted = await _googleSignIn.requestScopes([drive.DriveApi.driveFileScope]);
           if (!granted) {
             isLoading = false;
             notifyListeners();
@@ -100,7 +100,6 @@ class CloudDriveState extends ChangeNotifier {
     }
   }
 
-  // Revoke token and clear session so Android displays the account picker
   Future<String?> switchGoogleAccount() async {
     await disconnectDrive('gdrive');
     return await connectGoogleDrive();
@@ -207,27 +206,47 @@ class CloudDriveState extends ChangeNotifier {
     }
   }
 
-  Future<String?> downloadCloudFile(String fileId, String fileName) async {
+  Future<String?> downloadCloudFile(String fileId, String fileName, {String? mimeType}) async {
     if (activeProvider == 'gdrive') {
       try {
         final authClient = await _googleSignIn.authenticatedClient();
         if (authClient == null) return null;
 
         final driveApi = drive.DriveApi(authClient);
-        
-        final drive.Media media = await driveApi.files.get(
-          fileId,
-          downloadOptions: drive.DownloadOptions.fullMedia,
-        ) as drive.Media;
+        drive.Media media;
+
+        // CRITICAL FIX: Ensure Google Workspace documents route to export to avoid HTTP 403 errors
+        if (mimeType != null && mimeType.startsWith('application/vnd.google-apps.')) {
+           String exportMimeType = 'application/pdf';
+           if (mimeType.contains('document')) exportMimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+           else if (mimeType.contains('spreadsheet')) exportMimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+           else if (mimeType.contains('presentation')) exportMimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+
+           media = await driveApi.files.export(
+             fileId,
+             exportMimeType,
+             downloadOptions: drive.DownloadOptions.fullMedia,
+           ) as drive.Media;
+        } else {
+           media = await driveApi.files.get(
+             fileId,
+             downloadOptions: drive.DownloadOptions.fullMedia,
+           ) as drive.Media;
+        }
 
         final tempDir = await getTemporaryDirectory();
         final sanitizedName = fileName.split('/').last.split('\\').last;
         final saveFile = File('${tempDir.path}/$sanitizedName');
 
         final sink = saveFile.openWrite();
-        await sink.addStream(media.stream);
-        await sink.flush();
-        await sink.close();
+        
+        // CRITICAL FIX: Wrap file descriptor sink in try/finally to prevent memory leaks on network failures
+        try {
+          await sink.addStream(media.stream);
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
 
         return saveFile.path;
       } catch (e) {

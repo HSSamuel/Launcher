@@ -92,6 +92,12 @@
 
         </activity>
 
+        <!-- CRITICAL FIX: Image Cropper UI Activity Registration -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+
         <service 
             android:name=".LauncherNotificationService"
             android:label="Win11 Notifications"

@@ -1140,7 +1140,13 @@ class _AppSearchOverlayState extends State<AppSearchOverlay> {
                     return TextField(
                       controller: _searchController,
                       focusNode: _searchFocusNode, 
-                      autofocus: false, 
+                      autofocus: false, // NEW: Ensure no auto pop-up
+                      onTap: () {
+                        // NEW: Only trigger keyboard on physical tap
+                        if (!_searchFocusNode.hasFocus) {
+                          FocusScope.of(context).requestFocus(_searchFocusNode);
+                        }
+                      },
                       textAlignVertical: TextAlignVertical.center,
                       style: TextStyle(color: textColor, fontSize: 13),
                       decoration: InputDecoration(
@@ -1250,7 +1256,11 @@ class _AppSearchOverlayState extends State<AppSearchOverlay> {
                           Expanded(
                             child: _isSearching 
                                 ? const Center(child: CircularProgressIndicator())
-                                : ListView(physics: const BouncingScrollPhysics(), children: _buildFilteredResults(textColor, appsState, themeState)),
+                                : ListView(
+                                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, // NEW: Drop keyboard
+                                    physics: const BouncingScrollPhysics(), 
+                                    children: _buildFilteredResults(textColor, appsState, themeState)
+                                  ),
                           )
                         ],
                       ),

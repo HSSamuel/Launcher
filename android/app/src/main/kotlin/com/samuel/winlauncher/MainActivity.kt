@@ -46,6 +46,9 @@ class MainActivity: FlutterFragmentActivity() {
     private var downloadObserver: FileObserver? = null
 
     private val activityScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    
+    // Tracks resumed state to prevent background JNI queue flooding
+    private var isActivityResumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,14 +88,14 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        widgetEngine.onStart()
+    override fun onResume() {
+        super.onResume()
+        isActivityResumed = true
     }
 
-    override fun onStop() {
-        super.onStop()
-        widgetEngine.onStop()
+    override fun onPause() {
+        super.onPause()
+        isActivityResumed = false
     }
 
     override fun onDestroy() {
@@ -145,6 +148,23 @@ class MainActivity: FlutterFragmentActivity() {
                         override fun onReceive(context: Context?, intent: Intent?) {
                             if (intent == null) return
 
+                            // Handle USB Laptop Connection (Peripheral Mode)
+                            if (intent.action == "android.hardware.usb.action.USB_STATE") {
+                                val isConnectedToPc = intent.getBooleanExtra("connected", false)
+                                
+                                activityScope.launch {
+                                    val state = hardwareManager.getRawHardwareState().toMutableMap()
+                                    state["pc_connected"] = isConnectedToPc
+                                    
+                                    Handler(Looper.getMainLooper()).post {
+                                        try { 
+                                            if (isActivityResumed) events?.success(state) 
+                                        } catch (e: Exception) {}
+                                    }
+                                }
+                                return
+                            }
+
                             if (intent.action == Intent.ACTION_BATTERY_CHANGED) {
                                 val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
                                 val scale = intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
@@ -154,10 +174,12 @@ class MainActivity: FlutterFragmentActivity() {
                                 val isCharging = status == android.os.BatteryManager.BATTERY_STATUS_CHARGING || status == android.os.BatteryManager.BATTERY_STATUS_FULL
                                 
                                 try {
-                                    events?.success(mapOf(
-                                        "battery_level" to batteryPct,
-                                        "battery_charging" to isCharging
-                                    ))
+                                    if (isActivityResumed) {
+                                        events?.success(mapOf(
+                                            "battery_level" to batteryPct,
+                                            "battery_charging" to isCharging
+                                        ))
+                                    }
                                 } catch (e: Exception) {}
                                 return
                             }
@@ -168,7 +190,9 @@ class MainActivity: FlutterFragmentActivity() {
                                 if (isScreenOff) state["screen_off"] = true
                                 
                                 Handler(Looper.getMainLooper()).post {
-                                    try { events?.success(state) } catch (e: Exception) {}
+                                    try { 
+                                        if (isActivityResumed) events?.success(state) 
+                                    } catch (e: Exception) {}
                                 }
                             }
                         }
@@ -187,6 +211,7 @@ class MainActivity: FlutterFragmentActivity() {
                         addAction(Intent.ACTION_POWER_CONNECTED)
                         addAction(Intent.ACTION_POWER_DISCONNECTED)
                         addAction("android.net.conn.CONNECTIVITY_CHANGE")
+                        addAction("android.hardware.usb.action.USB_STATE")
                     }
                     
                     applicationContext.registerSystemReceiver(hardwareReceiver, filter, exported = false)
@@ -200,7 +225,9 @@ class MainActivity: FlutterFragmentActivity() {
                         val initStatus: Int = initBattery?.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1) ?: -1
                         initialState["battery_charging"] = initStatus == android.os.BatteryManager.BATTERY_STATUS_CHARGING || initStatus == android.os.BatteryManager.BATTERY_STATUS_FULL
                         Handler(Looper.getMainLooper()).post { 
-                            try { events?.success(initialState) } catch (e: Exception) {}
+                            try { 
+                                if (isActivityResumed) events?.success(initialState) 
+                            } catch (e: Exception) {}
                         }
                     }
                 }
@@ -333,30 +360,28 @@ class MainActivity: FlutterFragmentActivity() {
                 }
                 
                 "optimizeSystem" -> {
-    activityScope.launch {
-        try {
-            var freedBytes = 0L
-            
-            // CRITICAL FIX: Use cacheDir directly since we are inside MainActivity
-            cacheDir.listFiles()?.forEach { file ->
-                if (file.name.startsWith("icons_") || file.name == "notif_icons") {
-                    val size = if (file.isDirectory) file.walkTopDown().sumOf { it.length() } else file.length()
-                    freedBytes += size
-                    file.deleteRecursively()
+                    activityScope.launch {
+                        try {
+                            var freedBytes = 0L
+                            
+                            cacheDir.listFiles()?.forEach { file ->
+                                if (file.name == "notif_icons") {
+                                    val size = if (file.isDirectory) file.walkTopDown().sumOf { it.length() } else file.length()
+                                    freedBytes += size
+                                    file.deleteRecursively()
+                                }
+                            }
+                            
+                            System.gc()
+                            Runtime.getRuntime().gc()
+                            
+                            val freedMb = (freedBytes / (1024 * 1024)).toInt().coerceAtLeast(0)
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to freedMb))
+                        } catch (e: Exception) {
+                            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
+                        }
+                    }
                 }
-            }
-            
-            System.gc()
-            Runtime.getRuntime().gc()
-            
-            val freedMb = (freedBytes / (1024 * 1024)).toInt().coerceAtLeast(0)
-            // "signaled" kept at 0 to avoid breaking Dart contract
-            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to freedMb))
-        } catch (e: Exception) {
-            result.safeSuccess(this@MainActivity, mapOf("signaled" to 0, "freedMb" to 0))
-        }
-    }
-}
 
                 "setNativeWallpaper" -> {
                     val path = call.argument<String>("path")

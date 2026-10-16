@@ -121,66 +121,64 @@ class HardwareManager(private val activity: Activity) {
         cachedApps = null
     }
 
-    // In HardwareManager.kt -> registerUsbChannel
-fun registerUsbChannel(messenger: BinaryMessenger) {
-    try {
-        EventChannel(messenger, "win_launcher/usb_events").setStreamHandler(
-            object : EventChannel.StreamHandler {
-                private var storageReceiver: BroadcastReceiver? = null
+    fun registerUsbChannel(messenger: BinaryMessenger) {
+        try {
+            EventChannel(messenger, "win_launcher/usb_events").setStreamHandler(
+                object : EventChannel.StreamHandler {
+                    private var storageReceiver: BroadcastReceiver? = null
 
-                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    storageReceiver = object : BroadcastReceiver() {
-                        override fun onReceive(context: Context, intent: Intent) {
-                            when (intent.action) {
-                                Intent.ACTION_MEDIA_MOUNTED -> {
-                                    val mountUri = intent.data
-                                    val mountPath = mountUri?.path ?: ""
-                                    
-                                    // Query volume label
-                                    val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
-                                    var label = "USB Drive"
-                                    
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && sm != null) {
-                                        val volume = sm.storageVolumes.firstOrNull { it.isRemovable && it.state == Environment.MEDIA_MOUNTED }
-                                        if (volume != null) {
-                                            label = volume.getDescription(context)
+                    override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                        storageReceiver = object : BroadcastReceiver() {
+                            override fun onReceive(context: Context, intent: Intent) {
+                                when (intent.action) {
+                                    Intent.ACTION_MEDIA_MOUNTED -> {
+                                        val mountUri = intent.data
+                                        val mountPath = mountUri?.path ?: ""
+                                        
+                                        val sm = context.getSystemService(Context.STORAGE_SERVICE) as? StorageManager
+                                        var label = "USB Drive"
+                                        
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && sm != null) {
+                                            val volume = sm.storageVolumes.firstOrNull { it.isRemovable && it.state == Environment.MEDIA_MOUNTED }
+                                            if (volume != null) {
+                                                label = volume.getDescription(context)
+                                            }
                                         }
-                                    }
 
-                                    events?.success(mapOf(
-                                        "type" to "USB_ATTACHED",
-                                        "deviceName" to label,
-                                        "path" to mountPath
-                                    ))
-                                }
-                                Intent.ACTION_MEDIA_UNMOUNTED,
-                                Intent.ACTION_MEDIA_REMOVED,
-                                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
-                                    events?.success(mapOf("type" to "USB_DETACHED"))
+                                        events?.success(mapOf(
+                                            "type" to "USB_ATTACHED",
+                                            "deviceName" to label,
+                                            "path" to mountPath
+                                        ))
+                                    }
+                                    Intent.ACTION_MEDIA_UNMOUNTED,
+                                    Intent.ACTION_MEDIA_REMOVED,
+                                    UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                                        events?.success(mapOf("type" to "USB_DETACHED"))
+                                    }
                                 }
                             }
                         }
+
+                        val filter = IntentFilter().apply {
+                            addAction(Intent.ACTION_MEDIA_MOUNTED)
+                            addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+                            addAction(Intent.ACTION_MEDIA_REMOVED)
+                            addDataScheme("file")
+                        }
+                        activity.registerSystemReceiver(storageReceiver, filter, exported = true)
                     }
 
-                    val filter = IntentFilter().apply {
-                        addAction(Intent.ACTION_MEDIA_MOUNTED)
-                        addAction(Intent.ACTION_MEDIA_UNMOUNTED)
-                        addAction(Intent.ACTION_MEDIA_REMOVED)
-                        addDataScheme("file")
+                    override fun onCancel(arguments: Any?) {
+                        storageReceiver?.let { activity.unregisterReceiver(it) }
+                        storageReceiver = null
                     }
-                    activity.registerSystemReceiver(storageReceiver, filter, exported = true)
                 }
-
-                override fun onCancel(arguments: Any?) {
-                    storageReceiver?.let { activity.unregisterReceiver(it) }
-                    storageReceiver = null
-                }
-            }
-        )
-    } catch (e: Exception) {
-        Log.e(TAG, "Failed to initialize USB event channel", e)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize USB event channel", e)
+        }
     }
-}
 
     fun getSystemPerformanceStats(result: MethodChannel.Result) {
         scope.launch {
@@ -327,14 +325,12 @@ fun registerUsbChannel(messenger: BinaryMessenger) {
                 val subId = android.telephony.SubscriptionManager.getDefaultDataSubscriptionId()
                 if (subId != android.telephony.SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
                     
-                    // 1. Direct Registry Check (Most reliable on Transsion/Tecno dual-SIM)
                     val state = Settings.Global.getInt(activity.contentResolver, "mobile_data$subId", -1)
                     if (state != -1) {
                         isDataOn = (state == 1)
                         resolved = true
                     }
                     
-                    // 2. TelephonyManager Fallback
                     if (!resolved && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         try {
                             val tm = activity.getSystemService(Context.TELEPHONY_SERVICE) as android.telephony.TelephonyManager
@@ -345,7 +341,6 @@ fun registerUsbChannel(messenger: BinaryMessenger) {
                 }
             }
 
-            // 3. Global Fallback for older devices (Only used if Dual-SIM logic failed)
             if (!resolved) {
                 isDataOn = Settings.Global.getInt(activity.contentResolver, "mobile_data", 0) == 1
             }
@@ -398,8 +393,20 @@ fun registerUsbChannel(messenger: BinaryMessenger) {
         return states
     }
 
+    // UPDATED: Offloads synchronous JNI reflection checks to a background thread to prevent UI lock-ups
     fun getHardwareState(result: MethodChannel.Result) {
-        result.safeSuccess(activity, getRawHardwareState())
+        scope.launch {
+            try {
+                val state = getRawHardwareState()
+                withContext(Dispatchers.Main) {
+                    result.safeSuccess(activity, state)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    result.safeError(activity, "HARDWARE_STATE_ERROR", e.message, null)
+                }
+            }
+        }
     }
 
     fun setSystemBrightness(call: MethodCall, result: MethodChannel.Result) {

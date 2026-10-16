@@ -104,9 +104,7 @@ class MonetizationState extends ChangeNotifier {
 
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchaseDetailsList) async {
     for (var purchaseDetails in purchaseDetailsList) {
-      if (purchaseDetails.status == PurchaseStatus.pending) {
-        _isPurchasePending = true;
-      } else {
+      if (purchaseDetails.status != PurchaseStatus.pending) {
         try {
           if (purchaseDetails.status == PurchaseStatus.error) {
             debugPrint("Purchase error: ${purchaseDetails.error}");
@@ -121,11 +119,13 @@ class MonetizationState extends ChangeNotifier {
           }
         } catch (e) {
            debugPrint("Premium delivery failed, purchase will not be acknowledged: $e");
-        } finally {
-          _isPurchasePending = false;
         }
       }
     }
+    
+    // CRITICAL FIX: Evaluate the pending status across the entire array after 
+    // all loop executions finish to avoid overriding concurrent transactions.
+    _isPurchasePending = purchaseDetailsList.any((p) => p.status == PurchaseStatus.pending);
     notifyListeners();
   }
 

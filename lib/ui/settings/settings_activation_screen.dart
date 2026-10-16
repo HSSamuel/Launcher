@@ -23,8 +23,9 @@ class ActivationScreen extends StatefulWidget {
 }
 
 class _ActivationScreenState extends State<ActivationScreen> {
-  // CRITICAL IMPLEMENTATION: Compile-time flag to hide custom licensing from Google Play
-  static const bool isPlayStoreBuild = bool.fromEnvironment('PLAY_STORE_BUILD', defaultValue: false);
+  // CRITICAL FIX: Defaulted to true to strictly comply with Google Play Billing Policies 
+  // (External payment steering is disabled by default unless explicitly flipped for Enterprise builds)
+  static const bool isPlayStoreBuild = bool.fromEnvironment('PLAY_STORE_BUILD', defaultValue: true);
 
   final TextEditingController _keyController = TextEditingController();
   String _deviceId = '';
@@ -68,10 +69,16 @@ class _ActivationScreenState extends State<ActivationScreen> {
       Clipboard.setData(ClipboardData(text: _deviceId));
       ScaffoldMessenger.of(context).clearSnackBars();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Installation ID copied to clipboard.'),
+        SnackBar(
+          content: const Text('Installation ID copied to clipboard.', textAlign: TextAlign.center),
           behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          margin: EdgeInsets.only(
+            bottom: MediaQuery.of(context).size.height / 2 - 24,
+            left: 32,
+            right: 32,
+          ),
         ),
       );
     }
@@ -186,7 +193,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
                       
                       if (ctx.mounted) Navigator.pop(ctx);
                       
-                      // Automatically verify the new key
                       _keyController.text = newKey;
                       _verifyEnterpriseKey();
                       
@@ -436,7 +442,6 @@ class _ActivationScreenState extends State<ActivationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Direct Payment Button integration
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(

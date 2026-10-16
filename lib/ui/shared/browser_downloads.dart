@@ -103,19 +103,40 @@ class _BrowserDownloadsScreenState extends State<BrowserDownloadsScreen> {
     );
   }
 
+  void _showToast(String message) {
+    if (!mounted) return;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
+        duration: const Duration(seconds: 2), 
+        behavior: SnackBarBehavior.floating, 
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        // Pushes the toast exactly to the center of the screen
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
+      )
+    );
+  }
+
   void _deleteFile(File file) async {
     try {
       if (await file.exists()) {
         final success = await NativeBridge.instance.deleteFile(file.path);
         if (success) {
           _fetchDownloads();
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File deleted')));
+          _showToast('File deleted');
         } else {
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deletion cancelled')));
+          _showToast('Deletion cancelled');
         }
       }
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete file')));
+      _showToast('Failed to delete file');
     }
   }
 

@@ -60,12 +60,21 @@ class AppsState extends ChangeNotifier {
   Map<String, Future<bool> Function()> windowBackHandlers = {};
   Timer? _categorySaveDebouncer;
 
-  static final _socialRegExp = RegExp(r'whatsapp|facebook|instagram|telegram|twitter|tiktok|linkedin', caseSensitive: false);
-  static final _entertainmentRegExp = RegExp(r'youtube|music|spotify|netflix|video|player|games|xbox', caseSensitive: false);
-  static final _productivityRegExp = RegExp(r'chrome|edge|browser|docs|drive|mail|gmail|teams|zoom|word', caseSensitive: false);
-  static final _devToolsRegExp = RegExp(r'code|term|developer|studio|github', caseSensitive: false);
-  static final _creativeRegExp = RegExp(r'draw|paint|canva|photo|camera|gallery', caseSensitive: false);
-  static final _utilsRegExp = RegExp(r'settings|calc|clock|weather|file|manager|system', caseSensitive: false);
+  // CRITICAL FIX: Replaced expensive RegExp with performant substring matching sets
+  static const _socialTerms = ['whatsapp', 'facebook', 'instagram', 'telegram', 'twitter', 'tiktok', 'linkedin'];
+  static const _entTerms = ['youtube', 'music', 'spotify', 'netflix', 'video', 'player', 'games', 'xbox'];
+  static const _prodTerms = ['chrome', 'edge', 'browser', 'docs', 'drive', 'mail', 'gmail', 'teams', 'zoom', 'word'];
+  static const _devTerms = ['code', 'term', 'developer', 'studio', 'github'];
+  static const _creativeTerms = ['draw', 'paint', 'canva', 'photo', 'camera', 'gallery'];
+  static const _utilsTerms = ['settings', 'calc', 'clock', 'weather', 'file', 'manager', 'system'];
+
+  bool _containsAny(String text, List<String> terms) {
+    final lower = text.toLowerCase();
+    for (final t in terms) {
+      if (lower.contains(t)) return true;
+    }
+    return false;
+  }
 
   AppsState() {
     _loadState();
@@ -127,12 +136,17 @@ class AppsState extends ChangeNotifier {
   Future<void> injectAndSyncApp(String pkg, String label) async {
     if (kIsWeb) return;
     try {
-      await Future.delayed(const Duration(milliseconds: 2500));
-      
       AppInfo? fetchedInfo;
-      try {
-        fetchedInfo = await InstalledApps.getAppInfo(pkg);
-      } catch (_) {}
+      
+      // CRITICAL FIX: Implement an exponential backoff retry loop instead of a hardcoded 2.5s delay
+      final retryDelaysMs = [0, 500, 1000, 2000];
+      for (int delayMs in retryDelaysMs) {
+        if (delayMs > 0) await Future.delayed(Duration(milliseconds: delayMs));
+        try {
+          fetchedInfo = await InstalledApps.getAppInfo(pkg);
+          if (fetchedInfo != null) break;
+        } catch (_) {}
+      }
 
       if (fetchedInfo == null) {
         final allApps = await InstalledApps.getInstalledApps(excludeSystemApps: false, withIcon: false);
@@ -276,17 +290,17 @@ class AppsState extends ChangeNotifier {
         final name = (app.name ?? '');
         final pkg = (app.packageName ?? '');
 
-        if (_socialRegExp.hasMatch(pkg)) {
+        if (_containsAny(pkg, _socialTerms)) {
           targetCategory = 'Social';
-        } else if (_entertainmentRegExp.hasMatch(pkg) || _entertainmentRegExp.hasMatch(name)) {
+        } else if (_containsAny(pkg, _entTerms) || _containsAny(name, _entTerms)) {
           targetCategory = 'Entertainment';
-        } else if (_productivityRegExp.hasMatch(pkg)) {
+        } else if (_containsAny(pkg, _prodTerms)) {
           targetCategory = 'Productivity';
-        } else if (_devToolsRegExp.hasMatch(pkg)) {
+        } else if (_containsAny(pkg, _devTerms)) {
           targetCategory = 'Developer Tools';
-        } else if (_creativeRegExp.hasMatch(pkg)) {
+        } else if (_containsAny(pkg, _creativeTerms)) {
           targetCategory = 'Creativity';
-        } else if (_utilsRegExp.hasMatch(pkg)) {
+        } else if (_containsAny(pkg, _utilsTerms)) {
           targetCategory = 'Utilities & Tools';
         }
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:new_version_plus/new_version_plus.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:provider/provider.dart';
 
 import '../../states/theme_state.dart';
@@ -21,7 +21,6 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
   bool _updateAvailable = false;
   String _newVersion = "";
   String _releaseNotes = "";
-  String _appStoreLink = "";
 
   @override
   void initState() {
@@ -40,19 +39,15 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
     setState(() => _isChecking = true);
     
     try {
-      final newVersionPlus = NewVersionPlus(
-        androidId: 'com.samuel.winlauncher',
-      );
+      // CRITICAL FIX: Utilize official Google Play Core Library
+      final AppUpdateInfo updateInfo = await InAppUpdate.checkForUpdate();
       
-      final status = await newVersionPlus.getVersionStatus();
-      
-      if (status != null && status.canUpdate) {
+      if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
         if (mounted) {
           setState(() {
             _updateAvailable = true;
-            _newVersion = status.storeVersion;
-            _releaseNotes = status.releaseNotes ?? "General improvements and optimizations.";
-            _appStoreLink = status.appStoreLink;
+            _newVersion = "Available on Play Store";
+            _releaseNotes = "A new version of Win11 PC Launcher is available. Update now to get the latest features and bug fixes.";
           });
         }
       } else {
@@ -88,11 +83,10 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
   }
 
   void _downloadUpdate() {
-    if (_appStoreLink.isNotEmpty) {
-      NativeBridge.instance.launchApp(_appStoreLink);
-    } else {
+    InAppUpdate.performImmediateUpdate().catchError((e) {
+      // Fallback if the Play Store native overlay drops or throws an exception
       NativeBridge.instance.launchApp('market://details?id=com.samuel.winlauncher');
-    }
+    });
   }
 
   @override
@@ -155,7 +149,7 @@ class _SettingsUpdateViewState extends State<SettingsUpdateView> {
                     children: [
                       const Icon(Icons.new_releases, color: Colors.blueAccent, size: 20),
                       const SizedBox(width: 12),
-                      Text('Update Available: v$_newVersion', style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.bold)),
+                      Text('Update $_newVersion', style: TextStyle(color: textColor, fontSize: 14, fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 12),

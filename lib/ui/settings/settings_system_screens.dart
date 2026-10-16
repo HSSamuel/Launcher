@@ -8,6 +8,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:installed_apps/app_info.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:app_settings/app_settings.dart'; 
 
 import '../../states/system_state.dart';
 import '../../states/theme_state.dart';
@@ -15,10 +17,50 @@ import '../../states/apps_state.dart';
 import '../../services/lazy_app_icon.dart';
 import 'settings_widgets.dart';
 import '../../services/native_bridge.dart';
+import '../../services/pro_gatekeeper.dart'; 
+import 'settings_personalization_screens.dart'; 
+import 'settings_activation_screen.dart';
+import 'settings_backup_screen.dart';
 
 class SupportConfig {
   static const String supportPhone = "2348084737049";
   static const String supportEmail = "smkmayomisamuel@gmail.com";
+}
+
+// ==========================================
+// 0. SYSTEM VIEW SCREEN (Main Menu Tab)
+// ==========================================
+class SystemViewScreen extends StatelessWidget {
+  final BuildContext innerContext;
+  const SystemViewScreen({Key? key, required this.innerContext}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        children: [
+          SettingsCard(title: 'Default Launcher', subtitle: 'Set this application as your primary home screen', icon: Icons.home_filled, trailing: const SizedBox.shrink(), onTap: () => NativeBridge.instance.openSettings('home')),
+          SettingsCard(title: 'Display', subtitle: 'Monitors, brightness, night light, display profile', icon: Icons.desktop_windows_outlined, trailing: const SizedBox.shrink(), onTap: () => AppSettings.openAppSettings(type: AppSettingsType.display)),
+          
+          SettingsCard(
+            title: 'Sound', 
+            subtitle: 'Volume levels, output, input, sound device', 
+            icon: Icons.volume_up_outlined, 
+            onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const SoundSettingsScreen()))
+          ),
+          
+          SettingsCard(title: 'Notifications', subtitle: 'Alerts from apps and system', icon: Icons.notifications_none, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
+          SettingsCard(title: 'Recent apps', subtitle: 'Most used apps and games', icon: Icons.filter_none, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const RecentAppsScreen()))),
+          SettingsCard(title: 'Power & battery', subtitle: 'Sleep, battery usage, battery saver', icon: Icons.power_settings_new, trailing: const SizedBox.shrink(), onTap: () => AppSettings.openAppSettings(type: AppSettingsType.batteryOptimization)),
+          SettingsCard(title: 'Backup & Restore', subtitle: 'Save or load your launcher layout and preferences', icon: Icons.save_alt, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const BackupRestoreScreen()))),
+          SettingsCard(title: 'Activation', subtitle: 'Activation state, in app purchases, product key', icon: Icons.check_circle_outline, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const ActivationScreen()))),
+          SettingsCard(title: 'About', subtitle: 'Device specifications, rename PC, Launcher specification', icon: Icons.info_outline, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const AboutScreen()))),
+          SettingsCard(title: 'Device Support', subtitle: 'Report a bug, request new features and more', icon: Icons.devices, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const DeviceSupportScreen()))),
+        ],
+      ),
+    );
+  }
 }
 
 // ==========================================
@@ -573,15 +615,24 @@ class _AboutScreenState extends State<AboutScreen> {
             onPressed: () async {
               Navigator.pop(ctx);
               
-              // Clear standard preferences
               final prefs = await SharedPreferences.getInstance();
               await prefs.clear();
               
-              // CRITICAL FIX: Changed 'const' to 'final'
-              final storage = FlutterSecureStorage();
+              final storage = const FlutterSecureStorage();
               await storage.deleteAll();
               
-              if (mounted) SystemNavigator.pop();
+              try {
+                final dir = await getApplicationDocumentsDirectory();
+                final files = dir.listSync();
+                for (var file in files) {
+                  if (file is File && (file.path.contains('custom_wall_') || file.path.contains('custom_start_') || file.path.contains('profile_pic'))) {
+                    file.deleteSync();
+                  }
+                }
+              } catch (_) {}
+              
+              // CRITICAL FIX: Restart the JVM completely rather than merely popping the UI stack
+              NativeBridge.instance.restartApp();
             }, 
             child: const Text('Reset', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))
           ),
@@ -590,7 +641,13 @@ class _AboutScreenState extends State<AboutScreen> {
     );
   }
 
-  void _showUninstallDialog(BuildContext context, ThemeState themeState) {
+  void _showUninstallDialog(BuildContext context, ThemeState themeState) async {
+    // CRITICAL FIX: Intercept Uninstallation if Device Admin is strictly active
+    final statuses = await NativeBridge.instance.getPermissionStatuses();
+    final isAdminActive = statuses['admin'] == true;
+    
+    if (!context.mounted) return;
+
     final isDark = themeState.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
@@ -601,10 +658,19 @@ class _AboutScreenState extends State<AboutScreen> {
         backgroundColor: bgColor,
         title: Text('Uninstall Launcher?', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 16)),
         content: Text(
-          'Are you sure you want to uninstall Win11 PC Launcher from your device?\n\nNote: If this is currently set as your Default Home App, Android will block the uninstallation. Please tap "Clear Defaults" first.',
+          'Are you sure you want to uninstall Win11 PC Launcher from your device?\n\nNote: If this is currently set as your Default Home App, Android will block the uninstallation. Please tap "Clear Defaults" first.'
+          '${isAdminActive ? '\n\nIMPORTANT: Device Administration is currently ACTIVE. Android strictly prevents uninstalling Admin applications. You MUST deactivate it below before uninstalling.' : ''}',
           style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 13),
         ),
         actions: [
+          if (isAdminActive)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                NativeBridge.instance.openSettings('admin');
+              }, 
+              child: const Text('Deactivate Admin', style: TextStyle(color: Colors.orangeAccent))
+            ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -926,6 +992,119 @@ class DeviceSupportScreen extends StatelessWidget {
             icon: Icons.bug_report_outlined, 
             trailing: Icon(Icons.email_outlined, size: 20, color: iconColor), 
             onTap: () => _launchEmail('Bug Report: Win11 PC Launcher')
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 5. SOUND SETTINGS SCREEN
+// ==========================================
+class SoundSettingsScreen extends StatelessWidget {
+  const SoundSettingsScreen({Key? key}) : super(key: key);
+
+  void _showBootAnimationDialog(BuildContext context, ThemeState themeState) {
+    final isDark = themeState.isDarkMode;
+    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final accent = themeState.currentAccentColor;
+    final options = ['None', 'Windows 98 Retro', 'Windows XP Bliss', 'Windows 7 Aero'];
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: bgColor,
+          title: Text('Boot Animation', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((opt) => InkWell(
+              onTap: () {
+                themeState.setBootAnimation(opt);
+                Navigator.pop(ctx);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(opt, style: TextStyle(color: textColor, fontSize: 14))),
+                    if (themeState.bootAnimation == opt) Icon(Icons.check, color: accent, size: 18),
+                  ],
+                ),
+              ),
+            )).toList(),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)))
+          ]
+        );
+      }
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeState = context.watch<ThemeState>();
+    final isDark = themeState.isDarkMode;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: const SubScreenAppBar(title: 'System > Sound'),
+      body: ListView(
+        padding: const EdgeInsets.all(16), physics: const BouncingScrollPhysics(),
+        children: [
+          Win11SettingsGroup(
+            title: 'System Audio',
+            isDark: isDark,
+            children: [
+              Win11SettingsTile(
+                title: 'Android Sound Settings',
+                subtitle: 'Volume levels, output, input, sound device',
+                icon: Icons.volume_up_outlined,
+                isDark: isDark,
+                trailing: Icon(Icons.open_in_new, size: 20, color: textColor),
+                onTap: () => NativeBridge.instance.openSettings('sound'),
+              ),
+            ],
+          ),
+          Win11SettingsGroup(
+            title: 'Retro & Effects (Pro)',
+            isDark: isDark,
+            children: [
+              Win11SettingsTile(
+                title: 'Launcher Sounds',
+                subtitle: 'Play classic startup and system error chimes',
+                icon: Icons.speaker_group_outlined,
+                isDark: isDark,
+                isProLocked: true,
+                trailing: Transform.scale(
+                  scale: 0.85,
+                  child: Switch(
+                    value: themeState.enableSystemSounds,
+                    activeColor: themeState.currentAccentColor,
+                    onChanged: (val) {
+                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Retro System Sounds')) return;
+                      themeState.setSystemSounds(val);
+                    },
+                  ),
+                ),
+              ),
+              Win11SettingsTile(
+                title: 'Boot Animation',
+                subtitle: themeState.bootAnimation == 'None' ? 'Disabled' : themeState.bootAnimation,
+                icon: Icons.power_settings_new,
+                isDark: isDark,
+                isProLocked: true,
+                trailing: Icon(Icons.chevron_right, size: 20, color: textColor),
+                onTap: () {
+                  if (!ProGatekeeper.checkAccess(context, featureName: 'Retro Boot Animations')) return;
+                  _showBootAnimationDialog(context, themeState);
+                },
+              ),
+            ],
           ),
         ],
       ),

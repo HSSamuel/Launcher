@@ -1193,20 +1193,21 @@ class _DesktopScreenState extends State<DesktopScreen> with WidgetsBindingObserv
                               }
                             },
                             child: SizedBox.expand(
-                              key: ValueKey<String>(currentWallpaper),
-                              child: currentWallpaper == 'system'
-                                  ? const SizedBox.expand()
-                                  : (currentWallpaper.startsWith('assets/')
-                                    ? Image.asset(currentWallpaper, fit: BoxFit.cover, errorBuilder: (c, e, s) => _buildWallpaperFallback(accent, isDark))
-                                    : (currentWallpaper.startsWith('http')
-                                        ? CachedNetworkImage(imageUrl: currentWallpaper, fit: BoxFit.cover, placeholder: (c, u) => _buildWallpaperFallback(accent, isDark), errorWidget: (c, u, e) => _buildWallpaperFallback(accent, isDark))
-                                        : Image.file(
-                                            File(currentWallpaper), 
-                                            fit: BoxFit.cover, 
-                                            cacheWidth: (screenWidth * MediaQuery.of(context).devicePixelRatio).toInt(), 
-                                            errorBuilder: (c, e, s) => _buildWallpaperFallback(accent, isDark)
-                                          ))),
-                            ),
+  key: ValueKey<String>(currentWallpaper),
+  child: currentWallpaper == 'system'
+      ? const SizedBox.expand()
+      : (currentWallpaper.startsWith('assets/')
+        ? Image.asset(currentWallpaper, fit: BoxFit.cover, errorBuilder: (c, e, s) => _buildWallpaperFallback(accent, isDark))
+        : (currentWallpaper.startsWith('http')
+            ? CachedNetworkImage(imageUrl: currentWallpaper, fit: BoxFit.cover, placeholder: (c, u) => _buildWallpaperFallback(accent, isDark), errorWidget: (c, u, e) => _buildWallpaperFallback(accent, isDark))
+            : Image.file(
+                File(currentWallpaper), 
+                fit: BoxFit.cover, 
+                // CRITICAL FIX: Removed cacheWidth. Let the engine decode the full 
+                // image so BoxFit.cover can frame and center it flawlessly.
+                errorBuilder: (c, e, s) => _buildWallpaperFallback(accent, isDark)
+              ))),
+),
                           ),
                         ),
                       ),

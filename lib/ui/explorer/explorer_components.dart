@@ -461,9 +461,10 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
   bool _isQuickAccessExpanded = true;
   bool _isThisPCExpanded = true;
 
+  // CRITICAL FIX: Changed from 'delete' to 'mouse'
   void _playNavSound() {
     if (context.read<DesktopState>().mouseSound) {
-      NativeBridge.instance.playSound('delete');
+      NativeBridge.instance.playSound('mouse');
     }
   }
 
@@ -594,12 +595,12 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
         child: Stack(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              padding: const EdgeInsets.only(left: 4, right: 0, top: 6, bottom: 6),
               child: Row(
                 children: [
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Icon(icon, color: color, size: 16),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -617,7 +618,7 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
                         if (isConnected && cloudState.currentUserEmail != null)
                           Text(
                             cloudState.currentUserEmail!,
-                            style: const TextStyle(fontSize: 9.5, color: Colors.blueAccent),
+                            style: const TextStyle(fontSize: 10, color: Colors.blueAccent),
                             overflow: TextOverflow.ellipsis,
                           ),
                       ],
@@ -625,9 +626,11 @@ class _ExplorerSidebarState extends State<ExplorerSidebar> {
                   ),
                   if (isConnected)
                     PopupMenuButton<String>(
-                      icon: Icon(Icons.more_vert, size: 14, color: textColor),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Icon(Icons.more_vert, size: 16, color: textColor),
+                      ),
                       padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
                       color: widget.isDark ? const Color(0xFF2B2B2B) : Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                       onSelected: (val) async {

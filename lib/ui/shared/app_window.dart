@@ -274,9 +274,19 @@ class _AppWindowState extends State<AppWindow> {
                           ),
                         ),
                       Expanded(
-                        child: Container(
-                          color: widget.isMaximized ? Colors.transparent : contentBgColor, 
-                          child: windowContent
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(
+                              color: widget.isMaximized ? Colors.transparent : contentBgColor, 
+                              child: windowContent
+                            ),
+                            // CRITICAL FIX: Blocks Platform Views from stealing pointer interactions during global drag
+                            if (_isDragging)
+                              Positioned.fill(
+                                child: Container(color: Colors.transparent),
+                              ),
+                          ],
                         ),
                       ),
                     ],

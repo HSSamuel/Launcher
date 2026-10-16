@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart'; 
 import 'package:path_provider/path_provider.dart';
 
 import '../../states/theme_state.dart';
@@ -212,12 +213,14 @@ class ThemesScreen extends StatelessWidget {
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
 
+    // Classic Windows 48-Color Palette
     final List<Color> customColors = [
-      Colors.black, Colors.white, Colors.grey.shade700, Colors.blueGrey, Colors.brown,
-      Colors.red, Colors.deepOrange, Colors.orange, Colors.amber, Colors.yellow.shade700,
-      Colors.lime, Colors.lightGreen, Colors.green, Colors.teal, Colors.cyan,
-      Colors.lightBlue, Colors.blue, Colors.indigo, Colors.deepPurple, Colors.purple,
-      Colors.pink, const Color(0xFFE57373), const Color(0xFF4DB6AC), const Color(0xFF7986CB),
+      const Color(0xFFFF8080), const Color(0xFFFFFF80), const Color(0xFF80FF80), const Color(0xFF00FF80), const Color(0xFF80FFFF), const Color(0xFF0080FF), const Color(0xFFFF80C0), const Color(0xFFFF80FF),
+      const Color(0xFFFF0000), const Color(0xFFFFFF00), const Color(0xFF80FF00), const Color(0xFF00FF00), const Color(0xFF00FFFF), const Color(0xFF0080C0), const Color(0xFF8080C0), const Color(0xFFFF00FF),
+      const Color(0xFF804040), const Color(0xFFFF8040), const Color(0xFF00FF40), const Color(0xFF008080), const Color(0xFF004080), const Color(0xFF8080FF), const Color(0xFF800040), const Color(0xFFFF0080),
+      const Color(0xFF800000), const Color(0xFFFF8000), const Color(0xFF008000), const Color(0xFF008040), const Color(0xFF0000FF), const Color(0xFF0000A0), const Color(0xFF800080), const Color(0xFF8000FF),
+      const Color(0xFF400000), const Color(0xFF804000), const Color(0xFF004000), const Color(0xFF004040), const Color(0xFF000080), const Color(0xFF000040), const Color(0xFF400040), const Color(0xFF400080),
+      const Color(0xFF000000), const Color(0xFF808000), const Color(0xFF808040), const Color(0xFF808080), const Color(0xFF408080), const Color(0xFFC0C0C0), const Color(0xFF300030), const Color(0xFFFFFFFF),
     ];
 
     bool isClosing = false;
@@ -229,12 +232,12 @@ class ThemesScreen extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         title: Text('Pick Accent Color', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
         content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 280, maxHeight: 220),
+          constraints: const BoxConstraints(maxWidth: 380, maxHeight: 320),
           child: GridView.builder(
             shrinkWrap: true,
             physics: const BouncingScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 6, crossAxisSpacing: 12, mainAxisSpacing: 12,
+              crossAxisCount: 8, crossAxisSpacing: 6, mainAxisSpacing: 6,
             ),
             itemCount: customColors.length,
             itemBuilder: (context, index) {
@@ -249,19 +252,23 @@ class ThemesScreen extends StatelessWidget {
                     onTap: () {
                       if (isClosing) return;
                       isClosing = true;
+                      
                       themeState.setManualAccentColor(color);
+                      context.read<DesktopState>().setTaskbarColorStyle('default');
+                      
                       Future.delayed(const Duration(milliseconds: 150), () {
                         if (ctx.mounted) Navigator.pop(ctx);
                       });
                     },
                     child: Container(
                       decoration: BoxDecoration(
-                        color: color, shape: BoxShape.circle,
+                        color: color, 
+                        borderRadius: BorderRadius.circular(4), 
                         border: Border.all(
                           color: isSelected ? (isDark ? Colors.white : Colors.black87) : defaultBorder, 
                           width: isSelected ? 2.5 : 1.0
                         ),
-                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2, offset: Offset(1, 1))],
                       ),
                       child: isSelected ? Icon(Icons.check, color: checkColor, size: 16) : null,
                     ),
@@ -522,7 +529,18 @@ class _IconPackScreenState extends State<IconPackScreen> {
                     onTap: () async { 
                       await themeState.setIconPack(null); 
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Restored Default Icons'))); 
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Restored Default Icons', textAlign: TextAlign.center),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            margin: EdgeInsets.only(
+                              bottom: MediaQuery.of(context).size.height / 2 - 24,
+                              left: 32,
+                              right: 32,
+                            ),
+                          )
+                        ); 
                       }
                     },
                   ),
@@ -545,11 +563,35 @@ class _IconPackScreenState extends State<IconPackScreen> {
                         onTap: () async { 
                           if (!ProGatekeeper.checkAccess(context, featureName: 'Custom Icon Packs')) return;
                           
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Applying ${pack['name']}...'))); 
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Applying ${pack['name']}...', textAlign: TextAlign.center),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              margin: EdgeInsets.only(
+                                bottom: MediaQuery.of(context).size.height / 2 - 24,
+                                left: 32, 
+                                right: 32,
+                              ),
+                            )
+                          ); 
+                          
                           await themeState.setIconPack(pack['package']); 
+                          
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${pack['name']} Successfully Applied!')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('${pack['name']} Successfully Applied!', textAlign: TextAlign.center),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                margin: EdgeInsets.only(
+                                  bottom: MediaQuery.of(context).size.height / 2 - 24,
+                                  left: 32, 
+                                  right: 32,
+                                ),
+                              )
+                            );
                           }
                         },
                       );
@@ -612,24 +654,64 @@ class BackgroundScreen extends StatelessWidget {
             isDark: isDark,
             children: [
               Win11SettingsTile(
-                title: 'Custom Wallpaper', subtitle: 'Pick a personal image from your gallery', icon: Icons.image_outlined, isDark: isDark,
+                title: 'Custom Wallpaper', 
+                subtitle: 'Pick and crop an image from your gallery', 
+                icon: Icons.image_outlined, 
+                isDark: isDark,
                 trailing: Icon(Icons.photo_library, size: 20, color: textColor),
                 onTap: () async {
                   final picker = ImagePicker();
-                  final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 2560, maxHeight: 1440);
-                  if (image != null) {
-                    final dir = await getApplicationDocumentsDirectory();
-                    final File newWall = File('${dir.path}/custom_wall_${DateTime.now().millisecondsSinceEpoch}.jpg');
-                    await File(image.path).copy(newWall.path);
-                    themeState.changeWallpaper(newWall.path);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('Custom wallpaper applied! Slideshow paused.', textAlign: TextAlign.center), 
-                          behavior: SnackBarBehavior.floating,
-                          margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
-                        )
-                      );
+                  final XFile? image = await picker.pickImage(
+                    source: ImageSource.gallery, 
+                    imageQuality: 100
+                  );
+                  
+                  if (image != null && context.mounted) {
+                    final screenWidth = MediaQuery.of(context).size.width;
+                    final screenHeight = MediaQuery.of(context).size.height;
+
+                    final croppedFile = await ImageCropper().cropImage(
+                      sourcePath: image.path,
+                      aspectRatio: CropAspectRatio(ratioX: screenWidth, ratioY: screenHeight),
+                      uiSettings: [
+                        AndroidUiSettings(
+                          toolbarTitle: 'Crop Wallpaper',
+                          toolbarColor: isDark ? const Color(0xFF191919) : Colors.white,
+                          toolbarWidgetColor: isDark ? Colors.white : Colors.black87,
+                          activeControlsWidgetColor: themeState.currentAccentColor,
+                          initAspectRatio: CropAspectRatioPreset.original,
+                          lockAspectRatio: true,
+                          hideBottomControls: false,
+                        ),
+                      ],
+                    );
+
+                    if (croppedFile != null) {
+                      // CRITICAL FIX: Safe path and strict cache deletion for image_cropper files
+                      final dir = await getApplicationDocumentsDirectory();
+                      final File newWall = File('${dir.path}/custom_wallpaper_active.jpg');
+                      
+                      if (await newWall.exists()) {
+                        await newWall.delete();
+                      }
+                      
+                      try {
+                        await File(croppedFile.path).copy(newWall.path);
+                        themeState.changeWallpaper(newWall.path);
+                        
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('Custom wallpaper applied! Slideshow paused.', textAlign: TextAlign.center), 
+                              behavior: SnackBarBehavior.floating,
+                              margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+                            )
+                          );
+                        }
+                      } finally {
+                        File(croppedFile.path).delete().ignore();
+                        File(image.path).delete().ignore();
+                      }
                     }
                   }
                 },
@@ -693,52 +775,12 @@ class BackgroundScreen extends StatelessWidget {
 class StartSettingsScreen extends StatelessWidget {
   const StartSettingsScreen({Key? key}) : super(key: key);
 
-  void _showBootAnimationDialog(BuildContext context, ThemeState themeState) {
-    final isDark = themeState.isDarkMode;
-    final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final accent = themeState.currentAccentColor;
-    final options = ['None', 'Windows 98 Retro', 'Windows XP Bliss', 'Windows 7 Aero'];
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: bgColor,
-          title: Text('Boot Animation', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: options.map((opt) => InkWell(
-              onTap: () {
-                themeState.setBootAnimation(opt);
-                Navigator.pop(ctx);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(opt, style: TextStyle(color: textColor, fontSize: 14))),
-                    if (themeState.bootAnimation == opt) Icon(Icons.check, color: accent, size: 18),
-                  ],
-                ),
-              ),
-            )).toList(),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)))
-          ]
-        );
-      }
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final desktopState = context.watch<DesktopState>();
     final themeState = context.watch<ThemeState>();
     final isDark = themeState.isDarkMode;
     final accent = themeState.currentAccentColor;
-    final textColor = isDark ? Colors.white : Colors.black87;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -756,42 +798,6 @@ class StartSettingsScreen extends StatelessWidget {
                   scale: 0.85, 
                   child: Switch(value: desktopState.showRecentlyAdded, activeColor: accent, onChanged: (val) => desktopState.setStartMenuOptions(recentlyAdded: val))
                 ),
-              ),
-            ],
-          ),
-          Win11SettingsGroup(
-            title: 'Retro & Effects (Pro)',
-            isDark: isDark,
-            children: [
-              Win11SettingsTile(
-                title: 'System Sounds',
-                subtitle: 'Play classic startup and system error chimes',
-                icon: Icons.speaker_group_outlined,
-                isDark: isDark,
-                isProLocked: true,
-                trailing: Transform.scale(
-                  scale: 0.85,
-                  child: Switch(
-                    value: themeState.enableSystemSounds,
-                    activeColor: themeState.currentAccentColor,
-                    onChanged: (val) {
-                      if (val && !ProGatekeeper.checkAccess(context, featureName: 'Retro System Sounds')) return;
-                      themeState.setSystemSounds(val);
-                    },
-                  ),
-                ),
-              ),
-              Win11SettingsTile(
-                title: 'Boot Animation',
-                subtitle: themeState.bootAnimation == 'None' ? 'Disabled' : themeState.bootAnimation,
-                icon: Icons.power_settings_new,
-                isDark: isDark,
-                isProLocked: true,
-                trailing: Icon(Icons.chevron_right, size: 20, color: textColor),
-                onTap: () {
-                  if (!ProGatekeeper.checkAccess(context, featureName: 'Retro Boot Animations')) return;
-                  _showBootAnimationDialog(context, themeState);
-                },
               ),
             ],
           ),
@@ -883,37 +889,84 @@ class TaskbarScreen extends StatelessWidget {
     final isDark = themeState.isDarkMode;
     final bgColor = isDark ? const Color(0xFF2B2B2B) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
-    
-    Widget _colorMenuItem(String label, String value) {
-      final isSelected = desktopState.taskbarColorStyle == value;
-      return ListTile(
-        title: Text(label, style: TextStyle(color: textColor, fontSize: 14)),
-        leading: Icon(isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked, color: isSelected ? themeState.currentAccentColor : textColor.withOpacity(0.7)),
-        onTap: () {
-          desktopState.setTaskbarColorStyle(value);
-          Navigator.pop(context);
-        },
-      );
-    }
+
+    final List<Color> customColors = [
+      const Color(0xFFFF8080), const Color(0xFFFFFF80), const Color(0xFF80FF80), const Color(0xFF00FF80), const Color(0xFF80FFFF), const Color(0xFF0080FF), const Color(0xFFFF80C0), const Color(0xFFFF80FF),
+      const Color(0xFFFF0000), const Color(0xFFFFFF00), const Color(0xFF80FF00), const Color(0xFF00FF00), const Color(0xFF00FFFF), const Color(0xFF0080C0), const Color(0xFF8080C0), const Color(0xFFFF00FF),
+      const Color(0xFF804040), const Color(0xFFFF8040), const Color(0xFF00FF40), const Color(0xFF008080), const Color(0xFF004080), const Color(0xFF8080FF), const Color(0xFF800040), const Color(0xFFFF0080),
+      const Color(0xFF800000), const Color(0xFFFF8000), const Color(0xFF008000), const Color(0xFF008040), const Color(0xFF0000FF), const Color(0xFF0000A0), const Color(0xFF800080), const Color(0xFF8000FF),
+      const Color(0xFF400000), const Color(0xFF804000), const Color(0xFF004000), const Color(0xFF004040), const Color(0xFF000080), const Color(0xFF000040), const Color(0xFF400040), const Color(0xFF400080),
+      const Color(0xFF000000), const Color(0xFF808000), const Color(0xFF808040), const Color(0xFF808080), const Color(0xFF408080), const Color(0xFFC0C0C0), const Color(0xFF300030), const Color(0xFFFFFFFF),
+    ];
+
+    bool isClosing = false;
 
     showDialog(
-      context: context, 
+      context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: bgColor, 
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), 
-        title: Text('Taskbar Color Theme', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)), 
-        content: Column(
-          mainAxisSize: MainAxisSize.min, 
-          children: [
-            _colorMenuItem('Default (Accent Blended)', 'default'),
-            _colorMenuItem('Pure Black', 'black'),
-            _colorMenuItem('Translucent Dark', 'dark'),
-            _colorMenuItem('Pure White', 'white'),
-            _colorMenuItem('Translucent Light', 'light'),
-            _colorMenuItem('Transparent', 'transparent'),
-          ]
-        )
-      )
+        backgroundColor: bgColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        title: Text('Taskbar Color Theme', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380, maxHeight: 320),
+          child: Consumer<DesktopState>(
+            builder: (context, currentDesktopState, _) {
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const BouncingScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 8, crossAxisSpacing: 6, mainAxisSpacing: 6,
+                ),
+                itemCount: customColors.length,
+                itemBuilder: (context, index) {
+                  final color = customColors[index];
+                  final isSelected = currentDesktopState.taskbarColorStyle == color.value.toString();
+                  final checkColor = color.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+                  final defaultBorder = isDark ? Colors.white30 : Colors.black26;
+
+                  return InkWell(
+                    onTap: () {
+                      if (isClosing) return;
+                      isClosing = true;
+                      
+                      currentDesktopState.setTaskbarColorStyle(color.value.toString());
+                      
+                      Future.delayed(const Duration(milliseconds: 150), () {
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      });
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: color, 
+                        borderRadius: BorderRadius.circular(4), 
+                        border: Border.all(
+                          color: isSelected ? (isDark ? Colors.white : Colors.black87) : defaultBorder, 
+                          width: isSelected ? 2.5 : 1.0
+                        ),
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2, offset: Offset(1, 1))],
+                      ),
+                      child: isSelected ? Icon(Icons.check, color: checkColor, size: 16) : null,
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              desktopState.setTaskbarColorStyle('default');
+              Navigator.pop(ctx);
+            },
+            child: Text('Reset to Default', style: TextStyle(color: isDark ? Colors.white70 : Colors.black54)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.blueAccent)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -998,6 +1051,10 @@ class TaskbarScreen extends StatelessWidget {
     final isDark = themeState.isDarkMode;
     final textColor = isDark ? Colors.white : Colors.black87;
     final borderColor = isDark ? Colors.white12 : Colors.grey.shade300;
+    
+    final Color? currentTaskbarColor = int.tryParse(desktopState.taskbarColorStyle) != null 
+        ? Color(int.parse(desktopState.taskbarColorStyle)) 
+        : null;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -1023,16 +1080,18 @@ class TaskbarScreen extends StatelessWidget {
               ),
               Win11SettingsTile(
                 title: 'Taskbar Color Theme', 
-                subtitle: 'Change the background style of the taskbar', 
+                subtitle: 'Change the solid background color of the taskbar', 
                 icon: Icons.color_lens_outlined, 
                 isDark: isDark,
                 trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6), 
-                  decoration: BoxDecoration(border: Border.all(color: borderColor), borderRadius: BorderRadius.circular(6)), 
-                  child: Text(
-                    desktopState.taskbarColorStyle.toUpperCase(), 
-                    style: TextStyle(color: textColor, fontSize: 12, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis
-                  )
+                  width: 24, height: 24,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: currentTaskbarColor ?? (isDark ? Colors.black54 : Colors.grey.shade300),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: borderColor)
+                  ),
+                  child: currentTaskbarColor == null ? Icon(Icons.auto_awesome, size: 14, color: textColor) : null,
                 ), 
                 onTap: () => _showColorStyleDialog(context, desktopState, themeState)
               ),
@@ -1096,7 +1155,12 @@ class TaskbarScreen extends StatelessWidget {
                               SnackBar(
                                 content: const Text('Restored default Start icon', textAlign: TextAlign.center),
                                 behavior: SnackBarBehavior.floating,
-                                margin: EdgeInsets.only(bottom: MediaQuery.of(context).size.height / 2 - 24, left: 32, right: 32),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                margin: EdgeInsets.only(
+                                  bottom: MediaQuery.of(context).size.height / 2 - 24,
+                                  left: 32,
+                                  right: 32,
+                                ),
                               )
                             );
                           },
@@ -1128,12 +1192,32 @@ class TaskbarScreen extends StatelessWidget {
                   final picker = ImagePicker();
                   final XFile? image = await picker.pickImage(source: ImageSource.gallery);
                   if (image != null) {
+                    // CRITICAL FIX: Safe path and strict cache deletion for custom start icon
                     final dir = await getApplicationDocumentsDirectory();
-                    final File newIcon = File('${dir.path}/custom_start_icon_${DateTime.now().millisecondsSinceEpoch}.png');
-                    await File(image.path).copy(newIcon.path);
-                    await desktopState.setCustomStartIcon(newIcon.path);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Custom Start icon applied!')));
+                    final File newIcon = File('${dir.path}/custom_start_icon_active.png');
+                    if (await newIcon.exists()) {
+                      await newIcon.delete();
+                    }
+                    
+                    try {
+                      await File(image.path).copy(newIcon.path);
+                      await desktopState.setCustomStartIcon(newIcon.path);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Custom Start icon applied!', textAlign: TextAlign.center),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            margin: EdgeInsets.only(
+                              bottom: MediaQuery.of(context).size.height / 2 - 24,
+                              left: 32,
+                              right: 32,
+                            ),
+                          )
+                        );
+                      }
+                    } finally {
+                      File(image.path).delete().ignore();
                     }
                   }
                 }

@@ -34,7 +34,6 @@ class _SettingsAppState extends State<SettingsApp> {
   
   AppsState? _appsState;
   
-  // FIX: Defaults to 0 (System) to match native Windows 11 behavior
   int _selectedIndex = 0; 
   
   final TextEditingController _searchController = TextEditingController();
@@ -85,7 +84,6 @@ class _SettingsAppState extends State<SettingsApp> {
   void _onCategorySelected(int index, bool isCompact) {
     setState(() => _selectedIndex = index);
     if (_nestedNavKey.currentState != null) {
-      // Clear out any pushed sub-routes (such as ActivationScreen) so the selected category root displays immediately
       _nestedNavKey.currentState!.pushAndRemoveUntil(
         PageRouteBuilder(
           transitionDuration: Duration.zero,
@@ -143,7 +141,8 @@ class _SettingsAppState extends State<SettingsApp> {
 
             _onCategorySelected(catIndex, isCompact);
 
-            Future.delayed(const Duration(milliseconds: 250), () {
+            // CRITICAL FIX: Safe execution mapping without fixed latency
+            WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && _nestedNavKey.currentContext != null) {
                 final nestedCtx = _nestedNavKey.currentContext!;
                 onTapAction(nestedCtx);
@@ -389,33 +388,6 @@ class _SettingsAppState extends State<SettingsApp> {
                 ),
         );
       },
-    );
-  }
-}
-
-// --- MISSING SETTINGS SCREENS DECLARED HERE ---
-class SystemViewScreen extends StatelessWidget {
-  final BuildContext innerContext;
-  const SystemViewScreen({Key? key, required this.innerContext}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Column(
-        children: [
-          SettingsCard(title: 'Default Launcher', subtitle: 'Set this application as your primary home screen', icon: Icons.home_filled, trailing: const SizedBox.shrink(), onTap: () => NativeBridge.instance.openSettings('home')),
-          SettingsCard(title: 'Display', subtitle: 'Monitors, brightness, night light, display profile', icon: Icons.desktop_windows_outlined, trailing: const SizedBox.shrink(), onTap: () => AppSettings.openAppSettings(type: AppSettingsType.display)),
-          SettingsCard(title: 'Sound', subtitle: 'Volume levels, output, input, sound device', icon: Icons.volume_up_outlined, trailing: const SizedBox.shrink(), onTap: () => NativeBridge.instance.openSettings('sound')),
-          SettingsCard(title: 'Notifications', subtitle: 'Alerts from apps and system', icon: Icons.notifications_none, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
-          SettingsCard(title: 'Recent apps', subtitle: 'Most used apps and games', icon: Icons.filter_none, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const RecentAppsScreen()))),
-          SettingsCard(title: 'Power & battery', subtitle: 'Sleep, battery usage, battery saver', icon: Icons.power_settings_new, trailing: const SizedBox.shrink(), onTap: () => AppSettings.openAppSettings(type: AppSettingsType.batteryOptimization)),
-          SettingsCard(title: 'Backup & Restore', subtitle: 'Save or load your launcher layout and preferences', icon: Icons.save_alt, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const BackupRestoreScreen()))),
-          SettingsCard(title: 'Activation', subtitle: 'Activation state, in app purchases, product key', icon: Icons.check_circle_outline, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const ActivationScreen()))),
-          SettingsCard(title: 'About', subtitle: 'Device specifications, rename PC, Launcher specification', icon: Icons.info_outline, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const AboutScreen()))),
-          SettingsCard(title: 'Device Support', subtitle: 'Report a bug, request new features and more', icon: Icons.devices, onTap: () => Navigator.push(innerContext, MaterialPageRoute(builder: (_) => const DeviceSupportScreen()))),
-        ],
-      ),
     );
   }
 }

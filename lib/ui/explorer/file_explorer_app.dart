@@ -34,14 +34,18 @@ List<FileItem> _isolateProcessFiles(Map<String, dynamic> args) {
   final bool showHidden = args['showHidden'] as bool;
 
   List<FileItem> filtered = rawFiles.where((f) {
-    // Dynamically filter out ghost files deleted by external apps
-    try {
-      if (f.isDir) {
-        if (!Directory(f.path).existsSync()) return false;
-      } else {
-        if (!File(f.path).existsSync()) return false;
+    if (!f.path.startsWith('virtual_')) {
+      try {
+        if (f.isDir) {
+          if (!Directory(f.path).existsSync()) return false;
+        } else {
+          final file = File(f.path);
+          if (!file.existsSync()) return false;
+        }
+      } catch (_) {
+        return false;
       }
-    } catch (_) {}
+    }
 
     final name = f.path.split('/').last;
     if (!showHidden && name.startsWith('.')) return false;
@@ -332,18 +336,19 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   Future<void> _initExplorer() async {
     try {
       final extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        _rootPath = extDir.path.split('/Android')[0];
-        final binDir = Directory('$_rootPath/.Win11RecycleBin');
-        if (!binDir.existsSync()) {
-          binDir.createSync(recursive: true);
-          File('${binDir.path}/.nomedia').createSync();
-        }
-        _recycleBinPath = binDir.path;
+      // CRITICAL FIX: Safe path derivation for robust scoped storage root lookups
+      if (extDir != null && extDir.path.contains('/Android')) {
+        _rootPath = extDir.path.substring(0, extDir.path.indexOf('/Android'));
       } else {
         _rootPath = '/storage/emulated/0';
-        _recycleBinPath = '$_rootPath/.Win11RecycleBin';
       }
+      
+      final binDir = Directory('$_rootPath/.Win11RecycleBin');
+      if (!binDir.existsSync()) {
+        binDir.createSync(recursive: true);
+        File('${binDir.path}/.nomedia').createSync();
+      }
+      _recycleBinPath = binDir.path;
     } catch (_) {
       _rootPath = '/storage/emulated/0';
       _recycleBinPath = '$_rootPath/.Win11RecycleBin';
@@ -410,7 +415,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
     final isDark = context.watch<ThemeState>().isDarkMode;
     if (_lastThemeDark != isDark) {
       _lastThemeDark = isDark;
-      _updateStatusBar(isDark);
+      _evaluateStatusBarState();
     }
   }
 
@@ -430,11 +435,24 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (_lastThemeDark != null) {
-        _updateStatusBar(_lastThemeDark!);
-      }
+      _evaluateStatusBarState();
       _checkPermissionAndPrompt();
       _fetchStorageStats();
+    }
+  }
+
+  // CRITICAL FIX: Bind Status bar UI strictly to Window focus state
+  void _evaluateStatusBarState() {
+    if (_appsState == null || _lastThemeDark == null) return;
+    
+    final isFocused = _appsState!.windowStack.isNotEmpty && 
+                      _appsState!.windowStack.last == 'explorer' && 
+                      !_appsState!.minimizedApps.contains('explorer');
+                      
+    if (isFocused) {
+      _updateStatusBar(_lastThemeDark!);
+    } else {
+      _restoreTransparentStatusBar();
     }
   }
 
@@ -524,7 +542,7 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
         } else if (!_isAtHome) {
           await _loadDirectory(_currentDir, isSilentRefresh: true);
         }
-        _prewarmLibraries(); 
+        // CRITICAL FIX: Removed Unbounded Global Prewarming
       }
     }
   }
@@ -599,17 +617,6 @@ class FileExplorerAppState extends State<FileExplorerApp> with WidgetsBindingObs
       return true;
     }
     return false;
-  }
-
-  void _prewarmLibraries() async {
-    await Future.delayed(const Duration(seconds: 5));
-    const categories = ['Pictures', 'Documents', 'Music', 'Videos'];
-    for (final cat in categories) {
-      if (!_globalLibraryCache.containsKey(cat)) {
-        await _fetchLibraryInBackground(cat);
-        await Future.delayed(const Duration(milliseconds: 500));
-      }
-    }
   }
 
   String? _detectLibraryCategory(String path) {

@@ -17,7 +17,10 @@ class SettingsRepository {
     // System Category (0)
     {'categoryIndex': 0, 'title': 'Default Launcher', 'subtitle': 'Set this application as your primary home screen', 'icon': Icons.home_filled, 'onTap': (BuildContext ctx) => NativeBridge.instance.openSettings('home')},
     {'categoryIndex': 0, 'title': 'Display', 'subtitle': 'Monitors, brightness, night light, display profile', 'icon': Icons.desktop_windows_outlined, 'onTap': (BuildContext ctx) => AppSettings.openAppSettings(type: AppSettingsType.display)},
-    {'categoryIndex': 0, 'title': 'Sound', 'subtitle': 'Volume levels, output, input, sound device', 'icon': Icons.volume_up_outlined, 'onTap': (BuildContext ctx) => NativeBridge.instance.openSettings('sound')},
+    
+    // CRITICAL FIX: Updated Sound mapping to route to the new internal SoundSettingsScreen
+    {'categoryIndex': 0, 'title': 'Sound', 'subtitle': 'Volume levels, output, input, sound device', 'icon': Icons.volume_up_outlined, 'onTap': (BuildContext ctx) => Navigator.push(ctx, MaterialPageRoute(builder: (_) => const SoundSettingsScreen()))},
+    
     {'categoryIndex': 0, 'title': 'Notifications', 'subtitle': 'Alerts from apps and system', 'icon': Icons.notifications_none, 'onTap': (BuildContext ctx) => Navigator.push(ctx, MaterialPageRoute(builder: (_) => const NotificationsScreen()))},
     {'categoryIndex': 0, 'title': 'Recent apps', 'subtitle': 'Most used apps and games', 'icon': Icons.filter_none, 'onTap': (BuildContext ctx) => Navigator.push(ctx, MaterialPageRoute(builder: (_) => const RecentAppsScreen()))},
     {'categoryIndex': 0, 'title': 'Power & battery', 'subtitle': 'Sleep, battery usage, battery saver', 'icon': Icons.power_settings_new, 'onTap': (BuildContext ctx) => AppSettings.openAppSettings(type: AppSettingsType.batteryOptimization)},

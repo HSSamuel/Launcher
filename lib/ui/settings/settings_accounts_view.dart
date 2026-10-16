@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_cropper/image_cropper.dart';
 
 import '../../states/theme_state.dart';
 import '../../states/system_state.dart';
@@ -220,15 +222,55 @@ class YourInfoScreen extends StatelessWidget {
               final picker = ImagePicker();
               final XFile? image = await picker.pickImage(
                 source: ImageSource.gallery,
-                maxWidth: 256,
-                maxHeight: 256,
-                imageQuality: 70,
+                imageQuality: 100, 
               );
-              if (image != null) {
-                final bytes = await image.readAsBytes();
-                systemState.saveProfile(systemState.userName, bytes);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile picture updated!')));
+              
+              if (image != null && context.mounted) {
+                final croppedFile = await ImageCropper().cropImage(
+                  sourcePath: image.path,
+                  aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1), 
+                  uiSettings: [
+                    AndroidUiSettings(
+                      toolbarTitle: 'Crop Profile Picture',
+                      toolbarColor: isDark ? const Color(0xFF191919) : Colors.white,
+                      toolbarWidgetColor: isDark ? Colors.white : Colors.black87,
+                      activeControlsWidgetColor: themeState.currentAccentColor,
+                      initAspectRatio: CropAspectRatioPreset.square,
+                      lockAspectRatio: true,
+                      hideBottomControls: false,
+                      cropStyle: CropStyle.circle, 
+                    ),
+                    IOSUiSettings(
+                      title: 'Crop Profile Picture',
+                      cropStyle: CropStyle.circle,
+                      aspectRatioLockEnabled: true,
+                    ),
+                  ],
+                );
+
+                if (croppedFile != null) {
+                  // CRITICAL FIX: Wrap reading in try/finally to garbage collect temporary image cache
+                  try {
+                    final bytes = await File(croppedFile.path).readAsBytes();
+                    systemState.saveProfile(systemState.userName, bytes);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('Profile picture updated!', textAlign: TextAlign.center),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          margin: EdgeInsets.only(
+                            bottom: MediaQuery.of(context).size.height / 2 - 24,
+                            left: 48,
+                            right: 48,
+                          ),
+                        ),
+                      );
+                    }
+                  } finally {
+                    File(croppedFile.path).delete().ignore();
+                    File(image.path).delete().ignore();
+                  }
                 }
               }
             },

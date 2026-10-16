@@ -34,6 +34,7 @@ class StartMenu extends StatefulWidget {
 class _StartMenuState extends State<StartMenu> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _listScrollController = ScrollController();
+  final FocusNode _searchFocusNode = FocusNode(); 
   String _searchQuery = '';
   
   Timer? _searchDebounce;
@@ -42,13 +43,12 @@ class _StartMenuState extends State<StartMenu> {
   bool _isPinnedExpanded = false;
   bool _showAlphabetGrid = false;
 
-  // State variable to hold search results without blocking the build method
   List<AppInfo> _currentSearchApps = [];
 
-  // Memoized cache for the A-Z list to avoid O(N) calculations in build()
   List<Map<String, dynamic>> _cachedFlattenedList = [];
   Map<String, double> _cachedLetterOffsets = {};
-  int _lastAppCount = 0;
+  
+  int _lastAppHash = 0;
 
   @override
   void initState() {
@@ -62,6 +62,7 @@ class _StartMenuState extends State<StartMenu> {
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _listScrollController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -94,9 +95,11 @@ class _StartMenuState extends State<StartMenu> {
   }
 
   void _buildAlphabetCache(AppsState appsState, DesktopState desktopState) {
-    if (_lastAppCount == appsState.installedApps.length && _cachedFlattenedList.isNotEmpty) return;
+    final int currentHash = Object.hashAll(appsState.installedApps.map((e) => '${e.packageName}_${e.name}'));
     
-    _lastAppCount = appsState.installedApps.length;
+    if (_lastAppHash == currentHash && _cachedFlattenedList.isNotEmpty) return;
+    
+    _lastAppHash = currentHash;
     _cachedFlattenedList = [];
     _cachedLetterOffsets = {};
     double currentOffset = 0.0;
@@ -140,7 +143,7 @@ class _StartMenuState extends State<StartMenu> {
       if (group.isNotEmpty) {
         _cachedLetterOffsets[letter] = currentOffset;
         _cachedFlattenedList.add({'type': 'letter', 'text': letter});
-        currentOffset += 42.0; // matched to _buildLetterHeader height
+        currentOffset += 42.0; 
         
         for (var app in group) {
           _cachedFlattenedList.add({'type': 'app', 'data': app});
@@ -156,9 +159,23 @@ class _StartMenuState extends State<StartMenu> {
   }
 
   void _showToast(String message) {
+    if (!mounted) return;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, style: const TextStyle(fontSize: 13)), duration: const Duration(seconds: 1)),
+      SnackBar(
+        content: Text(message, style: const TextStyle(fontSize: 13), textAlign: TextAlign.center), 
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        // Pushes the toast exactly to the center of the screen
+        margin: EdgeInsets.only(
+          bottom: screenHeight / 2 - 24,
+          left: 32,
+          right: 32,
+        ),
+      ),
     );
   }
 
@@ -247,6 +264,7 @@ class _StartMenuState extends State<StartMenu> {
             StartMenuContext.showAppContextMenu(
               ctx,
               pos,
+              box.size,
               app,
               themeState,
               appsState,
@@ -320,6 +338,7 @@ class _StartMenuState extends State<StartMenu> {
               StartMenuContext.showAppContextMenu(
                 ctx,
                 pos,
+                box.size,
                 app,
                 themeState,
                 appsState,
@@ -399,6 +418,7 @@ class _StartMenuState extends State<StartMenu> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         child: GridView.builder(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
           physics: const ClampingScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 6,
@@ -611,6 +631,7 @@ class _StartMenuState extends State<StartMenu> {
                       ),
                     )
                   : GridView.builder(
+                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
                       physics: const BouncingScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
@@ -712,6 +733,7 @@ class _StartMenuState extends State<StartMenu> {
     return Expanded(
       child: RepaintBoundary(
         child: GridView.builder(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           physics: const ClampingScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -764,7 +786,6 @@ class _StartMenuState extends State<StartMenu> {
     final secText = isDark ? Colors.white70 : Colors.grey.shade600;
     final borderColor = isDark ? Colors.white24 : Colors.grey.shade300;
     
-    // Inner elements to the transparency setting
     final bool useTrans = themeState.transparencyEffects;
     final searchBg = isDark ? const Color(0xFF333333).withOpacity(useTrans ? 0.6 : 1.0) : Colors.white.withOpacity(useTrans ? 0.6 : 1.0);
     final bottomBarBg = isDark ? const Color(0xFF1E1E1E).withOpacity(useTrans ? 0.4 : 1.0) : const Color(0xFFE5E5E5).withOpacity(useTrans ? 0.4 : 1.0);
@@ -802,6 +823,13 @@ class _StartMenuState extends State<StartMenu> {
                   height: 38,
                   child: TextField(
                     controller: _searchController,
+                    focusNode: _searchFocusNode, 
+                    autofocus: false, 
+                    onTap: () {
+                      if (!_searchFocusNode.hasFocus) {
+                        FocusScope.of(context).requestFocus(_searchFocusNode);
+                      }
+                    },
                     textAlignVertical: TextAlignVertical.center,
                     style: TextStyle(color: textColor, fontSize: 13),
                     decoration: InputDecoration(
@@ -837,6 +865,7 @@ class _StartMenuState extends State<StartMenu> {
                 child: _searchQuery.isNotEmpty
                     ? RepaintBoundary(
                         child: ListView.builder(
+                          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
                           physics: const ClampingScrollPhysics(),
                           itemCount: _currentSearchApps.length,
                           itemBuilder: (context, index) {
@@ -856,6 +885,7 @@ class _StartMenuState extends State<StartMenu> {
                                       StartMenuContext.showAppContextMenu(
                                         ctx,
                                         pos,
+                                        box.size,
                                         app,
                                         themeState,
                                         appsState,
@@ -903,6 +933,7 @@ class _StartMenuState extends State<StartMenu> {
                             const SizedBox(height: 8),
                             RepaintBoundary(
                               child: GridView.builder(
+                                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
                                 padding: const EdgeInsets.symmetric(horizontal: 12.0),
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
@@ -1042,6 +1073,7 @@ class _StartMenuState extends State<StartMenu> {
                             Expanded(
                               child: RepaintBoundary(
                                 child: GridView.builder(
+                                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
                                   padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                                   physics: const ClampingScrollPhysics(),
                                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -1070,6 +1102,7 @@ class _StartMenuState extends State<StartMenu> {
                                 : RepaintBoundary(
                                     child: ListView.builder(
                                       controller: _listScrollController,
+                                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag, 
                                       physics: const ClampingScrollPhysics(),
                                       itemCount: _cachedFlattenedList.length,
                                       itemBuilder: (context, index) {
@@ -1147,7 +1180,8 @@ class _StartMenuState extends State<StartMenu> {
                         onTap: () {
                           final box = ctx.findRenderObject() as RenderBox;
                           final offset = box.localToGlobal(Offset.zero);
-                          StartMenuContext.showPowerMenu(ctx, offset, isDark, widget.onOverlaysClosed, widget.onPowerTapped);
+                          // CRITICAL FIX: Pass box.size to explicitly define anchor bounds
+                          StartMenuContext.showPowerMenu(ctx, offset, box.size, isDark, widget.onOverlaysClosed, widget.onPowerTapped);
                         },
                         borderRadius: BorderRadius.circular(4),
                         child: Padding(
